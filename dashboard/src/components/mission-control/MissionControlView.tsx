@@ -60,6 +60,7 @@ interface MissionControlViewProps {
   nextUpQueueModel?: UseNextUpQueueResult;
   nextUpActionsModel?: ReturnType<typeof useNextUpQueueActions>;
   snapshotVersion?: number | null;
+  devMode?: boolean;
 }
 
 function toStatusKey(value: string | null | undefined): string {
@@ -300,6 +301,7 @@ export function MissionControlView({
   nextUpQueueModel,
   nextUpActionsModel,
   snapshotVersion = null,
+  devMode = false,
 }: MissionControlViewProps) {
   const agentEntityMap = useAgentEntityMap({ activities, agents, initiatives });
 
@@ -327,6 +329,7 @@ export function MissionControlView({
         nextUpQueueModel={nextUpQueueModel}
         nextUpActionsModel={nextUpActionsModel}
         snapshotVersion={snapshotVersion}
+        devMode={devMode}
       />
     </MissionControlProvider>
   );
@@ -379,6 +382,7 @@ function MissionControlInner({
   nextUpQueueModel,
   nextUpActionsModel,
   snapshotVersion = null,
+  devMode = false,
 }: {
   initiatives: Initiative[];
   runtimeInstances: RuntimeInstance[];
@@ -397,6 +401,7 @@ function MissionControlInner({
   nextUpQueueModel?: UseNextUpQueueResult;
   nextUpActionsModel?: ReturnType<typeof useNextUpQueueActions>;
   snapshotVersion?: number | null;
+  devMode?: boolean;
 }) {
   const {
     searchQuery,
@@ -2315,7 +2320,7 @@ function MissionControlInner({
               }`}
             >
               <motion.div layout className={`min-w-0 ${nextUpRailOpen ? 'xl:pr-4' : ''}`}>
-                {!isLoading && nextActionInitiative && (
+                {devMode && !isLoading && nextActionInitiative && (
                   <motion.div
                     initial={{ opacity: 0, y: 6, scale: 0.995 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -2384,7 +2389,7 @@ function MissionControlInner({
                   </motion.div>
                 )}
 
-                {!isLoading && initiatives.length > 0 && (
+                {devMode && !isLoading && initiatives.length > 0 && (
                   <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
                     <HealthScoreCard
                       completionPercent={healthData.completionPercent}

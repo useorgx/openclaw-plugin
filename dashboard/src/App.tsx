@@ -930,6 +930,11 @@ function DashboardShell({
   }, [devMode]);
 
   useEffect(() => {
+    if (devMode) return;
+    setRealtimeOrchestratorOpen(false);
+  }, [devMode]);
+
+  useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
       if (selectedWorkspaceId) {
@@ -2568,18 +2573,20 @@ function DashboardShell({
                 </span>
               )}
             </button>
-            <button
-              type="button"
-              onClick={() => setRealtimeOrchestratorOpen(true)}
-              title="Realtime orchestrator"
-              className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 18a2.5 2.5 0 0 0 2.5-2.5v-7a2.5 2.5 0 1 0-5 0v7A2.5 2.5 0 0 0 12 18z" />
-                <path d="M6 12.5v2a6 6 0 0 0 12 0v-2" />
-                <path d="M12 20.5v2" />
-              </svg>
-            </button>
+            {devMode ? (
+              <button
+                type="button"
+                onClick={() => setRealtimeOrchestratorOpen(true)}
+                title="Realtime orchestrator"
+                className="relative inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.1] bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08]"
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 18a2.5 2.5 0 0 0 2.5-2.5v-7a2.5 2.5 0 1 0-5 0v7A2.5 2.5 0 0 0 12 18z" />
+                  <path d="M6 12.5v2a6 6 0 0 0 12 0v-2" />
+                  <path d="M12 20.5v2" />
+                </svg>
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => openSettings('orgx')}
@@ -2800,99 +2807,101 @@ function DashboardShell({
 
       {/* Contextual status moved into header */}
 
-	      {dashboardView === 'mission-control' ? (
-	        <div className="relative z-0 flex-1 min-h-0 flex flex-col overflow-hidden">
-	          <Suspense
-	            fallback={
-	              <div className="flex flex-1 items-center justify-center text-body text-secondary">
-	                Loading Mission Control…
-	              </div>
-	            }
-	          >
-	            <LazyMissionControlView
-	              initiatives={mcInitiatives}
-	              activities={activityInScope}
-	              agents={missionControlAgents}
+      {dashboardView === 'mission-control' ? (
+        <div className="relative z-0 flex-1 min-h-0 flex flex-col overflow-hidden">
+          <Suspense
+            fallback={
+              <div className="flex flex-1 items-center justify-center text-body text-secondary">
+                Loading Mission Control…
+              </div>
+            }
+          >
+            <LazyMissionControlView
+              initiatives={mcInitiatives}
+              activities={activityInScope}
+              agents={missionControlAgents}
               runtimeInstances={data.runtimeInstances ?? []}
-	              workspaceInitiativeId={selectedWorkspaceId}
-	              isLoading={isLoading}
-	              authToken={null}
-	              embedMode={false}
-	              connection={data.connection}
-	              lastSnapshotAt={data.lastSnapshotAt}
-	              error={error}
-	              hasApiKey={onboarding.state.hasApiKey}
-	              onOpenSettings={() => openSettings('orgx')}
-	              onRefresh={refetch}
-                onCreateInitiative={startInitiative}
-                onPlayNextUp={playNextUpFromActivity}
-                onStartAutopilot={startAutopilotFromActivity}
-                nextUpQueueModel={sharedNextUpQueue}
-                nextUpActionsModel={sharedNextUpActions}
-                snapshotVersion={data.snapshotVersion}
+              workspaceInitiativeId={selectedWorkspaceId}
+              isLoading={isLoading}
+              authToken={null}
+              embedMode={false}
+              connection={data.connection}
+              lastSnapshotAt={data.lastSnapshotAt}
+              error={error}
+              hasApiKey={onboarding.state.hasApiKey}
+              devMode={devMode}
+              onOpenSettings={() => openSettings('orgx')}
+              onRefresh={refetch}
+              onCreateInitiative={startInitiative}
+              onPlayNextUp={playNextUpFromActivity}
+              onStartAutopilot={startAutopilotFromActivity}
+              nextUpQueueModel={sharedNextUpQueue}
+              nextUpActionsModel={sharedNextUpActions}
+              snapshotVersion={data.snapshotVersion}
             />
-	          </Suspense>
-	        </div>
-	      ) : (
-      <main className="relative z-0 grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 pb-20 sm:p-5 sm:pb-20 lg:grid-cols-12 lg:overflow-hidden lg:pb-5">
-        <section className={`min-h-0 lg:col-span-3 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'agents' ? 'hidden lg:flex' : ''}`}>
-          <AgentsChatsPanel
-            sessions={data.sessions}
-            activity={activityInScope}
-            runtimeInstances={data.runtimeInstances ?? []}
-            showSyntheticEntities={demoMode || showSyntheticEntities}
-            selectedSessionId={selectedSessionId}
-            onSelectSession={handleSelectSession}
-            onAgentFilter={setAgentFilter}
-            agentFilter={agentFilter}
-            timeFilterId={activityTimeFilterId}
-            onReconnect={handleReconnect}
-            onLaunched={refetch}
-            connectionStatus={data.connection}
-          />
-        </section>
+          </Suspense>
+        </div>
+      ) : (
+        <main className="relative z-0 grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 pb-20 sm:p-5 sm:pb-20 lg:grid-cols-12 lg:overflow-hidden lg:pb-5">
+          <section className={`min-h-0 lg:col-span-3 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'agents' ? 'hidden lg:flex' : ''}`}>
+            <AgentsChatsPanel
+              sessions={data.sessions}
+              activity={activityInScope}
+              runtimeInstances={data.runtimeInstances ?? []}
+              showSyntheticEntities={demoMode || showSyntheticEntities}
+              selectedSessionId={selectedSessionId}
+              onSelectSession={handleSelectSession}
+              onAgentFilter={setAgentFilter}
+              agentFilter={agentFilter}
+              timeFilterId={activityTimeFilterId}
+              onReconnect={handleReconnect}
+              onLaunched={refetch}
+              connectionStatus={data.connection}
+            />
+          </section>
 
-        <section className={`min-h-0 lg:col-span-6 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'activity' ? 'hidden lg:flex' : ''}`}>
-          <ActivityTimeline
-            activity={activityFeed.items}
-            sessions={sessionNodesInScope}
-            sliceRuns={actionableSliceRuns}
-            initiatives={initiatives}
-            timelineNarrative={data.timelineNarrative ?? []}
-            workspaceId={selectedWorkspaceId}
-            chatSnapshot={data.chat}
-            selectedRunIds={selectedActivityRunIds}
-            selectedSessionLabel={selectedActivitySessionLabel}
-            selectedWorkstreamId={activityFilterWorkstreamId}
-            selectedWorkstreamLabel={activityFilterWorkstreamLabel}
-            agentFilter={agentFilter}
-            timeFilterId={activityTimeFilterId}
-            onTimeFilterChange={handleActivityTimeFilterChange}
-            customTimeRange={activityCustomTimeRange}
-            onCustomTimeRangeChange={setActivityCustomTimeRange}
-            hasMore={activityFeed.hasMore}
-            isLoadingMore={activityFeed.isLoadingMore}
-            onLoadMore={activityFeed.loadMore}
-            onClearSelection={clearActivitySessionFilter}
-            onClearWorkstreamFilter={clearActivityWorkstreamFilter}
-            onClearAgentFilter={clearAgentFilter}
-            onFocusRunId={focusActivityRunId}
-            onOpenDecision={openDecisionsFromActivity}
-            requestedActivityItemId={requestedActivityItemId}
-            onActivityItemRequestHandled={() => setRequestedActivityItemId(null)}
-            onPlayNextUp={playNextUpFromActivity}
-            onStartAutopilot={startAutopilotFromActivity}
-            onPauseWorkstream={pauseSessionWorkstream}
-            onCreateInitiative={startInitiative}
-            onOpenMissionControl={() => switchDashboardView('mission-control')}
-            onOpenNextUp={() => switchDashboardView('mission-control')}
-            onOpenSettings={() => openSettings('orgx')}
-            onRefreshData={refetch}
-            isLoading={isLoading}
-          />
-        </section>
+          <section className={`min-h-0 lg:col-span-6 lg:flex lg:flex-col lg:[&>section]:h-full ${mobileTab !== 'activity' ? 'hidden lg:flex' : ''}`}>
+            <ActivityTimeline
+              activity={activityFeed.items}
+              sessions={sessionNodesInScope}
+              sliceRuns={actionableSliceRuns}
+              initiatives={initiatives}
+              timelineNarrative={data.timelineNarrative ?? []}
+              workspaceId={selectedWorkspaceId}
+              chatSnapshot={data.chat}
+              devMode={devMode}
+              selectedRunIds={selectedActivityRunIds}
+              selectedSessionLabel={selectedActivitySessionLabel}
+              selectedWorkstreamId={activityFilterWorkstreamId}
+              selectedWorkstreamLabel={activityFilterWorkstreamLabel}
+              agentFilter={agentFilter}
+              timeFilterId={activityTimeFilterId}
+              onTimeFilterChange={handleActivityTimeFilterChange}
+              customTimeRange={activityCustomTimeRange}
+              onCustomTimeRangeChange={setActivityCustomTimeRange}
+              hasMore={activityFeed.hasMore}
+              isLoadingMore={activityFeed.isLoadingMore}
+              onLoadMore={activityFeed.loadMore}
+              onClearSelection={clearActivitySessionFilter}
+              onClearWorkstreamFilter={clearActivityWorkstreamFilter}
+              onClearAgentFilter={clearAgentFilter}
+              onFocusRunId={focusActivityRunId}
+              onOpenDecision={openDecisionsFromActivity}
+              requestedActivityItemId={requestedActivityItemId}
+              onActivityItemRequestHandled={() => setRequestedActivityItemId(null)}
+              onPlayNextUp={playNextUpFromActivity}
+              onStartAutopilot={startAutopilotFromActivity}
+              onPauseWorkstream={pauseSessionWorkstream}
+              onCreateInitiative={startInitiative}
+              onOpenMissionControl={() => switchDashboardView('mission-control')}
+              onOpenNextUp={() => switchDashboardView('mission-control')}
+              onOpenSettings={() => openSettings('orgx')}
+              onRefreshData={refetch}
+              isLoading={isLoading}
+            />
+          </section>
 
-        <section className={`flex min-h-0 flex-col gap-3 lg:col-span-3 lg:gap-3 ${mobileTab !== 'decisions' && mobileTab !== 'initiatives' ? 'hidden lg:flex' : ''}`}>
+          <section className={`flex min-h-0 flex-col gap-3 lg:col-span-3 lg:gap-3 ${mobileTab !== 'decisions' && mobileTab !== 'initiatives' ? 'hidden lg:flex' : ''}`}>
           {/* Next Up — accordion panel (single-expand: one panel open at a time) */}
           <div className={`min-h-0 ${expandedRightPanel === 'initiatives' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'decisions' ? '' : mobileTab === 'initiatives' ? '' : ''}`}>
             {expandedRightPanel === 'initiatives' ? (
@@ -3337,7 +3346,7 @@ function DashboardShell({
         </Suspense>
       )}
 
-      {realtimeOrchestratorOpen && (
+      {devMode && realtimeOrchestratorOpen && (
         <Suspense fallback={null}>
           <LazyRealtimeOrchestratorModal
             open={realtimeOrchestratorOpen}

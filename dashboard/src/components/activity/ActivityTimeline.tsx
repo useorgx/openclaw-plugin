@@ -77,6 +77,7 @@ interface ActivityTimelineProps {
   onRefreshData?: () => Promise<void> | void;
   isLoading?: boolean;
   onOpenNextUp?: () => void;
+  devMode?: boolean;
 }
 
 const INITIAL_RENDER_COUNT = 50;
@@ -2647,6 +2648,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   onRefreshData,
   isLoading = false,
   onOpenNextUp,
+  devMode = false,
 }: ActivityTimelineProps) {
   const prefersReducedMotion = useReducedMotion();
   const { open: openArtifactViewer } = useArtifactViewer();
@@ -4998,7 +5000,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         </>
       )}
 
-      <ActivityChatDock />
+      {devMode ? <ActivityChatDock /> : null}
 
       <ActivityDetailModal open={activeDecorated !== null} onClose={closeDetail}>
         {activeDecorated && (
