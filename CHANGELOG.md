@@ -2,6 +2,17 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.15 - 2026-03-04
+
+### Release Management
+- Patch release bump for npm package + plugin manifest versions.
+- Published release tag `v0.7.15`.
+
+### Reliability + Scope Canonicalization
+- Added `center` header alias support to workspace scope resolution while preserving canonical workspace/command-center behavior.
+- Hardened MCP HTTP request body stream handling to settle safely across both `.once` and `.on` event emitter implementations.
+- Added targeted regression coverage for workspace-scope center alias handling and streamed MCP JSON-RPC POST bodies.
+
 ## 0.7.14 - 2026-03-04
 
 ### Release Management

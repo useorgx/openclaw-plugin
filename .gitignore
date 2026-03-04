@@ -65,6 +65,20 @@ docs/qa/components/runs/**
 docs/qa/archive/root-captures/**
 !docs/qa/archive/root-captures/README.md
 
+# Generated QA captures (new captures should not be committed by default)
+docs/qa/**/*.png
+docs/qa/**/*.jpg
+docs/qa/**/*.jpeg
+docs/qa/**/*.webp
+docs/qa/**/*.gif
+docs/qa/**/*.mp4
+docs/qa/**/*.webm
+
+# Generated run artifacts from targeted verification workflows
+docs/run-artifacts/*-targeted-verification-*.md
+docs/run-artifacts/*.log
+docs/reports/ws*-slice-*-verification-*.md
+
 # Local UI snapshot artifacts
 artifacts/**/*.png
 artifacts/**/*.jpg

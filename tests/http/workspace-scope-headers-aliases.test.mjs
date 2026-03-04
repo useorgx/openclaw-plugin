@@ -99,3 +99,28 @@ test("workspaceScopeFromHeaders accepts canonical command center header keys", (
     center: "workspace-e",
   });
 });
+
+test("workspaceScopeFromHeaders accepts center header alias", () => {
+  const scope = workspaceScopeFromHeaders({
+    center: "workspace-f",
+  });
+
+  assert.deepEqual(scope, {
+    workspace_id: "workspace-f",
+    command_center_id: "workspace-f",
+    center: "workspace-f",
+  });
+});
+
+test("workspaceScopeFromHeaders preserves mismatched center and workspace values", () => {
+  const scope = workspaceScopeFromHeaders({
+    workspace_id: "workspace-g",
+    center: "workspace-h",
+  });
+
+  assert.deepEqual(scope, {
+    workspace_id: "workspace-g",
+    command_center_id: "workspace-g",
+    center: "workspace-h",
+  });
+});
