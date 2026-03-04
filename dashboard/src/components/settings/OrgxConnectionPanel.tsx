@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { cn } from '@/lib/utils';
+import { humanizeWarning } from '@/lib/humanize';
 import type { OnboardingState, OnboardingStatus } from '@/types';
 import { ManualKeyPanel } from '@/components/onboarding/ManualKeyPanel';
 
@@ -222,6 +223,7 @@ export function OrgxConnectionPanel({
   const showPairing =
     state.status === 'awaiting_browser_auth' || state.status === 'pairing' || state.status === 'starting';
   const hasError = Boolean(state.lastError);
+  const friendlyLastError = state.lastError ? humanizeWarning(state.lastError) : null;
   const keyLabel = keySourceHuman(state.keySource);
 
   const subtitle = useMemo(() => {
@@ -251,7 +253,7 @@ export function OrgxConnectionPanel({
       {/* ── Error banner ────────────────────────────────────────────────── */}
       {hasError && (
         <div className="rounded-xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-body text-rose-100">
-          {state.lastError}
+          {friendlyLastError}
         </div>
       )}
 

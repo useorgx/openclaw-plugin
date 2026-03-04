@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { useAgentSuite } from '@/hooks/useAgentSuite';
 import { buildOrgxHeaders } from '@/lib/http';
+import { humanizeWarning } from '@/lib/humanize';
 import type { AgentSuitePlan } from '@/types';
 
 function pluralize(count: number, noun: string): string {
@@ -187,10 +188,14 @@ export function AgentSuitePanel({
     () => changedFileItems.filter((f) => f.action === 'conflict').length,
     [changedFileItems]
   );
+  const friendlySuiteError = suite.error ? humanizeWarning(suite.error) : null;
+  const friendlyInstallError = suite.installError ? humanizeWarning(suite.installError) : null;
+  const friendlyTestError = testError ? humanizeWarning(testError) : null;
+  const friendlyPresetError = presetError ? humanizeWarning(presetError) : null;
 
   const summary = useMemo(() => {
     if (suite.isLoading) return 'Loading agent suite status...';
-    if (suite.error) return `Unable to read suite status: ${suite.error}`;
+    if (friendlySuiteError) return `Unable to read suite status: ${friendlySuiteError}`;
     if (!plan) return 'Suite status unavailable.';
     if (conflictFiles > 0) return `${pluralize(conflictFiles, 'file')} to review.`;
     if (missingAgents === 0 && changedFiles === 0) return 'Suite is installed and up to date.';
@@ -198,7 +203,7 @@ export function AgentSuitePanel({
     if (missingAgents > 0) parts.push(`will add ${pluralize(missingAgents, 'agent')}`);
     if (changedFiles > 0) parts.push(`will update ${pluralize(changedFiles, 'file')}`);
     return `Preview: ${parts.join(', ')}.`;
-  }, [changedFiles, conflictFiles, missingAgents, plan, suite.error, suite.isLoading]);
+  }, [changedFiles, conflictFiles, friendlySuiteError, missingAgents, plan, suite.isLoading]);
 
   const lastInstall = suite.installResult?.ok ? suite.installResult : null;
   const isDryRun = Boolean(lastInstall?.dryRun);
@@ -224,7 +229,8 @@ export function AgentSuitePanel({
       );
       setLastTestedAt(new Date().toISOString());
     } catch (error) {
-      setTestError(error instanceof Error ? error.message : 'Dry-run failed.');
+      const raw = error instanceof Error ? error.message : 'Dry-run failed.';
+      setTestError(humanizeWarning(raw));
     } finally {
       setIsTesting(false);
     }
@@ -238,7 +244,8 @@ export function AgentSuitePanel({
     }).then(async (res) => {
       if (!res.ok) {
         const payload = await res.json().catch(() => null);
-        throw new Error((payload as any)?.error ?? `Failed to update policy (${res.status})`);
+        const raw = (payload as any)?.error ?? `Failed to update policy (${res.status})`;
+        throw new Error(humanizeWarning(String(raw)));
       }
     });
     await suite.refetchStatus();
@@ -253,7 +260,8 @@ export function AgentSuitePanel({
       await updateSkillPackPolicy(buildPresetPolicyUpdate(presetId));
       setPresetNotice(`${BEHAVIOR_PRESET_LABELS[presetId]} preset applied.`);
     } catch (error) {
-      setPresetError(error instanceof Error ? error.message : 'Failed to apply preset.');
+      const raw = error instanceof Error ? error.message : 'Failed to apply preset.';
+      setPresetError(humanizeWarning(raw));
     } finally {
       setApplyingPresetId(null);
     }
@@ -355,9 +363,9 @@ export function AgentSuitePanel({
       </div>
 
       {/* Install error banner */}
-      {suite.installError && (
+      {friendlyInstallError && (
         <div className="mt-3 rounded-xl border border-rose-300/20 bg-rose-400/10 px-4 py-3 text-body text-rose-100">
-          {suite.installError}
+          {friendlyInstallError}
         </div>
       )}
 
@@ -419,9 +427,9 @@ export function AgentSuitePanel({
                 </select>
               </label>
             </div>
-            {testError && (
+            {friendlyTestError && (
               <p className="mt-3 rounded-lg border border-rose-300/20 bg-rose-400/10 px-3 py-2 text-caption text-rose-100">
-                {testError}
+                {friendlyTestError}
               </p>
             )}
             {testResult && (
@@ -583,9 +591,9 @@ export function AgentSuitePanel({
                           {presetNotice}
                         </p>
                       )}
-                      {presetError && (
+                      {friendlyPresetError && (
                         <p className="mt-2 rounded-lg border border-rose-300/20 bg-rose-400/10 px-2.5 py-2 text-caption text-rose-100">
-                          {presetError}
+                          {friendlyPresetError}
                         </p>
                       )}
                     </div>

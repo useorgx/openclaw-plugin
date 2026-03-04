@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { identifyTelemetry } from '@/lib/telemetry';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { humanizeWarning } from '@/lib/humanize';
 
 import type { OnboardingState } from '@/types';
 
@@ -247,18 +248,28 @@ interface ApiResponse<T> {
 }
 
 function extractError(value: unknown): string | undefined {
-  if (typeof value === 'string') return value;
-  if (value && typeof value === 'object') return JSON.stringify(value);
+  if (typeof value === 'string') return humanizeWarning(value);
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    if (typeof record.error === 'string') return humanizeWarning(record.error);
+    if (typeof record.message === 'string') return humanizeWarning(record.message);
+  }
   return undefined;
 }
 
 async function readJson<T>(request: Promise<Response>): Promise<ApiResponse<T>> {
   const response = await request;
-  const payload = (await response.json().catch(() => null)) as ApiResponse<T> | null;
+  const payload = (await response.json().catch(() => null)) as
+    | (ApiResponse<T> & { message?: unknown })
+    | null;
   if (!response.ok) {
+    const extracted =
+      extractError(payload?.error) ??
+      extractError(payload?.message) ??
+      extractError(payload);
     return {
       ok: false,
-      error: extractError(payload?.error) ?? `Request failed (${response.status})`,
+      error: extracted ?? humanizeWarning(`Request failed (${response.status})`),
     };
   }
   return payload ?? {};

@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { humanizeWarning } from '@/lib/humanize';
 import { useUsageControlPlane } from '@/hooks/useUsageControlPlane';
 import type { UsageBreakdownBucket, UsageControlPlaneSummary, UsageRiskLevel } from '@/types';
 
@@ -76,6 +77,7 @@ export function UsageControlPlanePanel({
 }) {
   const usage = useUsageControlPlane({ authToken, embedMode, enabled });
   const summary = usage.summary;
+  const friendlyError = usage.error ? humanizeWarning(usage.error) : null;
 
   return (
     <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
@@ -96,9 +98,9 @@ export function UsageControlPlanePanel({
         </button>
       </div>
 
-      {usage.error ? (
+      {friendlyError ? (
         <div className="mt-3 rounded-xl border border-rose-300/25 bg-rose-400/10 px-3 py-2.5 text-body text-rose-100">
-          {usage.error}
+          {friendlyError}
         </div>
       ) : null}
 

@@ -452,7 +452,7 @@ export function SliceExplorerPanel({
         )}
       </div>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-2 pb-2 pt-2">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain scroll-smooth px-2 pb-2 pt-2">
         {slicesQuery.isLoading ? (
           <div className="space-y-2 px-1">
             {Array.from({ length: compact ? 4 : 7 }).map((_, index) => (

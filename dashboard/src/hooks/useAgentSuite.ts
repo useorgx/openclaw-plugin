@@ -9,6 +9,7 @@ import type {
 } from '@/types';
 import { buildOrgxHeaders } from '@/lib/http';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { humanizeWarning } from '@/lib/humanize';
 
 export type AgentSuiteStatusResponse =
   | { ok: true; data: AgentSuitePlan }
@@ -240,7 +241,8 @@ export function useAgentSuite({
       });
       const body = (await response.json().catch(() => null)) as AgentSuiteStatusResponse | { error?: string } | null;
       if (!response.ok) {
-        return { ok: false, error: (body as any)?.error ?? `Failed to load agent suite (${response.status})` };
+        const raw = (body as any)?.error ?? `Failed to load agent suite (${response.status})`;
+        return { ok: false, error: humanizeWarning(String(raw)) };
       }
       return body as AgentSuiteStatusResponse;
     },
@@ -271,7 +273,7 @@ export function useAgentSuite({
             : normalizedRaw.length > 0 && !rawLooksHtml
               ? normalizedRaw
               : `Failed to load agent runtime settings (${response.status})`;
-        throw new Error(message);
+        throw new Error(humanizeWarning(message));
       }
       return normalizeRuntimeSettingsResponse(
         (body as AgentSuiteRuntimeSettingsRouteResponse) ?? null
@@ -302,7 +304,8 @@ export function useAgentSuite({
       });
       const body = (await response.json().catch(() => null)) as AgentSuiteInstallResponse | { error?: string } | null;
       if (!response.ok) {
-        throw new Error((body as any)?.error ?? `Failed to install agent suite (${response.status})`);
+        const raw = (body as any)?.error ?? `Failed to install agent suite (${response.status})`;
+        throw new Error(humanizeWarning(String(raw)));
       }
       return body as AgentSuiteInstallResponse;
     },
@@ -358,10 +361,10 @@ export function useAgentSuite({
         | { error?: string }
         | null;
       if (!response.ok) {
-        throw new Error(
+        const raw =
           (body as any)?.error ??
-            `Failed to save agent runtime settings (${response.status})`
-        );
+          `Failed to save agent runtime settings (${response.status})`;
+        throw new Error(humanizeWarning(String(raw)));
       }
       return normalizeRuntimeSettingsResponse(
         (body as AgentSuiteRuntimeSettingsRouteResponse) ?? null

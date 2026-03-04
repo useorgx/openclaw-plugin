@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useAgentSuite } from '@/hooks/useAgentSuite';
 import type { AgentRuntimeSettings, AgentSuiteDomain } from '@/types';
 import { cn } from '@/lib/utils';
+import { humanizeWarning } from '@/lib/humanize';
 
 const DOMAIN_LABEL: Record<AgentSuiteDomain, string> = {
   engineering: 'Engineering',
@@ -359,11 +360,13 @@ export function AgentBehaviorPanel({
       );
       setSaveError(null);
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Failed to save agent settings.');
+      const raw = error instanceof Error ? error.message : 'Failed to save agent settings.';
+      setSaveError(humanizeWarning(raw));
     }
   };
 
   const runtimeSettingsError = suite.runtimeSettingsError?.trim() ?? null;
+  const friendlyRuntimeSettingsError = runtimeSettingsError ? humanizeWarning(runtimeSettingsError) : null;
   const runtimeSettingsHasError = Boolean(runtimeSettingsError);
   const runtimeSettingsEndpointUnavailable = Boolean(
     runtimeSettingsError &&
@@ -387,7 +390,7 @@ export function AgentBehaviorPanel({
           Unable to load agent settings
         </h3>
         <p className="mt-1 text-caption leading-relaxed text-rose-100/85">
-          {suite.error}
+          {humanizeWarning(suite.error)}
         </p>
       </section>
     );
@@ -473,7 +476,7 @@ export function AgentBehaviorPanel({
                 Runtime settings could not be loaded from the OrgX API.
               </p>
               <p className="mt-1 text-caption text-amber-100/70">
-                {runtimeSettingsError}
+                {friendlyRuntimeSettingsError}
               </p>
             </>
           )}
@@ -734,7 +737,7 @@ export function AgentBehaviorPanel({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="min-h-[20px]">
             {saveError ? (
-              <p className="text-caption text-rose-100">{saveError}</p>
+              <p className="text-caption text-rose-100">{humanizeWarning(saveError)}</p>
             ) : saveNotice ? (
               <p className="text-caption text-lime">{saveNotice}</p>
             ) : (

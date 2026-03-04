@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ByokHealthResponse, ByokSettingsResponse } from '@/types';
 import { buildOrgxHeaders } from '@/lib/http';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { humanizeWarning } from '@/lib/humanize';
 
 interface UseByokSettingsOptions {
   authToken?: string | null;
@@ -82,6 +83,7 @@ export function useByokSettings({
       });
       const body = (await response.json().catch(() => null)) as ByokSettingsResponse | { error?: string } | null;
       if (!response.ok) {
+        const raw = (body as any)?.error ?? `Failed to load settings (${response.status})`;
         return {
           ok: false,
           updatedAt: null,
@@ -90,7 +92,7 @@ export function useByokSettings({
             anthropic: { configured: false, source: 'none', masked: null },
             openrouter: { configured: false, source: 'none', masked: null },
           },
-          error: (body as any)?.error ?? `Failed to load settings (${response.status})`,
+          error: humanizeWarning(String(raw)),
         };
       }
       return body as ByokSettingsResponse;
@@ -110,15 +112,17 @@ export function useByokSettings({
       });
       const body = (await response.json().catch(() => null)) as ByokHealthResponse | { error?: string } | null;
       if (!response.ok) {
+        const raw = (body as any)?.error ?? `Probe failed (${response.status})`;
+        const friendly = humanizeWarning(String(raw));
         return {
           ok: false,
           agentId: 'main',
           providers: {
-            openai: { ok: false, error: (body as any)?.error ?? `Probe failed (${response.status})` },
-            anthropic: { ok: false, error: (body as any)?.error ?? `Probe failed (${response.status})` },
-            openrouter: { ok: false, error: (body as any)?.error ?? `Probe failed (${response.status})` },
+            openai: { ok: false, error: friendly },
+            anthropic: { ok: false, error: friendly },
+            openrouter: { ok: false, error: friendly },
           },
-          error: (body as any)?.error ?? `Probe failed (${response.status})`,
+          error: friendly,
         };
       }
       return body as ByokHealthResponse;
@@ -143,7 +147,8 @@ export function useByokSettings({
       });
       const body = (await response.json().catch(() => null)) as ByokSettingsResponse | { error?: string } | null;
       if (!response.ok) {
-        throw new Error((body as any)?.error ?? `Failed to save settings (${response.status})`);
+        const raw = (body as any)?.error ?? `Failed to save settings (${response.status})`;
+        throw new Error(humanizeWarning(String(raw)));
       }
       return body as ByokSettingsResponse;
     },

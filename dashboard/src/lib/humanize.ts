@@ -197,45 +197,175 @@ export function humanizeActorName(name: string): string {
   return name;
 }
 
+type StructuredErrorDetails = {
+  code: string | null;
+  message: string | null;
+  status: number | null;
+  requestId: string | null;
+  docsUrl: string | null;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function firstString(record: Record<string, unknown> | null, keys: string[]): string | null {
+  if (!record) return null;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return null;
+}
+
+function firstFiniteNumber(record: Record<string, unknown> | null, keys: string[]): number | null {
+  if (!record) return null;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue;
+    return value;
+  }
+  return null;
+}
+
+function parseStructuredErrorFromObject(value: unknown): StructuredErrorDetails | null {
+  const root = asRecord(value);
+  if (!root) return null;
+  const nested = asRecord(root.error);
+  const envelope = nested ?? root;
+
+  const message =
+    firstString(envelope, ['message', 'detail', 'error_description']) ??
+    (!nested ? firstString(root, ['error']) : null);
+  const code = firstString(envelope, ['code', 'error_code', 'type']);
+  const status = firstFiniteNumber(envelope, ['status', 'httpStatusCode']);
+  const requestId = firstString(envelope, ['requestId', 'request_id']);
+  const docsUrl = firstString(envelope, ['docsUrl', 'docs_url']);
+
+  if (!message && !code && status == null && !requestId && !docsUrl) return null;
+  return { code, message, status, requestId, docsUrl };
+}
+
+function parseStructuredError(raw: string): StructuredErrorDetails | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const directParsed = (() => {
+    try {
+      return JSON.parse(trimmed) as unknown;
+    } catch {
+      return null;
+    }
+  })();
+  const direct = parseStructuredErrorFromObject(directParsed);
+  if (direct) return direct;
+
+  const firstBrace = trimmed.indexOf('{');
+  const lastBrace = trimmed.lastIndexOf('}');
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    const body = trimmed.slice(firstBrace, lastBrace + 1);
+    try {
+      const parsed = JSON.parse(body) as unknown;
+      const nested = parseStructuredErrorFromObject(parsed);
+      if (nested) return nested;
+    } catch {
+      // fall through to regex extraction
+    }
+  }
+
+  const messageMatch = trimmed.match(/"message"\s*:\s*"([^"]+)"/i);
+  const codeMatch = trimmed.match(/"code"\s*:\s*"([^"]+)"/i);
+  if (!messageMatch && !codeMatch) return null;
+  return {
+    code: codeMatch?.[1]?.trim() || null,
+    message: messageMatch?.[1]?.trim() || null,
+    status: null,
+    requestId: null,
+    docsUrl: null,
+  };
+}
+
+function stripStructuredNoise(raw: string): string {
+  return raw
+    .replace(/"requestId"\s*:\s*"[^"]*"/gi, '')
+    .replace(/"timestamp"\s*:\s*"[^"]*"/gi, '')
+    .replace(/"docsUrl"\s*:\s*"[^"]*"/gi, '')
+    .replace(/\brequest[_\s-]?id[:=]\s*[\w-]+/gi, '')
+    .replace(/\bdocsUrl[:=]\s*\S+/gi, '')
+    .replace(/\btimestamp[:=]\s*\S+/gi, '')
+    .replace(/[{}]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 /**
  * Consumer-friendly warning messages.
  */
 export function humanizeWarning(raw: string): string {
+  const structured = parseStructuredError(raw);
+  const structuredCode = structured?.code?.toLowerCase() ?? '';
+  const structuredMessage = structured?.message ?? null;
+  const normalizedStructuredMessage = structuredMessage?.toLowerCase() ?? '';
+
+  if (
+    structuredCode === 'internal_error' ||
+    normalizedStructuredMessage.includes('internal server error')
+  ) {
+    if (/list decision|load decision|decision/i.test(normalizedStructuredMessage)) {
+      return 'Decisions are temporarily unavailable. Try refreshing in a moment.';
+    }
+    return 'OrgX hit a temporary server issue. We will retry automatically.';
+  }
+  if (
+    structuredCode === 'unauthorized' ||
+    structuredCode === 'forbidden' ||
+    normalizedStructuredMessage.includes('unauthorized') ||
+    normalizedStructuredMessage.includes('forbidden')
+  ) {
+    return 'Authentication needs attention. Reconnect OrgX in Settings.';
+  }
+
+  const candidate = structuredMessage ? stripStructuredNoise(structuredMessage) : stripStructuredNoise(raw);
+  const normalizedCandidate = candidate.toLowerCase();
+
   if (/agent catalog unavailable|listagents/i.test(raw)) {
     return 'Agent details are still loading.';
   }
-  if (/timed out|timeout|request cancelled|signal is aborted/i.test(raw)) {
+  if (/timed out|timeout|request cancelled|signal is aborted/i.test(normalizedCandidate)) {
     return 'Live sync is taking longer than expected. Data will refresh automatically.';
   }
-  if (/budget.*exhaust/i.test(raw)) return 'Token budget reached';
-  if (/unknown api endpoint|route is unavailable|missing required live routes/i.test(raw)) {
+  if (/budget.*exhaust/i.test(normalizedCandidate)) return 'Token budget reached';
+  if (/unknown api endpoint|route is unavailable|missing required live routes/i.test(normalizedCandidate)) {
     return 'This plugin build is missing required routes. Update and restart the plugin.';
   }
-  if (/unauthorized|forbidden|authentication|api key/i.test(raw)) {
+  if (/unauthorized|forbidden|authentication|api key/i.test(normalizedCandidate)) {
     return 'Authentication needs attention. Reconnect OrgX in Settings.';
   }
-  if (/worker exited without structured output|worker close|signal=null/i.test(raw)) {
+  if (/worker exited without structured output|worker close|signal=null/i.test(normalizedCandidate)) {
     return 'An agent run ended before returning a structured result.';
   }
-  if (/mcp handshake failed/i.test(raw)) {
+  if (/mcp handshake failed/i.test(normalizedCandidate)) {
     return 'The agent connection handshake failed. Retry after reconnecting.';
   }
-  if (/run not found/i.test(raw)) {
+  if (/run not found/i.test(normalizedCandidate)) {
     return 'This session is no longer available.';
   }
-  if (/500|internal server error/i.test(raw)) {
+  if (/500|internal_error|internal server error/i.test(normalizedCandidate)) {
     return 'Something went wrong on the server. Retrying automatically.';
   }
-  if (/ECONNREFUSED|network error|fetch failed/i.test(raw)) {
+  if (/econnrefused|network error|fetch failed/i.test(normalizedCandidate)) {
     return 'Connection issue. Retrying automatically.';
   }
-  if (/40[13]/.test(raw)) {
+  if (/40[13]/.test(normalizedCandidate)) {
     return 'Access issue. You may need to reconnect your workspace.';
   }
-  if (/blocked without an explicit reason/i.test(raw)) {
+  if (/blocked without an explicit reason/i.test(normalizedCandidate)) {
     return 'This item was paused without a specific reason.';
   }
-  return sanitizeDisplayText(humanizeText(raw));
+  return sanitizeDisplayText(humanizeText(candidate));
 }
 
 /**
