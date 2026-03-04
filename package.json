@@ -1,6 +1,6 @@
 {
   "name": "@useorgx/openclaw-plugin",
-  "version": "0.7.12",
+  "version": "0.7.14",
   "description": "OrgX plugin for OpenClaw — agent orchestration, quality gates, model routing, and live dashboard",
   "type": "module",
   "main": "./dist/index.js",
@@ -52,6 +52,7 @@
     "verify:iwmt-cascade": "npm run build:core && node ./scripts/verify-iwmt-cascade-e2e.mjs",
     "verify:live-ui:p0": "node ./scripts/agent-browser-live-ui-p0-audit.mjs",
     "verify:conduit-mcp": "node ./scripts/verify-conduit-mcp.mjs",
+    "verify:repo-hygiene": "node ./scripts/verify-repo-hygiene.mjs",
     "dev:main": "node ./scripts/dev-main-sync.mjs",
     "e2e:auto-continue": "node ./scripts/e2e-auto-continue.mjs",
     "e2e:agent-suite": "npm run build:core && node ./scripts/e2e-agent-suite-kickoff-3x.mjs",

@@ -2,6 +2,25 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.14 - 2026-03-04
+
+### Release Management
+- Patch release bump for npm package + plugin manifest versions.
+- Published release tag `v0.7.14`.
+
+### Dashboard + QA Tooling
+- Carries forward the latest UX, verification, and architecture-debt cleanup work shipped on this branch.
+
+## 0.7.13 - 2026-03-04
+
+### Release Management
+- Patch release bump for npm package + plugin manifest versions.
+- Published release tag `v0.7.13`.
+
+### Mission Control + Build Stability
+- Carries forward the latest Mission Control lifecycle UX and auto-continue behavior updates.
+- Clears dashboard build warnings by fixing Vite manual chunk splitting and release metadata normalization.
+
 ## 0.7.9 - 2026-03-03
 
 ### Release Management

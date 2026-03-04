@@ -14,8 +14,8 @@
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { chromium } from "playwright";
+import { join } from "node:path";
+import { loadChromium, resolveQaRunDir, shouldDryRun } from "./qa-output-paths.mjs";
 
 const BASE_URL = String(process.env.ORGX_LIVE_BASE_URL || "http://127.0.0.1:18789").trim().replace(/\/+$/, "");
 const LIVE_URL = `${BASE_URL}/orgx/live`;
@@ -30,9 +30,12 @@ const SNAPSHOT_DECISIONS_LIMIT = Number.isFinite(Number(process.env.ORGX_LIVE_AU
   : 120;
 const SNAPSHOT_URL = `${BASE_URL}/orgx/api/live/snapshot?activityLimit=${SNAPSHOT_ACTIVITY_LIMIT}&sessionsLimit=${SNAPSHOT_SESSIONS_LIMIT}&decisionsLimit=${SNAPSHOT_DECISIONS_LIMIT}`;
 const NEXT_UP_URL = `${BASE_URL}/orgx/api/mission-control/next-up?limit=100`;
-const RESULT_DIR = resolve(
-  String(process.env.ORGX_LIVE_AUDIT_RESULT_DIR || join(process.cwd(), "artifacts", "live-audits")).trim()
-);
+const RESULT_DIR = resolveQaRunDir({
+  argv: process.argv,
+  suite: "live-autopilot-audit",
+  envOutputDirVar: "ORGX_LIVE_AUDIT_RESULT_DIR",
+});
+const DRY_RUN = shouldDryRun(process.argv);
 const TARGET_INITIATIVE_OVERRIDE = String(process.env.ORGX_LIVE_AUDIT_TARGET_INITIATIVE_ID || "").trim();
 const TARGET_WORKSTREAM_OVERRIDE = String(process.env.ORGX_LIVE_AUDIT_TARGET_WORKSTREAM_ID || "").trim();
 const TIMEOUT_MS = Number.isFinite(Number(process.env.ORGX_LIVE_AUDIT_TIMEOUT_MS))
@@ -289,7 +292,13 @@ async function waitForInteractiveShell(page, timeoutMs = 45_000) {
 }
 
 async function main() {
+  if (DRY_RUN) {
+    process.stdout.write(`[live-audit] dry-run output dir: ${RESULT_DIR}\n`);
+    return;
+  }
+
   mkdirSync(RESULT_DIR, { recursive: true });
+  const chromium = await loadChromium();
 
   const report = {
     startedAt: nowIso(),
