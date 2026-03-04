@@ -760,9 +760,14 @@ async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {
       await page.getByRole('dialog').waitFor({ state: 'detached' }).catch(() => {});
     }
     await page.screenshot({ path: path.join(flowFrames, 'frame-02.png') });
+    await closeTransientOverlays(page);
     const flowAgentButton = page.getByRole('button', { name: /Eli|Dana|Pace|Mark/ }).first();
     if (await flowAgentButton.isVisible().catch(() => false)) {
-      await flowAgentButton.click();
+      try {
+        await flowAgentButton.click({ timeout: 3_000 });
+      } catch {
+        // Non-critical frame capture step; keep the run moving when overlays are still animating.
+      }
     }
     await page.screenshot({ path: path.join(flowFrames, 'frame-03.png') });
 
