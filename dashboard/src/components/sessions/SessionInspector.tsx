@@ -1,14 +1,17 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { colors } from '@/lib/tokens';
+import { colors, motion as motionTokens } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { sanitizeDisplayText, humanizeId, isOpaqueId, humanizePath, humanizeBlockerContextValue } from '@/lib/humanize';
 import { resolveProvider } from '@/lib/providers';
 import { projectRunStatus, type CanonicalRunStatus } from '@/lib/runStatusModel';
+import { statusColor } from '@/lib/entityStatusColors';
 import type { Initiative, LiveActivityItem, SessionTreeNode, SliceRunProjection } from '@/types';
-import { PremiumCard } from '@/components/shared/PremiumCard';
+import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
 import { MarkdownText } from '@/components/shared/MarkdownText';
+import { Pill } from '@/components/shared/Pill';
 import { useUndoToast } from '@/components/shared/UndoToast';
 
 interface SessionInspectorProps {
@@ -35,7 +38,10 @@ interface SessionInspectorProps {
     workstreamId: string | null;
     text: string;
   }) => Promise<void> | void;
+  onClose?: () => void;
 }
+
+// ── Helpers ─────────────────────────────────────────────────────
 
 const UUID_RE = /^[0-9a-f-]{20,}$/i;
 const ACTIVE_SESSION_STATUSES = new Set([
@@ -181,6 +187,46 @@ function statusToneClassFromCanonical(status: CanonicalRunStatus): string {
   return 'border-strong bg-white/[0.04] text-secondary';
 }
 
+// ── Animation variants ──────────────────────────────────────────
+
+const heroVariants = {
+  hidden: { opacity: 0, y: -4 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.28, delay: i * 0.04, ease: [0.16, 1, 0.3, 1] },
+  }),
+  exit: { opacity: 0, transition: { duration: 0.18 } },
+};
+
+const sectionVariants = {
+  hidden: { opacity: 0, y: 8 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.22, delay: i * 0.04, ease: [0.22, 1, 0.36, 1] },
+  }),
+  exit: { opacity: 0, transition: { duration: 0.18 } },
+};
+
+function SectionDivider() {
+  return <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />;
+}
+
+function sessionAccentStyle(status: CanonicalRunStatus): React.CSSProperties {
+  if (status === 'in_progress')
+    return { background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})` };
+  if (status === 'needs_attention')
+    return { background: `linear-gradient(90deg, ${colors.red}, ${colors.amber})` };
+  if (status === 'completed')
+    return { background: `linear-gradient(90deg, ${colors.teal}, ${colors.cyan})` };
+  if (status === 'failed')
+    return { background: `linear-gradient(90deg, ${colors.red}, ${colors.red}80)` };
+  return { background: `linear-gradient(90deg, ${colors.iris}, ${colors.iris}80)` };
+}
+
+// ── Component ───────────────────────────────────────────────────
+
 export const SessionInspector = memo(function SessionInspector({
   session,
   activity,
@@ -198,6 +244,7 @@ export const SessionInspector = memo(function SessionInspector({
   onStartWorkstream,
   initialInterventionDraft = null,
   onSubmitIntervention,
+  onClose,
 }: SessionInspectorProps) {
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -276,7 +323,6 @@ export const SessionInspector = memo(function SessionInspector({
 
     const output: Array<{ label: string; value: string }> = [];
 
-    // Initiative name from initiatives array
     const initiativeId = session.initiativeId ?? session.groupId;
     if (initiativeId) {
       const match = initiatives.find((i) => i.id === initiativeId);
@@ -289,7 +335,6 @@ export const SessionInspector = memo(function SessionInspector({
       }
     }
 
-    // Workstream name from initiatives workstreams
     if (session.workstreamId) {
       let wsName: string | null = null;
       for (const init of initiatives) {
@@ -299,7 +344,6 @@ export const SessionInspector = memo(function SessionInspector({
           break;
         }
       }
-      // Humanize opaque IDs instead of suppressing
       if (!wsName && isOpaqueId(session.workstreamId)) {
         wsName = humanizeId(session.workstreamId);
       } else if (!wsName && !UUID_RE.test(session.workstreamId)) {
@@ -310,14 +354,12 @@ export const SessionInspector = memo(function SessionInspector({
       }
     }
 
-    // Milestone from phase
     const milestone = session.phase ?? null;
     if (milestone) {
       const milestoneStr = String(milestone);
       output.push({ label: 'Milestone', value: isOpaqueId(milestoneStr) ? humanizeId(milestoneStr) : milestoneStr });
     }
 
-    // Task
     if (session.title) {
       output.push({ label: 'Task', value: session.title });
     }
@@ -362,11 +404,17 @@ export const SessionInspector = memo(function SessionInspector({
     }
   };
 
+  // ── Empty state ──
+
   if (!session) {
     return (
-      <PremiumCard className="flex h-full min-h-0 flex-col overflow-hidden card-enter">
-        <div className="flex items-center justify-between border-b border-subtle px-4 py-3.5">
-          <h2 className="text-heading font-semibold text-white">Session Detail</h2>
+      <div className="flex h-full min-h-0 flex-col overflow-hidden">
+        {/* Accent bar */}
+        <div className="h-[2px] flex-shrink-0" style={{ background: `linear-gradient(90deg, ${colors.iris}, ${colors.iris}80)` }} />
+
+        {/* Panel header */}
+        <div className="flex items-center justify-between px-5 py-3">
+          <p className="section-kicker">Session Detail</p>
           <button
             onClick={() => setIsCollapsed((prev) => !prev)}
             className="text-muted transition-colors hover:text-primary"
@@ -385,27 +433,40 @@ export const SessionInspector = memo(function SessionInspector({
             </svg>
           </button>
         </div>
+
         <div className={cn(
           'transition-all',
           isCollapsed ? 'max-h-0 overflow-hidden' : 'min-h-0 flex-1'
         )}>
-          <div className="h-full min-h-0 space-y-2 overflow-y-auto p-4 text-body text-secondary">
-            <p>Select a session to inspect summary, breadcrumbs, blockers, and recent messages.</p>
+          <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 px-5 py-8">
+            {/* Empty illustration */}
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-white/[0.08] bg-white/[0.03]">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-muted">
+                <rect x="2" y="3" width="20" height="14" rx="2" />
+                <path d="M8 21h8M12 17v4" />
+              </svg>
+            </div>
+            <p className="text-body text-secondary text-center">No session selected</p>
+            <p className="text-caption text-muted text-center max-w-[240px]">
+              Select a session to inspect summary, breadcrumbs, blockers, and recent messages.
+            </p>
             <button
               onClick={() =>
                 runAction('continue-priority', 'Continue highest priority', onContinueHighestPriority)
               }
               disabled={!onContinueHighestPriority || !!busyAction}
-              className="rounded-md border border-strong bg-white/[0.04] px-3 py-1.5 text-caption text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+              className="mt-2 h-8 rounded-lg border border-lime/25 bg-lime/10 px-4 text-caption font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
             >
-              {busyAction === 'continue-priority' ? 'Dispatching…' : 'Continue highest priority'}
+              {busyAction === 'continue-priority' ? 'Dispatching...' : 'Continue highest priority'}
             </button>
             {notice && <p className="text-caption text-secondary">{notice}</p>}
           </div>
         </div>
-      </PremiumCard>
+      </div>
     );
   }
+
+  // ── Derived state ──
 
   const progressValue = session.progress === null ? null : Math.round(session.progress);
   const sessionStatus = effectiveSessionStatus(session);
@@ -574,7 +635,7 @@ export const SessionInspector = memo(function SessionInspector({
 
   const handleCancelWithUndo = useCallback(() => {
     if (!onCancelSession || !session) return;
-    setNotice('Session will be cancelled…');
+    setNotice('Session will be cancelled...');
     enqueueUndo({
       message: `Cancelled "${session.title}"`,
       onCommit: async () => {
@@ -592,8 +653,8 @@ export const SessionInspector = memo(function SessionInspector({
   }, [onCancelSession, session, enqueueUndo]);
 
   const timelineInfo = [
-    { label: 'Started', value: session.startedAt ? formatRelativeTime(session.startedAt) : '—' },
-    { label: 'Updated', value: session.updatedAt ? formatRelativeTime(session.updatedAt) : '—' },
+    { label: 'Started', value: session.startedAt ? formatRelativeTime(session.startedAt) : '\u2014' },
+    { label: 'Updated', value: session.updatedAt ? formatRelativeTime(session.updatedAt) : '\u2014' },
     ...(session.eta ? [{ label: 'ETA', value: session.eta }] : []),
     ...(session.checkpointCount ? [{ label: 'Checkpoints', value: String(session.checkpointCount) }] : []),
   ];
@@ -615,14 +676,40 @@ export const SessionInspector = memo(function SessionInspector({
       relatedSliceInitiativeIds[0]
     : null;
 
+  // Notice tone
+  const noticeTone = notice
+    ? notice.toLowerCase().includes('fail') || notice.toLowerCase().includes('error')
+      ? 'error'
+      : busyAction
+        ? 'pending'
+        : 'success'
+    : null;
+
+  // ── Main return ──
+
   return (
-    <PremiumCard className="flex h-full min-h-0 flex-col overflow-hidden card-enter">
-      <div className="flex items-center justify-between border-b border-subtle px-4 py-3.5">
-        <h2 className="text-heading font-semibold text-white">Session Detail</h2>
-        <div className="flex items-center gap-2">
-          <span className={cn('chip text-caption uppercase tracking-[0.14em]', statusTone)}>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      {/* Accent bar */}
+      <div className="h-[2px] flex-shrink-0" style={sessionAccentStyle(canonicalProjection.status)} />
+
+      {/* Panel header */}
+      <div className="flex items-center justify-between px-5 py-3">
+        <div className="flex items-center gap-2.5">
+          <p className="section-kicker">Session Detail</p>
+          <span className={cn(
+            'inline-flex items-center gap-1.5 rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-widest',
+            statusTone
+          )}>
+            {isRunning && (
+              <span
+                className="h-1.5 w-1.5 rounded-full pulse-soft"
+                style={{ backgroundColor: statusColor(sessionStatus) }}
+              />
+            )}
             {statusLabel}
           </span>
+        </div>
+        <div className="flex items-center gap-1.5">
           <button
             onClick={() => setIsCollapsed((prev) => !prev)}
             className="text-muted transition-colors hover:text-primary"
@@ -640,70 +727,127 @@ export const SessionInspector = memo(function SessionInspector({
               <path d="m6 9 6 6 6-6" />
             </svg>
           </button>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close session inspector"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-strong bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 6L6 18" /><path d="M6 6l12 12" />
+              </svg>
+            </button>
+          )}
         </div>
       </div>
 
+      {/* Collapsible body */}
       <div className={cn(
-        'transition-all',
-        isCollapsed ? 'max-h-0 overflow-hidden' : 'min-h-0 flex-1'
+        'transition-all flex flex-col min-h-0',
+        isCollapsed ? 'max-h-0 overflow-hidden' : 'flex-1'
       )}>
-        <div className="h-full min-h-0 space-y-4 overflow-y-auto p-4">
-          <div className="rounded-xl border border-subtle bg-white/[0.02] p-3">
-            <div className="flex items-start gap-3">
-              <ProviderLogo provider={provider.id} size="sm" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-body font-semibold text-white">{sanitizeDisplayText(session.title)}</p>
-                <p className="mt-1 text-caption text-secondary">
-                  {session.agentName ?? 'OrgX'} · {provider.label}
-                </p>
+        {/* Scrollable body */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-5 space-y-5">
+          {/* 1. Hero section */}
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={session.id}
+              variants={heroVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              custom={0}
+            >
+              <div className="flex items-start gap-3.5">
+                <AgentAvatar name={session.agentName ?? 'OrgX'} size="md" hint={session.agentName} />
+                <div className="min-w-0 flex-1 pt-0.5">
+                  <h2 className="text-[28px] font-medium leading-tight text-white truncate">
+                    {sanitizeDisplayText(session.title)}
+                  </h2>
+                  <p className="mt-1 text-micro uppercase tracking-[0.12em] text-muted">
+                    {session.agentName ?? 'OrgX'} &middot; {provider.label}
+                  </p>
+                </div>
               </div>
-            </div>
 
-            {breadcrumbs.length > 0 && (
-              <div className="mt-3">
-                <p className="mb-1 text-micro uppercase tracking-[0.16em] text-muted">Context</p>
-                <div className="flex flex-wrap items-center gap-1.5 text-caption">
+              {breadcrumbs.length > 0 && (
+                <div className="mt-3 flex flex-wrap items-center gap-1.5">
                   {breadcrumbs.map((crumb, index) => (
                     <span key={`${crumb.label}-${crumb.value}`} className="inline-flex items-center gap-1.5">
-                      <span className="rounded-full border border-strong bg-white/[0.02] px-2 py-0.5 text-secondary">
-                        {crumb.value}
-                      </span>
+                      <Pill tone="muted">{crumb.value}</Pill>
                       {index < breadcrumbs.length - 1 && (
-                        <span className="text-caption text-muted">›</span>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="flex-shrink-0 text-faint">
+                          <path d="m9 18 6-6-6-6" />
+                        </svg>
                       )}
                     </span>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
+            </motion.div>
+          </AnimatePresence>
 
-            {sessionSummary && (
-              <div className="mt-3 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2">
-                <p className="mb-1 text-micro uppercase tracking-[0.16em] text-muted">Summary</p>
-                <MarkdownText text={sessionSummary} mode="block" />
-              </div>
-            )}
+          <SectionDivider />
 
-            <div className={cn('mt-3 rounded-lg border px-3 py-2', narrativeToneClass)}>
-              <p className="mb-1 text-micro uppercase tracking-[0.16em] text-muted">{canonicalProjection.label}</p>
+          {/* 2. Summary */}
+          {sessionSummary && (
+            <motion.div
+              variants={sectionVariants}
+              initial="hidden"
+              animate="visible"
+              custom={1}
+            >
+              <p className="section-kicker mb-2">Summary</p>
+              <MarkdownText text={sessionSummary} mode="block" />
+            </motion.div>
+          )}
+
+          {/* 3. Narrative status */}
+          <motion.div
+            variants={sectionVariants}
+            initial="hidden"
+            animate="visible"
+            custom={2}
+          >
+            <div className={cn('rounded-xl border px-4 py-3', narrativeToneClass)}>
+              <p className="section-kicker mb-1.5">{canonicalProjection.label}</p>
               <p className="text-body text-secondary">{canonicalProjection.sentence}</p>
               {canonicalProjection.nextAction && (
-                <p className="mt-1 text-caption text-secondary">Next: {canonicalProjection.nextAction}</p>
+                <p className="mt-1.5 flex items-center gap-1 text-caption text-secondary">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={colors.lime} strokeWidth="2.5" className="flex-shrink-0">
+                    <path d="m9 18 6-6-6-6" />
+                  </svg>
+                  Next: {canonicalProjection.nextAction}
+                </p>
               )}
             </div>
+          </motion.div>
 
-            {/* Phase/Runtime badges removed — status chip in header is sufficient */}
-
-            {showStatusReason && (
-              <div className="mt-3 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2">
-                <p className="mb-1 text-micro uppercase tracking-[0.16em] text-muted">{statusReasonLabel}</p>
+          {/* 4. Why blocked / status reason */}
+          {showStatusReason && (
+            <motion.div
+              variants={sectionVariants}
+              initial="hidden"
+              animate="visible"
+              custom={3}
+            >
+              <div className="rounded-xl border border-subtle bg-white/[0.02] px-4 py-3">
+                <p className="section-kicker mb-1.5">{statusReasonLabel}</p>
                 <p className="text-body text-secondary">{statusReasonText}</p>
               </div>
-            )}
+            </motion.div>
+          )}
 
-            {showBlockedContext && (
-              <div className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2.5">
-                <p className="mb-1 text-micro uppercase tracking-[0.16em] text-red-200/75">Why blocked</p>
+          {showBlockedContext && (
+            <motion.div
+              variants={sectionVariants}
+              initial="hidden"
+              animate="visible"
+              custom={3}
+            >
+              <div className="rounded-xl border border-red-500/25 bg-red-500/10 px-4 py-3">
+                <p className="section-kicker mb-1.5 text-red-200/75">Why blocked</p>
                 <p className="text-body text-red-100/90">
                   {blockerDiagnostics?.reason ?? statusReason ?? 'Runtime marked this run as blocked without details.'}
                 </p>
@@ -741,7 +885,7 @@ export const SessionInspector = memo(function SessionInspector({
                       <p className="mb-1 text-micro uppercase tracking-[0.14em] text-red-200/65">Suggested actions</p>
                       <ul className="space-y-1 text-caption text-red-100/85">
                         {blockerDiagnostics.suggestedActions.map((action) => (
-                          <li key={action}>• {action}</li>
+                          <li key={action}>&bull; {action}</li>
                         ))}
                       </ul>
                     </div>
@@ -749,104 +893,42 @@ export const SessionInspector = memo(function SessionInspector({
 
                 {hasText(blockerDiagnostics?.eventTimestamp) && (
                   <p className="mt-2 text-micro text-red-200/60">
-                    Last blocker event: {new Date(blockerDiagnostics.eventTimestamp).toLocaleString()} ·{' '}
+                    Last blocker event: {new Date(blockerDiagnostics.eventTimestamp).toLocaleString()} &middot;{' '}
                     {formatRelativeTime(blockerDiagnostics.eventTimestamp)}
                   </p>
                 )}
               </div>
-            )}
-          </div>
-
-          {relatedSlice && (
-            <div className="rounded-xl border border-subtle bg-white/[0.02] p-3">
-              <div className="flex items-center justify-between gap-2">
-                <h3 className="text-caption uppercase tracking-[0.12em] text-secondary">Slice scope</h3>
-                {relatedSliceStatusLabel ? (
-                  <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
-                    {relatedSliceStatusLabel}
-                  </span>
-                ) : null}
-              </div>
-              {relatedSlice.statusExplainer ? (
-                <p className="mt-2 text-caption text-secondary">{relatedSlice.statusExplainer}</p>
-              ) : null}
-              <dl className="mt-2 grid grid-cols-2 gap-2 text-caption text-secondary">
-                <div>
-                  <dt className="text-muted">Initiative</dt>
-                  <dd className="text-body font-semibold text-white">{relatedSliceInitiativeTitle ?? '—'}</dd>
-                </div>
-                <div>
-                  <dt className="text-muted">Workstream</dt>
-                  <dd className="text-body font-semibold text-white">
-                    {relatedSlice.workstreamTitle ?? (relatedSliceWorkstreamIds[0] ? humanizeId(relatedSliceWorkstreamIds[0]) : '—')}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted">Run</dt>
-                  <dd className="break-all text-body font-semibold text-white">{humanizeId(relatedSlice.runId ?? relatedSlice.sliceRunId)}</dd>
-                </div>
-                <div>
-                  <dt className="text-muted">Updated</dt>
-                  <dd className="text-body font-semibold text-white">
-                    {relatedSlice.updatedAt ? formatRelativeTime(relatedSlice.updatedAt) : '—'}
-                  </dd>
-                </div>
-              </dl>
-              <div className="mt-2 flex flex-wrap gap-1.5 text-micro">
-                <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
-                  Tasks {relatedSlice.taskIds.length}
-                </span>
-                <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
-                  Milestones {relatedSlice.milestoneIds.length}
-                </span>
-                <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
-                  Artifacts {relatedSlice.artifactCount}
-                </span>
-                <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
-                  Needs input {relatedSlice.blockingDecisionCount}
-                </span>
-                {relatedSliceInitiativeIds.length > 1 ? (
-                  <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
-                    +{relatedSliceInitiativeIds.length - 1} initiatives
-                  </span>
-                ) : null}
-                {relatedSliceWorkstreamIds.length > 1 ? (
-                  <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
-                    +{relatedSliceWorkstreamIds.length - 1} workstreams
-                  </span>
-                ) : null}
-              </div>
-              {relatedSlice.taskIds.length > 0 ? (
-                <p className="mt-2 text-micro text-secondary">
-                  Tasks: {relatedSlice.taskIds.length}
-                </p>
-              ) : null}
-            </div>
+            </motion.div>
           )}
 
-          <div className="rounded-xl border border-subtle bg-white/[0.02] p-3">
+          <SectionDivider />
+
+          {/* 5. Progress + timeline info */}
+          <motion.div
+            variants={sectionVariants}
+            initial="hidden"
+            animate="visible"
+            custom={4}
+          >
             {progressValue !== null && (
-              <div>
+              <div className="mb-3">
                 <div className="mb-1 flex items-center justify-between text-caption text-secondary">
                   <span>{progressLabel}</span>
                   <span className="text-primary">{progressValue}%</span>
                 </div>
-                <div className="h-2 rounded-full bg-white/[0.08]">
-                  <div
-                    className={cn('h-2 rounded-full transition-all duration-500', isRunning && 'live-pulse')}
-                    style={{
-                      width: `${progressValue}%`,
-                      background: progressBarColor,
-                    }}
+                <div className="h-[3px] rounded-full bg-white/[0.08]">
+                  <motion.div
+                    className={cn('h-[3px] rounded-full', isRunning && 'live-pulse')}
+                    style={{ background: progressBarColor }}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${progressValue}%` }}
+                    transition={{ duration: 0.5, ease: motionTokens.easingStandard as unknown as number[] }}
                   />
                 </div>
               </div>
             )}
 
-            <dl className={cn(
-              'grid grid-cols-2 gap-3 text-caption text-secondary',
-              progressValue !== null ? 'mt-3' : ''
-            )}>
+            <dl className="grid grid-cols-2 gap-3 text-caption text-secondary">
               {timelineInfo.map((row) => (
                 <div key={row.label}>
                   <dt className="text-muted">{row.label}</dt>
@@ -854,39 +936,210 @@ export const SessionInspector = memo(function SessionInspector({
                 </div>
               ))}
             </dl>
-          </div>
+          </motion.div>
 
-          <div className="rounded-xl border border-subtle bg-white/[0.02] p-3">
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() =>
-                  runAction('dispatch-session', 'Session started', () => onDispatchSession?.(session))
-                }
-                disabled={!onDispatchSession || !!busyAction || !canStart}
-                className="rounded-md border border-lime/25 bg-lime/10 px-3 py-2 text-caption font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
-              >
-                {busyAction === 'dispatch-session'
-                  ? 'Starting…'
-                  : canonicalProjection.status === 'completed'
-                    ? 'Restart'
-                    : 'Start'}
-              </button>
+          {/* 6. Related slice scope */}
+          {relatedSlice && (
+            <motion.div
+              variants={sectionVariants}
+              initial="hidden"
+              animate="visible"
+              custom={5}
+            >
+              <div className="rounded-xl border border-subtle bg-white/[0.02] px-4 py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="section-kicker">Slice scope</p>
+                  {relatedSliceStatusLabel ? (
+                    <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-secondary">
+                      {relatedSliceStatusLabel}
+                    </span>
+                  ) : null}
+                </div>
+                {relatedSlice.statusExplainer ? (
+                  <p className="mt-2 text-caption text-secondary">{relatedSlice.statusExplainer}</p>
+                ) : null}
+                <dl className="mt-2 grid grid-cols-2 gap-2 text-caption text-secondary">
+                  <div>
+                    <dt className="text-muted">Initiative</dt>
+                    <dd className="text-body font-semibold text-white">{relatedSliceInitiativeTitle ?? '\u2014'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted">Workstream</dt>
+                    <dd className="text-body font-semibold text-white">
+                      {relatedSlice.workstreamTitle ?? (relatedSliceWorkstreamIds[0] ? humanizeId(relatedSliceWorkstreamIds[0]) : '\u2014')}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted">Run</dt>
+                    <dd className="break-all text-body font-semibold text-white">{humanizeId(relatedSlice.runId ?? relatedSlice.sliceRunId)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted">Updated</dt>
+                    <dd className="text-body font-semibold text-white">
+                      {relatedSlice.updatedAt ? formatRelativeTime(relatedSlice.updatedAt) : '\u2014'}
+                    </dd>
+                  </div>
+                </dl>
+                <div className="mt-2 flex flex-wrap gap-1.5 text-micro">
+                  <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                    Tasks {relatedSlice.taskIds.length}
+                  </span>
+                  <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                    Milestones {relatedSlice.milestoneIds.length}
+                  </span>
+                  <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                    Artifacts {relatedSlice.artifactCount}
+                  </span>
+                  <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                    Needs input {relatedSlice.blockingDecisionCount}
+                  </span>
+                  {relatedSliceInitiativeIds.length > 1 ? (
+                    <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                      +{relatedSliceInitiativeIds.length - 1} initiatives
+                    </span>
+                  ) : null}
+                  {relatedSliceWorkstreamIds.length > 1 ? (
+                    <span className="rounded-full border border-white/[0.12] bg-white/[0.03] px-2 py-0.5 text-secondary">
+                      +{relatedSliceWorkstreamIds.length - 1} workstreams
+                    </span>
+                  ) : null}
+                </div>
+                {relatedSlice.taskIds.length > 0 ? (
+                  <p className="mt-2 text-micro text-secondary">
+                    Tasks: {relatedSlice.taskIds.length}
+                  </p>
+                ) : null}
+              </div>
+            </motion.div>
+          )}
+
+          {/* 7. Blockers */}
+          {session.blockers.length > 0 && (
+            <motion.div
+              variants={sectionVariants}
+              initial="hidden"
+              animate="visible"
+              custom={6}
+            >
+              <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3">
+                <p className="section-kicker mb-2 text-red-200/70">Blockers</p>
+                <ul className="space-y-1 text-body text-red-100/90">
+                  {session.blockers.map((blocker) => (
+                    <li key={blocker}>&bull; {blocker}</li>
+                  ))}
+                </ul>
+              </div>
+            </motion.div>
+          )}
+
+          <SectionDivider />
+
+          {/* 8. Recent Messages timeline */}
+          <motion.div
+            variants={sectionVariants}
+            initial="hidden"
+            animate="visible"
+            custom={7}
+          >
+            <p className="section-kicker mb-4">Recent Messages</p>
+
+            {recentEvents.length === 0 && (
+              <p className="text-body text-secondary">No recent messages for this run.</p>
+            )}
+
+            <div className="relative border-l border-white/[0.06] pl-6 ml-1 space-y-3">
+              {recentEvents.map((event, idx) => (
+                <motion.div
+                  key={event.id}
+                  className="relative group"
+                  variants={sectionVariants}
+                  initial="hidden"
+                  animate="visible"
+                  custom={idx}
+                >
+                  {/* Timeline dot */}
+                  <div
+                    className="absolute -left-[27px] top-1.5 h-2 w-2 rounded-full border border-black ring-4 ring-black"
+                    style={{ backgroundColor: statusColor(event.type ?? event.state ?? 'unknown') }}
+                  />
+
+                  <article className="rounded-lg border border-subtle bg-white/[0.02] px-3 py-2.5 transition-colors hover:bg-white/[0.04]">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="min-w-0 flex-1 text-caption text-bright">{event.title}</p>
+                      {onOpenActivityItem && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenActivityItem(event)}
+                          className="flex-shrink-0 rounded-full border border-strong bg-white/[0.03] px-2.5 py-0.5 text-micro font-semibold text-secondary opacity-0 transition-all group-hover:opacity-100 hover:bg-white/[0.08] hover:text-primary"
+                        >
+                          Open
+                        </button>
+                      )}
+                    </div>
+                    {(event.summary || event.description) && (
+                      <p className="mt-0.5 line-clamp-2 text-caption text-secondary">
+                        {event.summary ?? event.description}
+                      </p>
+                    )}
+                    <p className="mt-1 text-micro text-muted">
+                      {new Date(event.timestamp).toLocaleString()} &middot; {formatRelativeTime(event.timestamp)}
+                    </p>
+                  </article>
+                </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Fixed footer */}
+        <div className="flex-shrink-0 border-t border-subtle px-5 py-3 space-y-3">
+          {/* Notice */}
+          {notice && (
+            <p className={cn(
+              'rounded-md border px-2.5 py-1.5 text-caption',
+              noticeTone === 'error'
+                ? 'border-red-400/30 bg-red-500/10 text-red-200'
+                : noticeTone === 'pending'
+                  ? 'border-white/[0.08] bg-white/[0.02] text-secondary pulse-soft'
+                  : 'border-lime/25 bg-lime/[0.08] text-lime'
+            )}>
+              {notice}
+            </p>
+          )}
+
+          {/* Intervention textarea */}
+          {onSubmitIntervention && (
+            <div>
+              <textarea
+                value={interventionText}
+                onChange={(event) => setInterventionText(event.target.value)}
+                placeholder="Share guidance for this run..."
+                rows={2}
+                className="w-full resize-none rounded-lg border border-white/[0.10] bg-white/[0.03] px-3 py-2 text-body text-bright outline-none placeholder:text-faint focus:border-white/20"
+              />
+            </div>
+          )}
+
+          {/* Button row */}
+          <div className="flex items-center gap-2">
+            {/* Left: secondary actions */}
+            <div className="flex items-center gap-1">
               {canPause && (
                 <button
                   onClick={() => runAction('pause-session', 'Session paused', () => onPauseSession?.(session))}
                   disabled={!onPauseSession || !!busyAction}
-                  className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
+                  className="rounded-md px-2.5 py-1.5 text-caption font-medium text-secondary hover:bg-white/[0.04] hover:text-white disabled:opacity-45 transition-colors"
                 >
-                  {busyAction === 'pause-session' ? 'Pausing…' : 'Pause'}
+                  {busyAction === 'pause-session' ? 'Pausing...' : 'Pause'}
                 </button>
               )}
               {canResume && (
                 <button
                   onClick={() => runAction('resume-session', 'Session resumed', () => onResumeSession?.(session))}
                   disabled={!onResumeSession || !!busyAction}
-                  className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
+                  className="rounded-md px-2.5 py-1.5 text-caption font-medium text-secondary hover:bg-white/[0.04] hover:text-white disabled:opacity-45 transition-colors"
                 >
-                  {busyAction === 'resume-session' ? 'Resuming…' : 'Resume'}
+                  {busyAction === 'resume-session' ? 'Resuming...' : 'Resume'}
                 </button>
               )}
               <button
@@ -894,130 +1147,77 @@ export const SessionInspector = memo(function SessionInspector({
                   runAction('checkpoint-session', 'Progress saved', () => onCreateCheckpoint?.(session))
                 }
                 disabled={!onCreateCheckpoint || !!busyAction}
-                className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
+                className="rounded-md px-2.5 py-1.5 text-caption font-medium text-secondary hover:bg-white/[0.04] hover:text-white disabled:opacity-45 transition-colors"
               >
-                {busyAction === 'checkpoint-session' ? 'Saving…' : 'Save progress'}
+                {busyAction === 'checkpoint-session' ? 'Saving...' : 'Save'}
               </button>
               {canRollback && (
                 <button
                   onClick={() => runAction('rollback-session', 'Undo requested', () => onRollbackSession?.(session))}
                   disabled={!onRollbackSession || !!busyAction}
-                  className="rounded-md border border-strong bg-white/[0.02] px-3 py-2 text-caption text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-45"
+                  className="rounded-md px-2.5 py-1.5 text-caption font-medium text-secondary hover:bg-white/[0.04] hover:text-white disabled:opacity-45 transition-colors"
                 >
-                  {busyAction === 'rollback-session' ? 'Undoing…' : 'Undo last step'}
+                  {busyAction === 'rollback-session' ? 'Undoing...' : 'Undo'}
                 </button>
               )}
-            </div>
-            {onSubmitIntervention && (
-              <div className="mt-3 rounded-lg border border-white/[0.08] bg-black/[0.18] px-3 py-2.5">
-                <p className="mb-2 text-micro uppercase tracking-[0.16em] text-muted">Intervene</p>
-                <textarea
-                  value={interventionText}
-                  onChange={(event) => setInterventionText(event.target.value)}
-                  placeholder="Share guidance for this run..."
-                  className="min-h-[84px] w-full resize-y rounded-lg border border-white/[0.10] bg-white/[0.03] px-3 py-2 text-body text-bright outline-none placeholder:text-faint focus:border-white/20"
-                />
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <p className="text-micro text-secondary">Visible to agents and collaborators.</p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const text = interventionText.trim();
-                      if (!text) {
-                        setNotice('Intervention note cannot be empty.');
-                        return;
-                      }
-                      void runAction('intervene-note', 'Intervention sent', async () => {
-                        await onSubmitIntervention({
-                          session,
-                          workstreamId: initialInterventionDraft?.workstreamId ?? session.workstreamId ?? null,
-                          text,
-                        });
-                        setInterventionText('');
-                      });
-                    }}
-                    disabled={!!busyAction || interventionText.trim().length === 0}
-                    className="rounded-md border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
-                  >
-                    {busyAction === 'intervene-note' ? 'Sending…' : 'Send intervention'}
-                  </button>
-                </div>
-              </div>
-            )}
-            {canCancel && onCancelSession && (
-              <div className="mt-3 border-t border-subtle pt-3">
+              {canCancel && onCancelSession && (
                 <button
                   onClick={handleCancelWithUndo}
                   disabled={!!busyAction}
-                  className="text-caption text-secondary transition-colors hover:text-red-300 disabled:opacity-45"
+                  className="rounded-md px-2.5 py-1.5 text-caption font-medium text-red-400/70 hover:bg-red-500/[0.08] hover:text-red-300 disabled:opacity-45 transition-colors"
                 >
-                  Cancel session…
+                  Cancel
                 </button>
-              </div>
-            )}
-          </div>
-
-          {notice && (
-            <p className="rounded-md border border-white/[0.08] bg-white/[0.02] px-2.5 py-1.5 text-caption text-secondary">
-              {notice}
-            </p>
-          )}
-
-          {session.blockers.length > 0 && (
-            <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3">
-              <h3 className="mb-1 text-caption uppercase tracking-[0.12em] text-red-200/70">
-                Blockers
-              </h3>
-              <ul className="space-y-1 text-body text-red-100/90">
-                {session.blockers.map((blocker) => (
-                  <li key={blocker}>• {blocker}</li>
-                ))}
-              </ul>
+              )}
             </div>
-          )}
 
-          <div>
-            <h3 className="mb-2 text-caption uppercase tracking-[0.16em] text-secondary">
-              Recent Messages
-            </h3>
+            <div className="flex-1" />
 
-            {recentEvents.length === 0 && (
-              <p className="text-body text-secondary">No recent messages for this run.</p>
+            {/* Right: primary actions */}
+            {onSubmitIntervention && (
+              <button
+                type="button"
+                onClick={() => {
+                  const text = interventionText.trim();
+                  if (!text) {
+                    setNotice('Intervention note cannot be empty.');
+                    return;
+                  }
+                  void runAction('intervene-note', 'Intervention sent', async () => {
+                    await onSubmitIntervention({
+                      session,
+                      workstreamId: initialInterventionDraft?.workstreamId ?? session.workstreamId ?? null,
+                      text,
+                    });
+                    setInterventionText('');
+                  });
+                }}
+                disabled={!!busyAction || interventionText.trim().length === 0}
+                className="rounded-md border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08] disabled:opacity-45"
+              >
+                {busyAction === 'intervene-note' ? 'Sending...' : 'Intervene'}
+              </button>
             )}
-
-            <div className="space-y-2">
-              {recentEvents.map((event) => (
-                <article
-                  key={event.id}
-                  className="rounded-lg border border-subtle bg-white/[0.02] px-2.5 py-2"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="min-w-0 flex-1 text-caption text-bright">{event.title}</p>
-                    {onOpenActivityItem && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenActivityItem(event)}
-                        className="flex-shrink-0 rounded-full border border-strong bg-white/[0.03] px-2.5 py-0.5 text-micro font-semibold text-secondary transition-colors hover:bg-white/[0.08] hover:text-primary"
-                      >
-                        Open
-                      </button>
-                    )}
-                  </div>
-                  {(event.summary || event.description) && (
-                    <p className="mt-0.5 line-clamp-2 text-caption text-secondary">
-                      {event.summary ?? event.description}
-                    </p>
-                  )}
-                  <p className="mt-1 text-micro text-muted">
-                    {new Date(event.timestamp).toLocaleString()} · {formatRelativeTime(event.timestamp)}
-                  </p>
-                </article>
-              ))}
-            </div>
+            <button
+              onClick={() =>
+                runAction('dispatch-session', 'Session started', () => onDispatchSession?.(session))
+              }
+              disabled={!onDispatchSession || !!busyAction || !canStart}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-lime/25 bg-lime/10 px-4 text-caption font-semibold text-lime transition-colors hover:bg-lime/20 disabled:opacity-45"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" className="flex-shrink-0">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+              {busyAction === 'dispatch-session'
+                ? 'Starting...'
+                : canonicalProjection.status === 'completed'
+                  ? 'Restart'
+                  : 'Start'}
+            </button>
           </div>
         </div>
       </div>
       <UndoToastRenderer />
-    </PremiumCard>
+    </div>
   );
 });
