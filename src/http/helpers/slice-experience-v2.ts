@@ -2,6 +2,7 @@ import type { LiveActivityItem, SessionTreeNode } from "../../types.js";
 import type { SliceRunProjection } from "./slice-run-projections.js";
 import type { RuntimeInstanceRecord } from "../../runtime-instance-store.js";
 import type { DecisionActionType } from "../../contracts/shared-types.js";
+import { asRecord } from "../../lib/type-coercion.js";
 
 export type SliceKind = "work_slice" | "runtime_reporting" | "system_maintenance";
 export type SliceLifecycleStateV2 =
@@ -155,10 +156,7 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const GENERIC_ACTOR_IDS = new Set(["main", "unknown", "system", "openclaw", "orgx"]);
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
+// asRecord imported from ../../lib/type-coercion.js
 
 function normalizeText(value: unknown): string | null {
   if (typeof value !== "string") return null;

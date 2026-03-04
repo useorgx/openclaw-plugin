@@ -144,6 +144,16 @@ import {
   type SliceScope,
 } from "./helpers/mission-control.js";
 import {
+  QueueState,
+  type CoreQueueState,
+  LaneState,
+  type LaneStateValue,
+  RunStatus,
+  type RunStatusValue,
+  RunnerSource,
+  type RunnerSourceValue,
+} from "./helpers/queue-constants.js";
+import {
   configureOpenClawProviderRouting,
   fetchBillingStatusSafe,
   isPidAlive,
@@ -2177,8 +2187,8 @@ export function createHttpHandler(
   // This is intentionally conservative:
   // - It never starts a new task if a task run is still active.
   // - It only auto-marks tasks done when the OpenClaw session finishes without
-  type NextUpRunnerSource = "assigned" | "inferred" | "fallback";
-  type NextUpQueueState = "queued" | "running" | "blocked" | "idle";
+  type NextUpRunnerSource = RunnerSourceValue;
+  type NextUpQueueState = CoreQueueState;
   type NextUpExecutionPolicy = MissionControlExecutionPolicy;
   type NextUpRunnerAgent = {
     id: string;
@@ -2210,19 +2220,12 @@ export function createHttpHandler(
     sliceMilestoneId?: string | null;
     executionPolicy?: NextUpExecutionPolicy | null;
     autoContinue: {
-      status: "running" | "stopping" | "stopped";
+      status: RunStatusValue;
       activeTaskId: string | null;
       activeRunId: string | null;
       activeTaskIds: string[];
       activeRunIds: string[];
-      laneState:
-        | "idle"
-        | "running"
-        | "blocked"
-        | "waiting_dependency"
-        | "rate_limited"
-        | "completed"
-        | null;
+      laneState: LaneStateValue | null;
       laneBlockedReason: string | null;
       laneWaitingOnWorkstreamIds: string[];
       laneRetryAt: string | null;
@@ -2756,9 +2759,9 @@ export function createHttpHandler(
     }
 
     const queueRank = (state: NextUpQueueState): number => {
-      if (state === "running") return 0;
-      if (state === "queued") return 1;
-      if (state === "blocked") return 2;
+      if (state === QueueState.RUNNING) return 0;
+      if (state === QueueState.QUEUED) return 1;
+      if (state === QueueState.BLOCKED) return 2;
       return 3;
     };
 
@@ -2925,12 +2928,12 @@ export function createHttpHandler(
           (status) => status === "queued" || status === "pending"
         );
         const queueState: NextUpQueueState = hasRunning
-          ? "running"
+          ? QueueState.RUNNING
           : hasBlocked
-            ? "blocked"
+            ? QueueState.BLOCKED
             : hasQueued
-              ? "queued"
-              : "idle";
+              ? QueueState.QUEUED
+              : QueueState.IDLE;
 
         const latestRunner: NextUpRunnerAgent[] = [];
         const latestRunnerSeen = new Set<string>();
@@ -2947,7 +2950,7 @@ export function createHttpHandler(
         const runnerAgentName = primaryRunner?.name ?? "Unassigned";
 
         const pinKey = `${entry.initiativeId}:${entry.workstreamId}`;
-        if (isSuppressed(entry.initiativeId, entry.workstreamId) && queueState !== "running") {
+        if (isSuppressed(entry.initiativeId, entry.workstreamId) && queueState !== QueueState.RUNNING) {
           continue;
         }
         fallbackItems.push({
@@ -2968,7 +2971,7 @@ export function createHttpHandler(
           runnerAgentId,
           runnerAgentName,
           runnerAgents,
-          runnerSource: "fallback",
+          runnerSource: RunnerSource.FALLBACK,
           queueState,
           blockReason: hasBlocked
             ? entry.blockers[0] ??
@@ -3201,7 +3204,7 @@ export function createHttpHandler(
         const runScopedToCurrentWorkstream =
           scopedAllowedWorkstreams.length === 1 &&
           scopedAllowedWorkstreams[0] === workstream.id &&
-          autoContinueRun?.status === "running";
+          autoContinueRun?.status === RunStatus.RUNNING;
         const activeRunIds = Array.isArray((autoContinueRun as any)?.activeSliceRunIds)
           ? ((autoContinueRun as any).activeSliceRunIds as Array<unknown>)
               .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
@@ -3263,21 +3266,28 @@ export function createHttpHandler(
           defaultScope === "milestone"
             ? scopeSelection.milestoneIds[0] ?? pin?.preferredMilestoneId ?? null
             : null;
+        // Only mark as "running" when the lane is actively executing a slice.
+        // runScopedToCurrentWorkstream means the initiative run targets this
+        // workstream, but the lane may be idle between slices — don't conflate
+        // "scoped to a running initiative" with "actively executing".
+        const laneIsActivelyRunning =
+          laneState === LaneState.RUNNING ||
+          (runScopedToCurrentWorkstream && activeRunIds.length > 0);
         let queueState: NextUpQueueState =
-          laneState === "running"
-            ? "running"
-            : runScopedToCurrentWorkstream
-              ? "running"
-              : candidateTask
-                ? "queued"
-                : "idle";
+          laneIsActivelyRunning
+            ? QueueState.RUNNING
+            : candidateTask
+              ? QueueState.QUEUED
+              : runScopedToCurrentWorkstream
+                ? QueueState.QUEUED
+                : QueueState.IDLE;
         let blockReason: string | null = null;
 
-        if (laneState === "blocked") {
-          queueState = "blocked";
+        if (laneState === LaneState.BLOCKED) {
+          queueState = QueueState.BLOCKED;
           blockReason = autoContinueLane?.blockedReason ?? "Blocked";
-        } else if (laneState === "waiting_dependency") {
-          queueState = "blocked";
+        } else if (laneState === LaneState.WAITING_DEPENDENCY) {
+          queueState = QueueState.BLOCKED;
           if (
             Array.isArray(autoContinueLane?.waitingOnWorkstreamIds) &&
             autoContinueLane!.waitingOnWorkstreamIds.length > 0
@@ -3295,13 +3305,13 @@ export function createHttpHandler(
           } else {
             blockReason = "Waiting on dependency workstreams";
           }
-        } else if (laneState === "rate_limited") {
-          queueState = "blocked";
+        } else if (laneState === LaneState.RATE_LIMITED) {
+          queueState = QueueState.BLOCKED;
           blockReason = autoContinueLane?.blockedReason ?? "Rate-limited";
         }
 
         if (!autoContinueRun && !readyTask && candidateTask) {
-          queueState = "blocked";
+          queueState = QueueState.BLOCKED;
           const blockedDeps = candidateTask.dependencyIds
             .map((depId) => nodeById.get(depId))
             .filter(
@@ -3324,7 +3334,7 @@ export function createHttpHandler(
         if (!candidateTask && !autoContinueRun && !pin) {
           continue;
         }
-        if (isSuppressed(initiativeId, workstream.id) && queueState !== "running") {
+        if (isSuppressed(initiativeId, workstream.id) && queueState !== QueueState.RUNNING) {
           continue;
         }
 
@@ -3366,10 +3376,10 @@ export function createHttpHandler(
           assignedRunnerAgents.length > 0 ? assignedRunnerAgents : inferredRunnerAgents;
         const runnerSource: NextUpRunnerSource =
           assignedRunnerAgents.length > 0
-            ? "assigned"
+            ? RunnerSource.ASSIGNED
             : runnerAgents.length > 0
-              ? "inferred"
-              : "fallback";
+              ? RunnerSource.INFERRED
+              : RunnerSource.FALLBACK;
         const primaryRunner = runnerAgents[0] ?? null;
         const runnerAgentId = primaryRunner?.id ?? "unassigned";
         const runnerAgentName = primaryRunner?.name ?? "Unassigned";
@@ -3478,14 +3488,14 @@ export function createHttpHandler(
                 ? [activeTaskId]
                 : [];
           const queueState: NextUpQueueState =
-            laneState === "running"
-              ? "running"
-              : laneState === "blocked" ||
-                  laneState === "waiting_dependency" ||
-                  laneState === "rate_limited"
-                ? "blocked"
-                : "queued";
-          if (isSuppressed(initiativeId, workstream.id) && queueState !== "running") {
+            laneState === LaneState.RUNNING
+              ? QueueState.RUNNING
+              : laneState === LaneState.BLOCKED ||
+                  laneState === LaneState.WAITING_DEPENDENCY ||
+                  laneState === LaneState.RATE_LIMITED
+                ? QueueState.BLOCKED
+                : QueueState.QUEUED;
+          if (isSuppressed(initiativeId, workstream.id) && queueState !== QueueState.RUNNING) {
             continue;
           }
           const runRunnerAgents: NextUpRunnerAgent[] = [];
@@ -3512,10 +3522,10 @@ export function createHttpHandler(
             runnerAgentId: runPrimaryRunner?.id ?? "unassigned",
             runnerAgentName: runPrimaryRunner?.name ?? "Unassigned",
             runnerAgents: runRunnerAgents,
-            runnerSource: runPrimaryRunner ? "inferred" : "fallback",
+            runnerSource: runPrimaryRunner ? RunnerSource.INFERRED : RunnerSource.FALLBACK,
             queueState,
             blockReason:
-                queueState === "blocked"
+                queueState === QueueState.BLOCKED
                   ? lane?.blockedReason ?? "Blocked"
                   : null,
             isPinned: Boolean(pinnedByKey.get(`${initiativeId}:${workstream.id}`)),

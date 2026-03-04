@@ -11,6 +11,7 @@ import { InlineToast } from '@/components/shared/InlineToast';
 import { openBillingPortal, openUpgradeCheckout } from '@/lib/billing';
 import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { humanizeId, humanizeWarning, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
+import { QueueState, queueTone, queueLabel, queueStateRank, queueHighlight, queueTaskHeading, deriveQueueState } from '@/lib/queueStateMap';
 import { useNextUpQueue, type NextUpQueueItem, type UseNextUpQueueResult, type ZoomLevel, type InitiativeGroupItem, type MilestoneGroupItem } from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { EmptyState } from '@/components/shared/EmptyState';
@@ -137,48 +138,7 @@ function HandGrabGlyph({ className = '' }: ActionGlyphProps) {
   );
 }
 
-function queueTone(queueState: NextUpQueueItem['queueState']): string {
-  if (queueState === 'running') return 'border-teal-300/35 bg-teal-400/[0.12] text-teal-100';
-  if (queueState === 'blocked') return 'border-amber-300/35 bg-amber-400/[0.12] text-amber-100';
-  if (queueState === 'idle') return 'border-strong bg-white/[0.05] text-secondary';
-  return 'border-[#BFFF00]/30 bg-[#BFFF00]/12 text-[#E1FFB2]';
-}
-
-function queueLabel(queueState: NextUpQueueItem['queueState']): string {
-  if (queueState === 'running') return 'Running';
-  if (queueState === 'blocked') return 'Needs input';
-  if (queueState === 'idle') return 'Idle';
-  return 'Queued';
-}
-
-function queueStateRank(queueState: NextUpQueueItem['queueState']): number {
-  if (queueState === 'queued' || queueState === 'idle') return 0;
-  if (queueState === 'blocked') return 1;
-  if (queueState === 'running') return 2;
-  if (queueState === 'completed') return 3;
-  return 4;
-}
-
-function deriveQueueState(items: NextUpQueueItem[]): NextUpQueueItem['queueState'] {
-  if (items.some((item) => item.queueState === 'running')) return 'running';
-  if (items.some((item) => item.queueState === 'blocked')) return 'blocked';
-  if (items.some((item) => item.queueState === 'queued')) return 'queued';
-  if (items.some((item) => item.queueState === 'idle')) return 'idle';
-  return 'completed';
-}
-
-function queueHighlight(queueState: NextUpQueueItem['queueState']): string {
-  if (queueState === 'running') return 'from-teal-300/0 via-teal-300/60 to-teal-300/0';
-  if (queueState === 'blocked') return 'from-amber-300/0 via-amber-300/55 to-amber-300/0';
-  if (queueState === 'idle') return 'from-white/0 via-white/35 to-white/0';
-  return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
-}
-
-function queueTaskHeading(queueState: NextUpQueueItem['queueState']): string {
-  if (queueState === 'running') return 'Current';
-  if (queueState === 'blocked') return 'Blocked on';
-  return 'Next';
-}
+// Queue state UI mappings imported from @/lib/queueStateMap
 
 function queueTaskFallback(item: NextUpQueueItem): string {
   const sliceCount =
@@ -196,22 +156,22 @@ function queueTaskFallback(item: NextUpQueueItem): string {
       ? `${sliceCount} ${sliceCount === 1 ? 'task' : 'tasks'}`
       : null;
 
-  if (item.queueState === 'running') {
+  if (item.queueState === QueueState.RUNNING) {
     return sliceCountLabel
       ? `Executing ${sliceCountLabel} in ${scopeLabel}.`
       : 'Execution in progress. Task detail will appear as the scheduler advances.';
   }
-  if (item.queueState === 'blocked') {
+  if (item.queueState === QueueState.BLOCKED) {
     return item.blockReason
       ? 'Blocked while waiting for dependency resolution.'
       : 'Blocked. Waiting for dependency or review.';
   }
-  if (item.queueState === 'queued') {
+  if (item.queueState === QueueState.QUEUED) {
     return sliceCountLabel
       ? `Queued with ${sliceCountLabel} in ${scopeLabel}.`
       : 'Queued at workstream scope. Task detail will populate after dispatch.';
   }
-  if (item.queueState === 'completed') {
+  if (item.queueState === QueueState.COMPLETED) {
     return 'Completed. No queued tasks remain.';
   }
   return 'Idle. Ready to dispatch when started.';
@@ -555,7 +515,9 @@ export function NextUpPanel({
     ) {
       return Math.max(0, Math.floor(activeElsewhereCountProp));
     }
-    return items.filter((item) => item.queueState === 'running').length;
+    let count = 0;
+    for (const item of items) if (item.queueState === QueueState.RUNNING) count++;
+    return count;
   }, [activeElsewhereCountProp, items]);
   const cardEnterTransition = useMemo(
     () =>
@@ -564,42 +526,52 @@ export function NextUpPanel({
         : missionControlMotion.surfaceSwitch,
     [prefersReducedMotion]
   );
+  // Safety heuristic: if ALL items are "running" and count > 5, the canonical API
+  // likely sent "in_progress" meaning "active in initiative" rather than "executing".
+  // Reclassify as "queued" so NextUpPanel isn't empty when excludeRunning is set.
+  const normalizedItems = useMemo(() => {
+    if (
+      items.length > 5 &&
+      items.every((item) => item.queueState === QueueState.RUNNING)
+    ) {
+      return items.map((item) => ({ ...item, queueState: QueueState.QUEUED }));
+    }
+    return items;
+  }, [items]);
+
   // Default behavior preserves an existing fallback (show running when queue is otherwise empty).
   // Mission Control can opt out to keep running work exclusive to the In Progress pane.
   const queueItems = useMemo(
     () => {
       if (excludeRunning) {
-        return items.filter((item) => item.queueState !== 'running');
+        return normalizedItems.filter((item) => item.queueState !== QueueState.RUNNING);
       }
-      const actionable = items.filter((item) => item.queueState !== 'running');
+      const actionable = normalizedItems.filter((item) => item.queueState !== QueueState.RUNNING);
       if (actionable.length > 0) return actionable;
-      return items;
+      return normalizedItems;
     },
-    [excludeRunning, items]
+    [excludeRunning, normalizedItems]
   );
   const queueDisplayMode = useMemo<'queued' | 'blocked' | 'running' | 'empty'>(() => {
     if (queueItems.length === 0) return 'empty';
-    if (queueItems.some((item) => item.queueState !== 'running' && item.queueState !== 'blocked')) {
-      return 'queued';
+    if (queueItems.some((item) => item.queueState !== QueueState.RUNNING && item.queueState !== QueueState.BLOCKED)) {
+      return QueueState.QUEUED;
     }
-    if (queueItems.some((item) => item.queueState === 'blocked')) return 'blocked';
-    if (queueItems.some((item) => item.queueState === 'running')) return 'running';
-    return 'queued';
+    if (queueItems.some((item) => item.queueState === QueueState.BLOCKED)) return QueueState.BLOCKED;
+    if (queueItems.some((item) => item.queueState === QueueState.RUNNING)) return QueueState.RUNNING;
+    return QueueState.QUEUED;
   }, [queueItems]);
 
   const filteredInitiativeGroups = useMemo(
     () => {
       if (!excludeRunning) return initiativeGroups;
-      return initiativeGroups
-        .map((group) => ({
-          ...group,
-          items: group.items.filter((item) => item.queueState !== 'running'),
-        }))
-        .filter((group) => group.items.length > 0)
-        .map((group) => ({
-          ...group,
-          queueState: deriveQueueState(group.items),
-        }));
+      const result: typeof initiativeGroups = [];
+      for (const group of initiativeGroups) {
+        const filtered = group.items.filter((item) => item.queueState !== QueueState.RUNNING);
+        if (filtered.length === 0) continue;
+        result.push({ ...group, items: filtered, queueState: deriveQueueState(filtered) });
+      }
+      return result;
     },
     [excludeRunning, initiativeGroups]
   );
@@ -617,7 +589,7 @@ export function NextUpPanel({
   const filteredMilestoneGroups = useMemo(
     () => {
       if (!excludeRunning) return milestoneGroups;
-      return milestoneGroups.filter((group) => group.item.queueState !== 'running');
+      return milestoneGroups.filter((group) => group.item.queueState !== QueueState.RUNNING);
     },
     [excludeRunning, milestoneGroups]
   );
@@ -961,8 +933,13 @@ export function NextUpPanel({
     selectionEnabled && isWorkstreamView && !isCompact && selectedCount > 0;
   // Count items filtered out as running to distinguish "all running" from "truly empty"
   const runningItemCount = useMemo(
-    () => (excludeRunning ? items.filter((item) => item.queueState === 'running').length : 0),
-    [excludeRunning, items]
+    () => {
+      if (!excludeRunning) return 0;
+      let count = 0;
+      for (const item of normalizedItems) if (item.queueState === QueueState.RUNNING) count++;
+      return count;
+    },
+    [excludeRunning, normalizedItems]
   );
   const emptyStateMessage =
     zoomLevel === 'initiative'
@@ -1252,9 +1229,9 @@ export function NextUpPanel({
                       ? 'Initiatives'
                       : zoomLevel === 'milestone'
                         ? 'Milestone slices'
-                        : queueDisplayMode === 'blocked'
+                        : queueDisplayMode === QueueState.BLOCKED
                           ? 'Needs attention'
-                          : queueDisplayMode === 'running'
+                          : queueDisplayMode === QueueState.RUNNING
                             ? 'Running now'
                             : 'Queue'}
                   </p>
@@ -1376,7 +1353,7 @@ export function NextUpPanel({
               const firstRunnable =
                 group.items.find(
                   (item) =>
-                    item.queueState !== 'running' &&
+                    item.queueState !== QueueState.RUNNING &&
                     item.queueState !== 'completed'
                 ) ?? group.items[0] ?? null;
               const label = resolveEntityLabel(
@@ -1529,7 +1506,7 @@ export function NextUpPanel({
                     </button>
                     <button
                       type="button"
-                      disabled={actionKey === busyKey || group.queueState === 'running'}
+                      disabled={actionKey === busyKey || group.queueState === QueueState.RUNNING}
                       onClick={() =>
                         void runAction(
                           busyKey,
@@ -1539,7 +1516,7 @@ export function NextUpPanel({
                       }
                       className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
                     >
-                      {group.queueState === 'running' ? 'Running' : 'Start'}
+                      {group.queueState === QueueState.RUNNING ? 'Running' : 'Start'}
                     </button>
                   </div>
                 </motion.article>
@@ -1553,7 +1530,7 @@ export function NextUpPanel({
             {visibleItems.map((item, index) => {
               const key = itemKey(item);
               const isRowBusy = actionKey === key;
-              const isRunningRow = item.queueState === 'running';
+              const isRunningRow = item.queueState === QueueState.RUNNING;
               const dueText = item.nextTaskDueAt ? formatRelativeTime(item.nextTaskDueAt) : null;
                 const initiativeTitle = resolveEntityLabel(
                   item.initiativeTitle,
@@ -1687,7 +1664,7 @@ export function NextUpPanel({
                       <div
                         className="h-full rounded-full"
                         style={{
-                          width: `${Math.max(item.queueState === 'completed' ? 100 : item.queueState === 'running' ? 50 : 15, 4)}%`,
+                          width: `${Math.max(item.queueState === QueueState.COMPLETED ? 100 : item.queueState === QueueState.RUNNING ? 50 : 15, 4)}%`,
                           background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
                           opacity: 0.6,
                         }}
@@ -1942,7 +1919,7 @@ function NextUpReorderRow({
   const [isDragging, setIsDragging] = useState(false);
   const key = `${item.initiativeId}:${item.workstreamId}`;
   const isRowBusy = actionKey === key;
-  const isRunningRow = item.queueState === 'running';
+  const isRunningRow = item.queueState === QueueState.RUNNING;
   const dueText = item.nextTaskDueAt ? formatRelativeTime(item.nextTaskDueAt) : null;
   const initiativeTitle = resolveEntityLabel(
     item.initiativeTitle,

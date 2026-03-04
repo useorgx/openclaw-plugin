@@ -2898,8 +2898,8 @@ function DashboardShell({
           <div className={`min-h-0 ${expandedRightPanel === 'initiatives' ? 'flex-1' : 'flex-shrink-0'} ${mobileTab === 'decisions' ? '' : mobileTab === 'initiatives' ? '' : ''}`}>
             {expandedRightPanel === 'initiatives' ? (
               <PremiumCard className="flex h-full min-h-0 flex-col card-enter">
-                <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 pt-3">
-                  <div className="flex min-w-0 items-center gap-4 overflow-x-auto">
+                <div className="flex items-center justify-between gap-2 border-b border-subtle px-4 py-2.5">
+                  <div className="flex min-w-0 items-center gap-3 overflow-x-auto">
                     <button
                       type="button"
                       role="tab"
@@ -2909,7 +2909,7 @@ function DashboardShell({
                         setInitiativesSidebarTab('in_progress');
                       }}
                       className={cn(
-                        'relative inline-flex items-center gap-1.5 pb-2 text-caption font-semibold transition-colors',
+                        'relative inline-flex h-8 items-center gap-1.5 px-0.5 text-caption font-semibold transition-colors',
                         initiativesSidebarTab === 'in_progress'
                           ? 'text-white'
                           : 'text-secondary hover:text-bright'
@@ -2933,7 +2933,7 @@ function DashboardShell({
                         setInitiativesSidebarTab('next_up');
                       }}
                       className={cn(
-                        'relative inline-flex items-center gap-1.5 pb-2 text-caption font-semibold transition-colors',
+                        'relative inline-flex h-8 items-center gap-1.5 px-0.5 text-caption font-semibold transition-colors',
                         initiativesSidebarTab === 'next_up'
                           ? 'text-white'
                           : 'text-secondary hover:text-bright'
@@ -3461,6 +3461,7 @@ function DashboardShell({
         <Suspense fallback={null}>
           <LazySliceDetailModal
             target={sliceDetailTarget}
+            initiatives={initiatives}
             onClose={() => setSliceDetailTarget(null)}
             onPlayWorkstream={async (initiativeId, workstreamId, agentId) => {
           const response = await fetch('/orgx/api/mission-control/next-up/play', {
