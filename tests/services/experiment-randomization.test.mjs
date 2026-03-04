@@ -63,3 +63,37 @@ test("invalid arm weights are rejected", () => {
     /weight must be > 0/,
   );
 });
+
+test("duplicate arm ids are rejected", () => {
+  assert.throws(
+    () =>
+      randomizeExperimentAssignment({
+        experimentId: "exp-dup",
+        subjectKey: "user:dup",
+        channel: "email",
+        arms: [
+          { id: "control", weight: 70 },
+          { id: "control", weight: 30 },
+        ],
+      }),
+    /id must be unique/,
+  );
+});
+
+test("bucket is always in [0,1) and assignments are not degenerate", () => {
+  const assignedArms = new Set();
+  for (let i = 0; i < 400; i += 1) {
+    const result = randomizeExperimentAssignment({
+      experimentId: "growth-onboarding-v2",
+      subjectKey: `user:${i}`,
+      channel: "email",
+      arms: ARMS,
+    });
+
+    assert.ok(result.bucket >= 0, `bucket must be >= 0, got ${result.bucket}`);
+    assert.ok(result.bucket < 1, `bucket must be < 1, got ${result.bucket}`);
+    assignedArms.add(result.armId);
+  }
+
+  assert.ok(assignedArms.size > 1, "assignment should not collapse to a single arm");
+});

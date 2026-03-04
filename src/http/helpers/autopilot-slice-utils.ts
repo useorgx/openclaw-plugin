@@ -168,7 +168,56 @@ export function ensureAutopilotSliceSchemaPath(schemaFilename: string): string {
 
 export function parseSliceResult<T extends object>(raw: string): T | null {
   const allowedStatuses = new Set(["completed", "blocked", "needs_decision", "error"]);
+  const normalizeStatusValue = (value: unknown): string => {
+    if (typeof value !== "string") return "";
+    const normalized = value.trim().toLowerCase();
+    return allowedStatuses.has(normalized) ? normalized : "";
+  };
   const stripUtf8Bom = (text: string): string => text.replace(/^\uFEFF/, "");
+  const extractTopLevelObjects = (text: string): string[] => {
+    let inString = false;
+    let escaped = false;
+    let depth = 0;
+    let start = -1;
+    const objects: string[] = [];
+
+    for (let i = 0; i < text.length; i += 1) {
+      const ch = text[i]!;
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (ch === "\\") {
+          escaped = true;
+          continue;
+        }
+        if (ch === "\"") {
+          inString = false;
+        }
+        continue;
+      }
+
+      if (ch === "\"") {
+        inString = true;
+        continue;
+      }
+      if (ch === "{") {
+        if (depth === 0) start = i;
+        depth += 1;
+        continue;
+      }
+      if (ch === "}") {
+        if (depth <= 0) continue;
+        depth -= 1;
+        if (depth === 0 && start >= 0) {
+          objects.push(text.slice(start, i + 1));
+          start = -1;
+        }
+      }
+    }
+    return objects;
+  };
   const extractMarkdownJsonFences = (text: string): string[] => {
     const matches = text.matchAll(/```(?:json)?\s*([\s\S]*?)\s*```/gi);
     const fences: string[] = [];
@@ -198,13 +247,20 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
         return normalizeSliceResult(parsedInner);
       }
     }
+    const objectCandidates = extractTopLevelObjects(normalized);
+    for (let i = objectCandidates.length - 1; i >= 0; i -= 1) {
+      const parsedObject = parseJsonSafe<T>(stripUtf8Bom(objectCandidates[i]!));
+      if (parsedObject && typeof parsedObject === "object" && isLikelySliceResult(parsedObject)) {
+        return normalizeSliceResult(parsedObject);
+      }
+    }
     return null;
   };
 
   const isLikelySliceResult = (value: unknown): value is T => {
     if (!value || typeof value !== "object") return false;
     const record = value as Record<string, unknown>;
-    const status = typeof record.status === "string" ? record.status : "";
+    const status = normalizeStatusValue(record.status);
     const workstreamId = typeof record.workstream_id === "string" ? record.workstream_id : "";
     const summary = typeof record.summary === "string" ? record.summary : "";
 
@@ -217,10 +273,14 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
 
   const normalizeSliceResult = (value: T): T => {
     const record = value as Record<string, unknown>;
-    const status = typeof record.status === "string" ? record.status : "";
+    const status = normalizeStatusValue(record.status);
     const decisions = record.decisions_needed;
     let changed = false;
-    let nextRecord: Record<string, unknown> = record;
+    let nextRecord: Record<string, unknown> = status ? { ...record, status } : record;
+
+    if (status && record.status !== status) {
+      changed = true;
+    }
 
     if (Array.isArray(decisions)) {
       const normalized = decisions.map((decision) => {
@@ -293,7 +353,10 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
     const record = value as Record<string, unknown>;
     const parseEmbeddedText = (candidate: unknown): T | null => {
       if (typeof candidate === "string") {
-        return parseSliceJsonText(candidate);
+        const direct = parseSliceJsonText(candidate);
+        if (direct) return direct;
+        // Some envelopes embed worker logs/prose with a trailing JSON object.
+        return parseSliceResult<T>(candidate);
       }
       if (Array.isArray(candidate)) {
         for (let i = candidate.length - 1; i >= 0; i -= 1) {
@@ -304,12 +367,6 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
       }
       if (!candidate || typeof candidate !== "object") return null;
       const candidateRecord = candidate as Record<string, unknown>;
-      if (typeof candidateRecord.value === "string") {
-        return parseSliceJsonText(candidateRecord.value);
-      }
-      if (typeof candidateRecord.text === "string") {
-        return parseSliceJsonText(candidateRecord.text);
-      }
       const fromValue = parseEmbeddedText(candidateRecord.value);
       if (fromValue) return fromValue;
       const fromText = parseEmbeddedText(candidateRecord.text);
@@ -387,51 +444,6 @@ export function parseSliceResult<T extends object>(raw: string): T | null {
   if (directTextParsed && typeof directTextParsed === "object") return directTextParsed;
 
   // Tolerant parse: extract the last complete top-level JSON object from mixed logs.
-  const extractTopLevelObjects = (text: string): string[] => {
-    let inString = false;
-    let escaped = false;
-    let depth = 0;
-    let start = -1;
-    const objects: string[] = [];
-
-    for (let i = 0; i < text.length; i += 1) {
-      const ch = text[i]!;
-      if (inString) {
-        if (escaped) {
-          escaped = false;
-          continue;
-        }
-        if (ch === "\\") {
-          escaped = true;
-          continue;
-        }
-        if (ch === "\"") {
-          inString = false;
-        }
-        continue;
-      }
-
-      if (ch === "\"") {
-        inString = true;
-        continue;
-      }
-      if (ch === "{") {
-        if (depth === 0) start = i;
-        depth += 1;
-        continue;
-      }
-      if (ch === "}") {
-        if (depth <= 0) continue;
-        depth -= 1;
-        if (depth === 0 && start >= 0) {
-          objects.push(text.slice(start, i + 1));
-          start = -1;
-        }
-      }
-    }
-    return objects;
-  };
-
   const candidates = extractTopLevelObjects(trimmed);
   for (let i = candidates.length - 1; i >= 0; i -= 1) {
     const candidate = candidates[i]!;
@@ -475,23 +487,57 @@ const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
  */
 export function extractSessionIdFromOutput(raw: string, _sourceClient?: string): string | null {
   if (!raw || typeof raw !== "string") return null;
+  const extractUuid = (value: string): string | null => {
+    const match = value.trim().match(UUID_RE);
+    return match?.[0] ?? null;
+  };
+  const findSessionId = (candidate: unknown): string | null => {
+    if (!candidate) return null;
+    if (typeof candidate === "string") {
+      const parsedCandidate = parseJsonSafe<Record<string, unknown>>(candidate.trim());
+      if (parsedCandidate) return findSessionId(parsedCandidate);
+      return null;
+    }
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) {
+        const found = findSessionId(item);
+        if (found) return found;
+      }
+      return null;
+    }
+    if (typeof candidate !== "object") return null;
+
+    const record = candidate as Record<string, unknown>;
+    for (const key of ["session_id", "sessionId", "conversation_id"]) {
+      const value = record[key];
+      if (typeof value === "string") {
+        const uuid = extractUuid(value);
+        if (uuid) return uuid;
+      }
+    }
+
+    return (
+      findSessionId(record.value) ??
+      findSessionId(record.text) ??
+      findSessionId(record.content) ??
+      findSessionId(record.output_text) ??
+      null
+    );
+  };
+
   const parsed = parseJsonSafe<Record<string, unknown>>(raw.trim());
 
   if (parsed && typeof parsed === "object") {
-    // Walk common envelope shapes: top-level, result, structured_output, final_output
-    const candidates: unknown[] = [
+    const found = findSessionId([
       parsed,
       parsed.result,
       parsed.structured_output,
       parsed.final_output,
-    ];
-    for (const obj of candidates) {
-      if (!obj || typeof obj !== "object") continue;
-      const record = obj as Record<string, unknown>;
-      for (const key of ["session_id", "sessionId", "conversation_id"]) {
-        const value = record[key];
-        if (typeof value === "string" && UUID_RE.test(value)) return value.trim();
-      }
+      parsed.output_text,
+      parsed.output,
+    ]);
+    if (found) {
+      return found;
     }
   }
 

@@ -43,7 +43,6 @@ interface NextUpPanelProps {
   onPlayWorkstream?: (item: NextUpQueueItem) => Promise<unknown>;
   snapshotVersion?: number | null;
   excludeRunning?: boolean;
-  activeElsewhereCount?: number;
 }
 
 interface ActionGlyphProps {
@@ -458,7 +457,6 @@ export function NextUpPanel({
   onPlayWorkstream,
   snapshotVersion = null,
   excludeRunning = false,
-  activeElsewhereCount: activeElsewhereCountProp,
 }: NextUpPanelProps) {
   const [localCompact, setLocalCompact] = useState(compact);
   useEffect(() => setLocalCompact(compact), [compact]);
@@ -508,17 +506,6 @@ export function NextUpPanel({
   const nextUpActions = queueActions ?? internalNextUpActions;
   const itemKey = (item: NextUpQueueItem) => `${item.initiativeId}:${item.workstreamId}`;
   const isWorkstreamView = zoomLevel === 'workstream';
-  const activeElsewhereCount = useMemo(() => {
-    if (
-      typeof activeElsewhereCountProp === 'number' &&
-      Number.isFinite(activeElsewhereCountProp)
-    ) {
-      return Math.max(0, Math.floor(activeElsewhereCountProp));
-    }
-    let count = 0;
-    for (const item of items) if (item.queueState === QueueState.RUNNING) count++;
-    return count;
-  }, [activeElsewhereCountProp, items]);
   const cardEnterTransition = useMemo(
     () =>
       prefersReducedMotion
@@ -526,31 +513,19 @@ export function NextUpPanel({
         : missionControlMotion.surfaceSwitch,
     [prefersReducedMotion]
   );
-  // Safety heuristic: if ALL items are "running" and count > 5, the canonical API
-  // likely sent "in_progress" meaning "active in initiative" rather than "executing".
-  // Reclassify as "queued" so NextUpPanel isn't empty when excludeRunning is set.
-  const normalizedItems = useMemo(() => {
-    if (
-      items.length > 5 &&
-      items.every((item) => item.queueState === QueueState.RUNNING)
-    ) {
-      return items.map((item) => ({ ...item, queueState: QueueState.QUEUED }));
-    }
-    return items;
-  }, [items]);
 
   // Default behavior preserves an existing fallback (show running when queue is otherwise empty).
   // Mission Control can opt out to keep running work exclusive to the In Progress pane.
   const queueItems = useMemo(
     () => {
       if (excludeRunning) {
-        return normalizedItems.filter((item) => item.queueState !== QueueState.RUNNING);
+        return items.filter((item) => item.queueState !== QueueState.RUNNING);
       }
-      const actionable = normalizedItems.filter((item) => item.queueState !== QueueState.RUNNING);
+      const actionable = items.filter((item) => item.queueState !== QueueState.RUNNING);
       if (actionable.length > 0) return actionable;
-      return normalizedItems;
+      return items;
     },
-    [excludeRunning, normalizedItems]
+    [excludeRunning, items]
   );
   const queueDisplayMode = useMemo<'queued' | 'blocked' | 'running' | 'empty'>(() => {
     if (queueItems.length === 0) return 'empty';
@@ -936,23 +911,21 @@ export function NextUpPanel({
     () => {
       if (!excludeRunning) return 0;
       let count = 0;
-      for (const item of normalizedItems) if (item.queueState === QueueState.RUNNING) count++;
+      for (const item of items) if (item.queueState === QueueState.RUNNING) count++;
       return count;
     },
-    [excludeRunning, normalizedItems]
+    [excludeRunning, items]
   );
   const emptyStateMessage =
     zoomLevel === 'initiative'
       ? 'No initiatives in the queue right now.'
       : zoomLevel === 'milestone'
         ? 'No milestone slices in the queue right now.'
-        : activeElsewhereCount > 0
-          ? `No queued workstreams yet. ${activeElsewhereCount} running item${activeElsewhereCount === 1 ? '' : 's'} still in-flight.`
-          : runningItemCount > 0
-            ? `No queued workstreams yet. ${runningItemCount} running item${runningItemCount === 1 ? '' : 's'} still in-flight.`
-            : degraded.length > 0
-              ? 'Queue signal is delayed right now.'
-              : 'No queued workstreams right now.';
+        : runningItemCount > 0
+          ? `No queued workstreams yet. ${runningItemCount} running item${runningItemCount === 1 ? '' : 's'} still in-flight.`
+          : degraded.length > 0
+            ? 'Queue signal is delayed right now.'
+            : 'No queued workstreams right now.';
 
   const bulkActionControls = (
     <>
@@ -1017,16 +990,6 @@ export function NextUpPanel({
               ) : (
                 displayCount
               )}
-            </span>
-            <span
-              className={cn(
-                'chip inline-flex min-w-[148px] justify-center text-micro tabular-nums transition-opacity',
-                !isLoading && activeElsewhereCount > 0 && isWorkstreamView
-                  ? 'text-secondary opacity-100'
-                  : 'pointer-events-none opacity-0'
-              )}
-            >
-              {`${activeElsewhereCount} active elsewhere`}
             </span>
             <span
               className={cn(

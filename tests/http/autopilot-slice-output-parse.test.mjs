@@ -27,227 +27,284 @@ test("parseSliceResult preserves direct slice JSON", () => {
   assert.equal(parsed?.workstream_id, "ws_test");
 });
 
-test("parseSliceResult unwraps Claude structured_output envelopes", () => {
-  const expected = sampleSliceResult({ summary: "Claude envelope" });
-  const raw = JSON.stringify({
-    type: "result",
-    subtype: "success",
-    is_error: false,
-    structured_output: expected,
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "Claude envelope");
-  assert.equal(parsed?.status, "completed");
-});
-
-test("parseSliceResult unwraps final_output object envelopes", () => {
-  const expected = sampleSliceResult({ summary: "Final output object" });
-  const raw = JSON.stringify({
-    type: "result",
-    final_output: expected,
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "Final output object");
-  assert.equal(parsed?.workstream_id, "ws_test");
-});
-
-test("parseSliceResult unwraps final_output object text envelopes", () => {
-  const expected = sampleSliceResult({ summary: "Final output object text" });
-  const raw = JSON.stringify({
-    type: "result",
-    final_output: {
-      type: "output_text",
-      text: [{ type: "text", value: JSON.stringify(expected) }],
+test("parseSliceResult unwraps common structured envelope variants", () => {
+  const cases = [
+    {
+      name: "Claude structured_output object",
+      raw: JSON.stringify({
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        structured_output: sampleSliceResult({ summary: "Claude envelope" }),
+      }),
+      summary: "Claude envelope",
     },
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "Final output object text");
-  assert.equal(parsed?.workstream_id, "ws_test");
-});
-
-test("parseSliceResult unwraps final_output content array envelopes", () => {
-  const expected = sampleSliceResult({ summary: "Final output content array" });
-  const raw = JSON.stringify({
-    type: "result",
-    final_output: {
-      type: "message",
-      role: "assistant",
-      content: [{ type: "output_text", text: JSON.stringify(expected) }],
+    {
+      name: "final_output object",
+      raw: JSON.stringify({
+        type: "result",
+        final_output: sampleSliceResult({ summary: "Final output object" }),
+      }),
+      summary: "Final output object",
     },
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "Final output content array");
-  assert.equal(parsed?.workstream_id, "ws_test");
-});
-
-test("parseSliceResult unwraps final_output string envelopes", () => {
-  const expected = sampleSliceResult({ summary: "Final output string" });
-  const raw = JSON.stringify({
-    type: "result",
-    final_output: JSON.stringify(expected),
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "Final output string");
-  assert.equal(parsed?.status, "completed");
-});
-
-test("parseSliceResult unwraps Claude result field JSON payloads", () => {
-  const expected = sampleSliceResult({ summary: "Claude result json" });
-  const raw = JSON.stringify({
-    type: "result",
-    subtype: "success",
-    result: JSON.stringify(expected),
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "Claude result json");
-  assert.equal(parsed?.workstream_id, "ws_test");
-});
-
-test("parseSliceResult unwraps Claude result object text payloads", () => {
-  const expected = sampleSliceResult({ summary: "Claude result object text json" });
-  const raw = JSON.stringify({
-    type: "result",
-    subtype: "success",
-    result: {
-      type: "output_text",
-      text: [{ type: "text", value: JSON.stringify(expected) }],
+    {
+      name: "final_output output_text object",
+      raw: JSON.stringify({
+        type: "result",
+        final_output: {
+          type: "output_text",
+          text: [
+            {
+              type: "text",
+              value: JSON.stringify(
+                sampleSliceResult({ summary: "Final output object text" })
+              ),
+            },
+          ],
+        },
+      }),
+      summary: "Final output object text",
     },
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "Claude result object text json");
-  assert.equal(parsed?.status, "completed");
-});
-
-test("parseSliceResult unwraps Claude result array text payloads", () => {
-  const expected = sampleSliceResult({ summary: "Claude result array text json" });
-  const raw = JSON.stringify({
-    type: "result",
-    subtype: "success",
-    result: [{ type: "text", value: JSON.stringify(expected) }],
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "Claude result array text json");
-  assert.equal(parsed?.workstream_id, "ws_test");
-});
-
-test("parseSliceResult unwraps Claude structured_output when JSON is fenced", () => {
-  const expected = sampleSliceResult({ summary: "Claude structured fenced json" });
-  const raw = JSON.stringify({
-    type: "result",
-    subtype: "success",
-    structured_output: ["```json", JSON.stringify(expected), "```"].join("\n"),
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "Claude structured fenced json");
-  assert.equal(parsed?.status, "completed");
-});
-
-test("parseSliceResult unwraps Claude structured_output object text payloads", () => {
-  const expected = sampleSliceResult({ summary: "Claude structured object text json" });
-  const raw = JSON.stringify({
-    type: "result",
-    subtype: "success",
-    structured_output: {
-      type: "output_text",
-      text: [{ type: "text", value: JSON.stringify(expected) }],
+    {
+      name: "final_output message content array",
+      raw: JSON.stringify({
+        type: "result",
+        final_output: {
+          type: "message",
+          role: "assistant",
+          content: [
+            {
+              type: "output_text",
+              text: JSON.stringify(
+                sampleSliceResult({ summary: "Final output content array" })
+              ),
+            },
+          ],
+        },
+      }),
+      summary: "Final output content array",
     },
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "Claude structured object text json");
-  assert.equal(parsed?.status, "completed");
-});
-
-test("parseSliceResult unwraps Claude result when JSON is fenced", () => {
-  const expected = sampleSliceResult({ summary: "Claude result fenced json" });
-  const raw = JSON.stringify({
-    type: "result",
-    subtype: "success",
-    result: ["```json", JSON.stringify(expected), "```"].join("\n"),
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "Claude result fenced json");
-  assert.equal(parsed?.workstream_id, "ws_test");
-});
-
-test("parseSliceResult unwraps Claude result when fenced JSON is BOM-prefixed", () => {
-  const expected = sampleSliceResult({ summary: "Claude result bom fenced json" });
-  const raw = JSON.stringify({
-    type: "result",
-    subtype: "success",
-    result: ["```json", `\uFEFF${JSON.stringify(expected)}`, "```"].join("\n"),
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "Claude result bom fenced json");
-  assert.equal(parsed?.workstream_id, "ws_test");
-});
-
-test("parseSliceResult unwraps output_text envelopes", () => {
-  const expected = sampleSliceResult({ summary: "output text envelope" });
-  const raw = JSON.stringify({
-    type: "response",
-    output_text: JSON.stringify(expected),
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "output text envelope");
-  assert.equal(parsed?.status, "completed");
-});
-
-test("parseSliceResult unwraps top-level output_text object envelopes", () => {
-  const expected = sampleSliceResult({ summary: "output text object envelope" });
-  const raw = JSON.stringify({
-    type: "response",
-    output_text: {
-      type: "output_text",
-      text: [{ type: "text", value: JSON.stringify(expected) }],
+    {
+      name: "final_output message content prose with inline JSON",
+      raw: JSON.stringify({
+        type: "result",
+        final_output: {
+          type: "message",
+          role: "assistant",
+          content: [
+            {
+              type: "output_text",
+              text: [
+                "Worker log line",
+                JSON.stringify(
+                  sampleSliceResult({ summary: "Final output content prose inline json" })
+                ),
+              ].join("\n"),
+            },
+          ],
+        },
+      }),
+      summary: "Final output content prose inline json",
     },
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "output text object envelope");
-  assert.equal(parsed?.status, "completed");
-});
-
-test("parseSliceResult unwraps output message content text envelopes", () => {
-  const expected = sampleSliceResult({ summary: "output message content envelope" });
-  const raw = JSON.stringify({
-    type: "response",
-    output: [
-      { type: "reasoning", summary: [] },
-      {
-        type: "message",
-        role: "assistant",
-        content: [{ type: "output_text", text: JSON.stringify(expected) }],
-      },
-    ],
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "output message content envelope");
-  assert.equal(parsed?.workstream_id, "ws_test");
-});
-
-test("parseSliceResult unwraps output message content object and array text envelopes", () => {
-  const expected = sampleSliceResult({ summary: "output message object text envelope" });
-  const raw = JSON.stringify({
-    type: "response",
-    output: [
-      {
-        type: "message",
-        role: "assistant",
-        content: [
+    {
+      name: "final_output string",
+      raw: JSON.stringify({
+        type: "result",
+        final_output: JSON.stringify(
+          sampleSliceResult({ summary: "Final output string" })
+        ),
+      }),
+      summary: "Final output string",
+    },
+    {
+      name: "result JSON string",
+      raw: JSON.stringify({
+        type: "result",
+        subtype: "success",
+        result: JSON.stringify(sampleSliceResult({ summary: "Claude result json" })),
+      }),
+      summary: "Claude result json",
+    },
+    {
+      name: "result output_text object",
+      raw: JSON.stringify({
+        type: "result",
+        subtype: "success",
+        result: {
+          type: "output_text",
+          text: [
+            {
+              type: "text",
+              value: JSON.stringify(
+                sampleSliceResult({ summary: "Claude result object text json" })
+              ),
+            },
+          ],
+        },
+      }),
+      summary: "Claude result object text json",
+    },
+    {
+      name: "result array text",
+      raw: JSON.stringify({
+        type: "result",
+        subtype: "success",
+        result: [
           {
             type: "text",
-            text: { value: "Not JSON yet" },
-          },
-          {
-            type: "output_text",
-            text: [{ type: "text", value: JSON.stringify(expected) }],
+            value: JSON.stringify(
+              sampleSliceResult({ summary: "Claude result array text json" })
+            ),
           },
         ],
-      },
-    ],
-  });
-  const parsed = parseSliceResult(raw);
-  assert.equal(parsed?.summary, "output message object text envelope");
-  assert.equal(parsed?.status, "completed");
+      }),
+      summary: "Claude result array text json",
+    },
+    {
+      name: "structured_output fenced JSON",
+      raw: JSON.stringify({
+        type: "result",
+        subtype: "success",
+        structured_output: [
+          "```json",
+          JSON.stringify(sampleSliceResult({ summary: "Claude structured fenced json" })),
+          "```",
+        ].join("\n"),
+      }),
+      summary: "Claude structured fenced json",
+    },
+    {
+      name: "structured_output output_text object",
+      raw: JSON.stringify({
+        type: "result",
+        subtype: "success",
+        structured_output: {
+          type: "output_text",
+          text: [
+            {
+              type: "text",
+              value: JSON.stringify(
+                sampleSliceResult({ summary: "Claude structured object text json" })
+              ),
+            },
+          ],
+        },
+      }),
+      summary: "Claude structured object text json",
+    },
+    {
+      name: "result fenced JSON",
+      raw: JSON.stringify({
+        type: "result",
+        subtype: "success",
+        result: [
+          "```json",
+          JSON.stringify(sampleSliceResult({ summary: "Claude result fenced json" })),
+          "```",
+        ].join("\n"),
+      }),
+      summary: "Claude result fenced json",
+    },
+    {
+      name: "result fenced BOM-prefixed JSON",
+      raw: JSON.stringify({
+        type: "result",
+        subtype: "success",
+        result: [
+          "```json",
+          `\uFEFF${JSON.stringify(sampleSliceResult({ summary: "Claude result bom fenced json" }))}`,
+          "```",
+        ].join("\n"),
+      }),
+      summary: "Claude result bom fenced json",
+    },
+    {
+      name: "top-level output_text string",
+      raw: JSON.stringify({
+        type: "response",
+        output_text: JSON.stringify(
+          sampleSliceResult({ summary: "output text envelope" })
+        ),
+      }),
+      summary: "output text envelope",
+    },
+    {
+      name: "top-level output_text object",
+      raw: JSON.stringify({
+        type: "response",
+        output_text: {
+          type: "output_text",
+          text: [
+            {
+              type: "text",
+              value: JSON.stringify(
+                sampleSliceResult({ summary: "output text object envelope" })
+              ),
+            },
+          ],
+        },
+      }),
+      summary: "output text object envelope",
+    },
+    {
+      name: "output message content text",
+      raw: JSON.stringify({
+        type: "response",
+        output: [
+          { type: "reasoning", summary: [] },
+          {
+            type: "message",
+            role: "assistant",
+            content: [
+              {
+                type: "output_text",
+                text: JSON.stringify(
+                  sampleSliceResult({ summary: "output message content envelope" })
+                ),
+              },
+            ],
+          },
+        ],
+      }),
+      summary: "output message content envelope",
+    },
+    {
+      name: "output message object/array text",
+      raw: JSON.stringify({
+        type: "response",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [
+              { type: "text", text: { value: "Not JSON yet" } },
+              {
+                type: "output_text",
+                text: [
+                  {
+                    type: "text",
+                    value: JSON.stringify(
+                      sampleSliceResult({
+                        summary: "output message object text envelope",
+                      })
+                    ),
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+      summary: "output message object text envelope",
+    },
+  ];
+
+  for (const { name, raw, summary } of cases) {
+    const parsed = parseSliceResult(raw);
+    assert.equal(parsed?.summary, summary, `expected summary for case: ${name}`);
+    assert.equal(parsed?.workstream_id, "ws_test", `expected workstream_id for case: ${name}`);
+    assert.equal(parsed?.status, "completed", `expected completed status for case: ${name}`);
+  }
 });
 
 test("parseSliceResult parses markdown-fenced JSON payloads", () => {
@@ -294,6 +351,19 @@ test("parseSliceResult parses UTF-8 BOM-prefixed JSON payloads", () => {
   const parsed = parseSliceResult(raw);
   assert.equal(parsed?.summary, "bom json");
   assert.equal(parsed?.status, "completed");
+});
+
+test("parseSliceResult normalizes mixed-case status values", () => {
+  const raw = JSON.stringify(
+    sampleSliceResult({
+      status: " Completed ",
+      summary: "mixed case status",
+      artifacts: [{ name: "result", artifact_type: "document" }],
+    })
+  );
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed?.status, "completed");
+  assert.equal(parsed?.summary, "mixed case status");
 });
 
 test("parseSliceResult unwraps BOM-prefixed final_output string envelopes", () => {
@@ -581,6 +651,17 @@ test("parseSliceResult rejects unknown status values", () => {
   assert.equal(parsed, null);
 });
 
+test("parseSliceResult rejects status values outside allowed set even when cased", () => {
+  const raw = JSON.stringify(
+    sampleSliceResult({
+      status: " IN-PROGRESS ",
+      artifacts: [{ name: "result", artifact_type: "document" }],
+    })
+  );
+  const parsed = parseSliceResult(raw);
+  assert.equal(parsed, null);
+});
+
 // ---------------------------------------------------------------------------
 // Session ID extraction tests
 // ---------------------------------------------------------------------------
@@ -594,95 +675,97 @@ const SAMPLE_UUID = "a1b2c3d4-e5f6-7890-abcd-ef1234567890";
 
 // --- extractSessionIdFromOutput ---
 
-test("extractSessionIdFromOutput parses top-level session_id", () => {
-  const raw = JSON.stringify({ session_id: SAMPLE_UUID, status: "completed" });
-  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
+test("extractSessionIdFromOutput parses supported envelope variants", () => {
+  const cases = [
+    { name: "top-level session_id", raw: JSON.stringify({ session_id: SAMPLE_UUID }) },
+    { name: "top-level sessionId", raw: JSON.stringify({ sessionId: SAMPLE_UUID }) },
+    { name: "top-level conversation_id", raw: JSON.stringify({ conversation_id: SAMPLE_UUID }) },
+    {
+      name: "structured_output envelope",
+      raw: JSON.stringify({
+        structured_output: { session_id: SAMPLE_UUID, status: "completed" },
+      }),
+    },
+    { name: "result envelope", raw: JSON.stringify({ result: { session_id: SAMPLE_UUID } }) },
+    {
+      name: "final_output object",
+      raw: JSON.stringify({ final_output: { session_id: SAMPLE_UUID } }),
+    },
+    {
+      name: "final_output stringified JSON",
+      raw: JSON.stringify({
+        final_output: JSON.stringify({ session_id: SAMPLE_UUID }),
+      }),
+    },
+    {
+      name: "final_output nested output_text",
+      raw: JSON.stringify({
+        final_output: {
+          type: "output_text",
+          text: [{ type: "text", value: JSON.stringify({ sessionId: SAMPLE_UUID }) }],
+        },
+      }),
+    },
+    {
+      name: "responses output content envelope",
+      raw: JSON.stringify({
+        output: [
+          {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: JSON.stringify({ conversation_id: SAMPLE_UUID }),
+              },
+            ],
+          },
+        ],
+      }),
+    },
+    { name: "inline fallback pattern", raw: `some text session_id: ${SAMPLE_UUID} more text` },
+  ];
+
+  for (const { name, raw } of cases) {
+    assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID, `expected session id for case: ${name}`);
+  }
 });
 
-test("extractSessionIdFromOutput parses sessionId camelCase", () => {
-  const raw = JSON.stringify({ sessionId: SAMPLE_UUID });
-  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
-});
-
-test("extractSessionIdFromOutput parses conversation_id", () => {
-  const raw = JSON.stringify({ conversation_id: SAMPLE_UUID });
-  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
-});
-
-test("extractSessionIdFromOutput parses Claude structured_output envelope", () => {
-  const raw = JSON.stringify({
-    structured_output: { session_id: SAMPLE_UUID, status: "completed" },
-  });
-  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
-});
-
-test("extractSessionIdFromOutput parses result envelope", () => {
-  const raw = JSON.stringify({
-    result: { session_id: SAMPLE_UUID },
-  });
-  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
-});
-
-test("extractSessionIdFromOutput parses final_output envelope", () => {
-  const raw = JSON.stringify({
-    final_output: { session_id: SAMPLE_UUID },
-  });
-  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
-});
-
-test("extractSessionIdFromOutput falls back to inline session_id pattern", () => {
-  const raw = `some text session_id: ${SAMPLE_UUID} more text`;
-  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
-});
-
-test("extractSessionIdFromOutput returns null for missing session ID", () => {
-  const raw = JSON.stringify({ status: "completed", summary: "Done" });
-  assert.equal(extractSessionIdFromOutput(raw), null);
-});
-
-test("extractSessionIdFromOutput returns null for empty input", () => {
+test("extractSessionIdFromOutput returns null for missing, empty, and invalid ids", () => {
+  assert.equal(
+    extractSessionIdFromOutput(JSON.stringify({ status: "completed", summary: "Done" })),
+    null
+  );
   assert.equal(extractSessionIdFromOutput(""), null);
   assert.equal(extractSessionIdFromOutput(null), null);
   assert.equal(extractSessionIdFromOutput(undefined), null);
+  assert.equal(extractSessionIdFromOutput(JSON.stringify({ session_id: "not-a-uuid" })), null);
 });
 
-test("extractSessionIdFromOutput rejects non-UUID session_id values", () => {
-  const raw = JSON.stringify({ session_id: "not-a-uuid" });
-  assert.equal(extractSessionIdFromOutput(raw), null);
+test("extractSessionIdFromOutput normalizes mixed session id strings to raw UUID", () => {
+  const raw = JSON.stringify({
+    session_id: `Resume with: codex --resume ${SAMPLE_UUID}`,
+  });
+  assert.equal(extractSessionIdFromOutput(raw), SAMPLE_UUID);
 });
 
 // --- extractSessionIdFromLog ---
 
-test("extractSessionIdFromLog extracts Claude resume footer", () => {
-  const log = `Some output\nResume this session with: claude --resume ${SAMPLE_UUID}\nDone.`;
-  assert.equal(extractSessionIdFromLog(log), SAMPLE_UUID);
+test("extractSessionIdFromLog extracts all supported session footer patterns", () => {
+  const logs = [
+    `Some output\nResume this session with: claude --resume ${SAMPLE_UUID}\nDone.`,
+    `Some output\ncodex resume ${SAMPLE_UUID}\nDone.`,
+    `Starting...\nSession: ${SAMPLE_UUID}\nDone.`,
+    `session_id: ${SAMPLE_UUID}`,
+    `saving session ${SAMPLE_UUID}`,
+  ];
+
+  for (const log of logs) {
+    assert.equal(extractSessionIdFromLog(log), SAMPLE_UUID);
+  }
 });
 
-test("extractSessionIdFromLog extracts Codex resume footer", () => {
-  const log = `Some output\ncodex resume ${SAMPLE_UUID}\nDone.`;
-  assert.equal(extractSessionIdFromLog(log), SAMPLE_UUID);
-});
-
-test("extractSessionIdFromLog extracts generic Session: pattern", () => {
-  const log = `Starting...\nSession: ${SAMPLE_UUID}\nDone.`;
-  assert.equal(extractSessionIdFromLog(log), SAMPLE_UUID);
-});
-
-test("extractSessionIdFromLog extracts session_id: pattern", () => {
-  const log = `session_id: ${SAMPLE_UUID}`;
-  assert.equal(extractSessionIdFromLog(log), SAMPLE_UUID);
-});
-
-test("extractSessionIdFromLog extracts saving session pattern", () => {
-  const log = `saving session ${SAMPLE_UUID}`;
-  assert.equal(extractSessionIdFromLog(log), SAMPLE_UUID);
-});
-
-test("extractSessionIdFromLog returns null for missing session ID", () => {
+test("extractSessionIdFromLog returns null for missing and empty logs", () => {
   assert.equal(extractSessionIdFromLog("just some random log output"), null);
-});
-
-test("extractSessionIdFromLog returns null for empty input", () => {
   assert.equal(extractSessionIdFromLog(""), null);
   assert.equal(extractSessionIdFromLog(null), null);
   assert.equal(extractSessionIdFromLog(undefined), null);
