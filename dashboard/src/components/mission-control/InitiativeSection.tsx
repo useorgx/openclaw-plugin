@@ -1139,6 +1139,16 @@ export function InitiativeSection({
                           >
                             {progress}%
                           </text>
+                          <text
+                            x="34" y="46"
+                            textAnchor="middle"
+                            dominantBaseline="central"
+                            fill="currentColor"
+                            fontSize="8"
+                            className="text-muted"
+                          >
+                            {doneTaskCount}/{taskNodes.length} done
+                          </text>
                         </svg>
                         {/* Inline stat pairs */}
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-secondary">
