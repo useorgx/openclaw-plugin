@@ -122,7 +122,7 @@ export function DecisionDetailModal({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedOption, setSelectedOption] = useState<string | null>(null);
   const [note, setNote] = useState('');
-  const [showNotes, setShowNotes] = useState(false);
+  // showNotes is derived below (after selectedOptionRecord is defined)
   const [copied, setCopied] = useState(false);
   const [showTechnical, setShowTechnical] = useState(false);
   const noteRef = useRef<HTMLTextAreaElement>(null);
@@ -143,7 +143,6 @@ export function DecisionDetailModal({
           : null);
       setSelectedOption(defaultOptionId);
       setNote('');
-      setShowNotes(false);
       setCopied(false);
       setShowTechnical(false);
     }
@@ -252,6 +251,7 @@ export function DecisionDetailModal({
     () => options.find((option) => option.id === selectedOption) ?? null,
     [options, selectedOption]
   );
+  const showNotes = selectedOptionRecord?.requiresNote === true;
 
   const context = useMemo(() => {
     const value = (decision?.context ?? '').trim();
@@ -303,7 +303,6 @@ export function DecisionDetailModal({
     }
     if (selectedOptionRecord?.requiresNote && note.trim().length === 0) {
       setErrorMessage('A note is required for the selected option.');
-      setShowNotes(true);
       requestAnimationFrame(() => noteRef.current?.focus());
       return;
     }
@@ -343,7 +342,6 @@ export function DecisionDetailModal({
     }
     if (selectedOptionRecord?.requiresNote && note.trim().length === 0) {
       setErrorMessage('A note is required for the selected option.');
-      setShowNotes(true);
       requestAnimationFrame(() => noteRef.current?.focus());
       return;
     }
@@ -408,16 +406,13 @@ export function DecisionDetailModal({
           break;
         case 'n':
           e.preventDefault();
-          setShowNotes((prev) => !prev);
-          if (!showNotes) {
-            requestAnimationFrame(() => noteRef.current?.focus());
-          }
+          noteRef.current?.focus();
           break;
       }
     };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [open, handleApprove, handleReject, onNavigate, showNotes]);
+  }, [open, handleApprove, handleReject, onNavigate]);
 
   if (!open || !decision) return null;
 
@@ -739,7 +734,7 @@ export function DecisionDetailModal({
                       onClick={() => {
                         setSelectedOption(isActive ? null : option.id);
                         if (option.requiresNote) {
-                          setShowNotes(true);
+                          requestAnimationFrame(() => noteRef.current?.focus());
                         }
                       }}
                       disabled={busy}
@@ -798,52 +793,22 @@ export function DecisionDetailModal({
             </div>
           )}
 
-          {/* 9. Note field */}
-          {isPending && (
+          {/* 9. Note field — only when an option requires a note */}
+          {isPending && showNotes && (
             <div className="mt-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowNotes((prev) => !prev);
-                  if (!showNotes) {
-                    requestAnimationFrame(() => noteRef.current?.focus());
-                  }
-                }}
-                className="flex w-full items-center gap-2 px-1 text-caption text-secondary transition-colors hover:text-white"
-              >
-                <svg
-                  width="12"
-                  height="12"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="transition-transform"
-                  style={{ transform: showNotes ? 'rotate(90deg)' : 'rotate(0deg)' }}
-                >
-                  <polyline points="9 18 15 12 9 6" />
-                </svg>
-                {selectedOptionRecord?.requiresNote ? 'Add required note' : 'Add a note'}
-              </button>
-              {showNotes && (
-                <div className="mt-2">
-                  <textarea
-                    ref={noteRef}
-                    value={note}
-                    onChange={(event) => setNote(event.target.value)}
-                    disabled={busy}
-                    placeholder="Optional context for this decision..."
-                    rows={3}
-                    className="w-full resize-none rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-body text-primary placeholder-white/30 outline-none transition-colors focus:border-white/[0.16] focus:bg-white/[0.04]"
-                  />
-                  {selectedOptionRecord?.requiresNote && note.trim().length === 0 && (
-                    <p className="mt-2 text-caption text-amber-300">
-                      This option requires a note before submission.
-                    </p>
-                  )}
-                </div>
+              <textarea
+                ref={noteRef}
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                disabled={busy}
+                placeholder="Required: add context for this decision..."
+                rows={3}
+                className="w-full resize-none rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-body text-primary placeholder-white/30 outline-none transition-colors focus:border-white/[0.16] focus:bg-white/[0.04]"
+              />
+              {note.trim().length === 0 && (
+                <p className="mt-2 text-caption text-amber-300">
+                  This option requires a note before submission.
+                </p>
               )}
             </div>
           )}
