@@ -798,7 +798,57 @@ export function DecisionDetailModal({
             </div>
           )}
 
-          {/* 9. Impact section */}
+          {/* 9. Note field */}
+          {isPending && (
+            <div className="mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNotes((prev) => !prev);
+                  if (!showNotes) {
+                    requestAnimationFrame(() => noteRef.current?.focus());
+                  }
+                }}
+                className="flex w-full items-center gap-2 px-1 text-caption text-secondary transition-colors hover:text-white"
+              >
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="transition-transform"
+                  style={{ transform: showNotes ? 'rotate(90deg)' : 'rotate(0deg)' }}
+                >
+                  <polyline points="9 18 15 12 9 6" />
+                </svg>
+                {selectedOptionRecord?.requiresNote ? 'Add required note' : 'Add a note'}
+              </button>
+              {showNotes && (
+                <div className="mt-2">
+                  <textarea
+                    ref={noteRef}
+                    value={note}
+                    onChange={(event) => setNote(event.target.value)}
+                    disabled={busy}
+                    placeholder="Optional context for this decision..."
+                    rows={3}
+                    className="w-full resize-none rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-body text-primary placeholder-white/30 outline-none transition-colors focus:border-white/[0.16] focus:bg-white/[0.04]"
+                  />
+                  {selectedOptionRecord?.requiresNote && note.trim().length === 0 && (
+                    <p className="mt-2 text-caption text-amber-300">
+                      This option requires a note before submission.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 10. Impact section */}
           {impact && (
             <div className="mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
               <p className="text-micro font-semibold uppercase tracking-wider text-muted mb-2">Impact</p>
@@ -821,7 +871,7 @@ export function DecisionDetailModal({
             </div>
           )}
 
-          {/* 10. Source trace link */}
+          {/* 11. Source trace link */}
           {sourceRunId && onFocusRunId && (
             <div className="mt-4">
               <button
@@ -835,12 +885,12 @@ export function DecisionDetailModal({
             </div>
           )}
 
-          {/* 11. Comments thread */}
+          {/* 12. Comments thread */}
           <div className="mt-4 border-t border-white/[0.06] pt-4">
             <EntityCommentsPanel entityType="decision" entityId={decision.id} />
           </div>
 
-          {/* 12. Technical details (collapsed) */}
+          {/* 13. Technical details (collapsed) */}
           {technicalDetails.length > 0 && (
             <div className="mt-4 border-t border-white/[0.06] pt-2">
               <button
@@ -874,7 +924,7 @@ export function DecisionDetailModal({
             </div>
           )}
 
-          {/* 13. Keyboard hints */}
+          {/* 14. Keyboard hints */}
           <div className="mt-4 flex flex-wrap gap-x-3 gap-y-1 text-micro text-muted opacity-60">
             {onNavigate && <span>j/k nav</span>}
             <span>a approve</span>
@@ -897,7 +947,7 @@ export function DecisionDetailModal({
           </div>
         )}
 
-        {/* 14. Action footer - only for pending decisions */}
+        {/* 15. Action footer - only for pending decisions */}
         {isPending && (
           <div className="relative mt-auto border-t border-white/[0.04] bg-black/60 px-6 py-5 backdrop-blur-xl">
             <div className="flex items-center justify-between">

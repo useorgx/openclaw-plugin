@@ -5,6 +5,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { buildOrgxHeaders } from '@/lib/http';
 import { parseUpgradeRequiredError } from '@/lib/upgradeGate';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { parseMissionControlApiError } from '@/lib/missionControlApiError';
 
 interface UseAutoContinueOptions {
   initiativeId?: string | null;
@@ -158,11 +159,11 @@ export function useAutoContinue({
       if (!response.ok) {
         const upgradeError = parseUpgradeRequiredError(body);
         if (upgradeError) throw upgradeError;
-        const message =
-          (typeof (body as any)?.error === 'string' && (body as any).error) ||
-          (typeof (body as any)?.message === 'string' && (body as any).message) ||
-          `Failed to start auto-continue (${response.status})`;
-        throw new Error(message);
+        throw parseMissionControlApiError(
+          response,
+          body,
+          'Failed to start auto-continue'
+        );
       }
 
       // Handler returns { ok, run }. Normalize to AutoContinueStatusResponse shape.
@@ -213,11 +214,11 @@ export function useAutoContinue({
         | null;
 
       if (!response.ok) {
-        const message =
-          (typeof (body as any)?.error === 'string' && (body as any).error) ||
-          (typeof (body as any)?.message === 'string' && (body as any).message) ||
-          `Failed to stop auto-continue (${response.status})`;
-        throw new Error(message);
+        throw parseMissionControlApiError(
+          response,
+          body,
+          'Failed to stop auto-continue'
+        );
       }
 
       if (body && typeof body === 'object' && 'run' in body) {
@@ -272,11 +273,7 @@ export function useAutoContinue({
       if (!response.ok) {
         const upgradeError = parseUpgradeRequiredError(body);
         if (upgradeError) throw upgradeError;
-        const message =
-          (typeof (body as any)?.error === 'string' && (body as any).error) ||
-          (typeof (body as any)?.message === 'string' && (body as any).message) ||
-          `Failed to launch (${response.status})`;
-        throw new Error(message);
+        throw parseMissionControlApiError(response, body, 'Failed to launch');
       }
 
       return body ?? { ok: true, dispatched: 0 };

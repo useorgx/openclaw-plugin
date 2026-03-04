@@ -13,7 +13,6 @@ import { UpgradeRequiredError, formatPlanLabel } from '@/lib/upgradeGate';
 import { humanizeId, humanizeWarning, isOpaqueId, sanitizeDisplayText } from '@/lib/humanize';
 import { useNextUpQueue, type NextUpQueueItem, type UseNextUpQueueResult, type ZoomLevel, type InitiativeGroupItem, type MilestoneGroupItem } from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
-import { useAutoContinue } from '@/hooks/useAutoContinue';
 import { EmptyState } from '@/components/shared/EmptyState';
 import type { NextUpQueueBulkAction } from '@/types';
 
@@ -40,6 +39,7 @@ interface NextUpPanelProps {
   showQueueSettings?: boolean;
   queueModel?: UseNextUpQueueResult;
   queueActions?: UseNextUpQueueActionsResult;
+  onPlayWorkstream?: (item: NextUpQueueItem) => Promise<unknown>;
   snapshotVersion?: number | null;
   excludeRunning?: boolean;
   activeElsewhereCount?: number;
@@ -69,25 +69,6 @@ function PauseGlyph({ className = '' }: ActionGlyphProps) {
     <svg viewBox="0 0 20 20" fill="none" aria-hidden className={className}>
       <rect x="5.5" y="5" width="3.2" height="10" rx="1" fill="currentColor" />
       <rect x="11.3" y="5" width="3.2" height="10" rx="1" fill="currentColor" />
-    </svg>
-  );
-}
-
-function AutoGlyph({ className = '' }: ActionGlyphProps) {
-  return (
-    <svg
-      viewBox="0 0 20 20"
-      fill="none"
-      aria-hidden
-      className={className}
-    >
-      <path
-        d="M6.1 13.25C4.25 13.25 2.8 11.8 2.8 10s1.45-3.25 3.3-3.25c3.15 0 4.35 6.5 8.05 6.5 1.85 0 3.3-1.45 3.3-3.25s-1.45-3.25-3.3-3.25c-3.7 0-4.9 6.5-8.05 6.5Z"
-        stroke="currentColor"
-        strokeWidth="2.1"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
     </svg>
   );
 }
@@ -514,6 +495,7 @@ export function NextUpPanel({
   showQueueSettings = true,
   queueModel,
   queueActions,
+  onPlayWorkstream,
   snapshotVersion = null,
   excludeRunning = false,
   activeElsewhereCount: activeElsewhereCountProp,
@@ -527,7 +509,6 @@ export function NextUpPanel({
   };
   const [notice, setNotice] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState<ZoomLevel>('workstream');
-  const [launchFeedback, setLaunchFeedback] = useState<string | null>(null);
   const triagePlacement: QueuePlacement = 'bottom';
   const [upgradeGate, setUpgradeGate] = useState<UpgradeRequiredError | null>(
     null
@@ -562,8 +543,6 @@ export function NextUpPanel({
     initiativeGroups,
     milestoneGroups,
   } = queue;
-
-  const autoContinue = useAutoContinue({ initiativeId, authToken, embedMode });
 
   const internalNextUpActions = useNextUpQueueActions({ authToken, embedMode });
   const nextUpActions = queueActions ?? internalNextUpActions;
@@ -948,47 +927,15 @@ export function NextUpPanel({
     }
   };
 
-  const handleLaunch = async () => {
-    if (!initiativeId) return;
-    setLaunchFeedback('Dispatching...');
-    try {
-      const workstreamIds = items
-        .filter((item) => item.queueState !== 'running' && item.queueState !== 'completed')
-        .map((item) => item.workstreamId);
-      const result = await autoContinue.launchSingle({
-        initiativeId,
-        workstreamIds: workstreamIds.length > 0 ? workstreamIds : undefined,
-      });
-      const count = result?.dispatched ?? workstreamIds.length;
-      setLaunchFeedback(`${count} workstream${count === 1 ? '' : 's'} dispatched`);
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : '';
-      setLaunchFeedback(formatQueueActionError(raw, 'Launch failed'));
-    }
-  };
-
   const launchWorkstream = async (item: NextUpQueueItem) => {
+    if (onPlayWorkstream) {
+      return await onPlayWorkstream(item);
+    }
     return await playWorkstream({
       initiativeId: item.initiativeId,
       workstreamId: item.workstreamId,
       agentId: item.runnerAgentId,
     });
-  };
-
-  const handleAutopilot = async () => {
-    if (!initiativeId) return;
-    const confirmed = window.confirm(
-      'Enable Autopilot for this initiative? OrgX will continue dispatching queued work and only pause for blockers or required decisions.'
-    );
-    if (!confirmed) return;
-    setLaunchFeedback('Enabling autopilot...');
-    try {
-      await autoContinue.start({});
-      setLaunchFeedback('Autopilot enabled');
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : '';
-      setLaunchFeedback(formatQueueActionError(raw, 'Autopilot failed'));
-    }
   };
 
   const statusTone: 'upgrade' | 'error' | 'notice' | null = upgradeGate
@@ -1576,7 +1523,13 @@ export function NextUpPanel({
                     <button
                       type="button"
                       disabled={actionKey === busyKey || group.queueState === 'running'}
-                      onClick={() => void runAction(busyKey, () => launchWorkstream(item), (result) => playDispatchNotice(item, result))}
+                      onClick={() =>
+                        void runAction(
+                          busyKey,
+                          () => launchWorkstream(item),
+                          (result) => playDispatchNotice(item, result)
+                        )
+                      }
                       className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
                     >
                       {group.queueState === 'running' ? 'Running' : 'Start'}
@@ -1749,12 +1702,7 @@ export function NextUpPanel({
                       onClick={() =>
                         void runAction(
                           key,
-                          () =>
-                            playWorkstream({
-                              initiativeId: item.initiativeId,
-                              workstreamId: item.workstreamId,
-                              agentId: item.runnerAgentId,
-                            }),
+                          () => launchWorkstream(item),
                           (result) => playDispatchNotice(item, result)
                         )
                       }
@@ -1825,25 +1773,19 @@ export function NextUpPanel({
                               setMenuKey(null);
                               void runAction(
                                 `${key}:auto`,
-                                async () => {
-                                  await nextUpActions.move({
-                                    initiativeId: item.initiativeId,
-                                    workstreamId: item.workstreamId,
-                                    placement: 'top',
-                                  });
-                                  return startWorkstreamAutoContinue({
+                                () =>
+                                  startWorkstreamAutoContinue({
                                     initiativeId: item.initiativeId,
                                     workstreamId: item.workstreamId,
                                     agentId: item.runnerAgentId,
                                     scope: 'initiative',
-                                  });
-                                },
-                                `Start+Auto enabled for ${initiativeTitle}.`
+                                  }),
+                                `Auto enabled for ${initiativeTitle}.`
                               );
                             }}
                             className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
                           >
-                            Start with auto
+                            Auto on
                           </button>
                           <button
                             type="button"
@@ -1893,7 +1835,7 @@ export function NextUpPanel({
                   onToggleSelection={toggleSelection}
                   menuKey={menuKey}
                   setMenuKey={setMenuKey}
-                  playWorkstream={playWorkstream}
+                  onPlayWorkstream={launchWorkstream}
                   startWorkstreamAutoContinue={startWorkstreamAutoContinue}
                   triagePlacement={triagePlacement}
                   onPauseWorkstream={(nextItem, placement) =>
@@ -1948,7 +1890,7 @@ function NextUpReorderRow({
   onToggleSelection,
   menuKey,
   setMenuKey,
-  playWorkstream,
+  onPlayWorkstream,
   startWorkstreamAutoContinue,
   triagePlacement,
   onPauseWorkstream,
@@ -1970,7 +1912,7 @@ function NextUpReorderRow({
   onToggleSelection: (key: string, checked: boolean, shiftKey: boolean) => void;
   menuKey: string | null;
   setMenuKey: (value: string | null | ((previous: string | null) => string | null)) => void;
-  playWorkstream: (input: { initiativeId: string; workstreamId: string; agentId?: string | null }) => Promise<unknown>;
+  onPlayWorkstream: (item: NextUpQueueItem) => Promise<unknown>;
   startWorkstreamAutoContinue: (input: {
     initiativeId: string;
     workstreamId: string;
@@ -2194,12 +2136,7 @@ function NextUpReorderRow({
             onClick={() =>
               void runAction(
                 key,
-                () =>
-                  playWorkstream({
-                    initiativeId: item.initiativeId,
-                    workstreamId: item.workstreamId,
-                    agentId: item.runnerAgentId,
-                  }),
+                () => onPlayWorkstream(item),
                 (result) => playDispatchNotice(item, result)
               )
             }
@@ -2278,21 +2215,19 @@ function NextUpReorderRow({
                     setMenuKey(null);
                     void runAction(
                       `${key}:auto`,
-                      async () => {
-                        await onMoveWorkstream(item, 'top');
-                        return startWorkstreamAutoContinue({
+                      () =>
+                        startWorkstreamAutoContinue({
                           initiativeId: item.initiativeId,
                           workstreamId: item.workstreamId,
                           agentId: item.runnerAgentId,
                           scope: 'initiative',
-                        });
-                      },
-                      `Start+Auto enabled for ${initiativeTitle}.`
+                        }),
+                      `Auto enabled for ${initiativeTitle}.`
                     );
                   }}
                   className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
                 >
-                  Start with auto
+                  Auto on
                 </button>
                 {isRunningRow ? (
                   <button
