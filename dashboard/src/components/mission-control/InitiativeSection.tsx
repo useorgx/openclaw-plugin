@@ -357,7 +357,6 @@ export function InitiativeSection({
     initiativeId: initiative.id,
     authToken,
     embedMode,
-    enabled: isExpanded,
   });
   const {
     details,
@@ -367,7 +366,6 @@ export function InitiativeSection({
     initiativeId: initiative.id,
     authToken,
     embedMode,
-    enabled: isExpanded,
   });
   const nextUpActions = useNextUpQueueActions({ authToken, embedMode });
 
@@ -604,11 +602,10 @@ export function InitiativeSection({
     [initiative.id, workstreamNodes]
   );
   const hasEntityHierarchy =
-    isExpanded &&
-    (hasPrimaryGraphData ||
-      details.workstreams.length > 0 ||
-      details.milestones.length > 0 ||
-      details.tasks.length > 0);
+    hasPrimaryGraphData ||
+    details.workstreams.length > 0 ||
+    details.milestones.length > 0 ||
+    details.tasks.length > 0;
 
   const computedProgress =
     taskNodes.length > 0
