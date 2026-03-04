@@ -24,6 +24,7 @@ import {
   type RuntimeSourceClient,
 } from "../../runtime-instance-store.js";
 import { detectMcpHandshakeFailure, shouldKillWorker } from "../../worker-supervisor.js";
+import { humanizeSliceFailure, humanizeSliceFailureSummary } from "./humanize-slice-failure.js";
 import { getOrgxPluginConfigDir } from "../../paths.js";
 import {
   buildMissionControlGraph,
@@ -2333,9 +2334,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	          const decisionResult = await requestDecisionQueued({
 	                initiativeId: run.initiativeId,
 	                correlationId: slice.runId,
-	                title: `Autopilot slice MCP failed: ${slice.workstreamTitle ?? slice.workstreamId}`,
+	                title: `Agent couldn't connect to tools: ${slice.workstreamTitle ?? slice.workstreamId}`,
 	                summary:
-	                  `MCP handshake failed${mcpHandshake.server ? ` for ${mcpHandshake.server}` : ""}. Review logs/output and decide whether to retry or pause autopilot.`,
+	                  humanizeSliceFailureSummary(`MCP handshake failed${mcpHandshake.server ? ` for ${mcpHandshake.server}` : ""}.`),
 	                urgency: "high",
 	                options: [
 	                  "Retry this workstream slice",
@@ -2467,9 +2468,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 		              const decisionResult = await requestDecisionQueued({
 	                initiativeId: run.initiativeId,
 	                correlationId: slice.runId,
-	                title: `Autopilot slice ${humanLabel}: ${slice.workstreamTitle ?? slice.workstreamId}`,
+	                title: `Agent ${humanLabel === "timed out" ? "ran out of time" : "stopped making progress"}: ${slice.workstreamTitle ?? slice.workstreamId}`,
 	                summary:
-	                  "The slice was terminated because it stopped making progress. Review logs/output and decide whether to retry or pause autopilot.",
+	                  humanizeSliceFailureSummary(slice.lastError ?? `Autopilot slice ${humanLabel}`),
 	                urgency: "high",
 	                options: [
 	                  "Retry this workstream slice",
@@ -3065,18 +3066,18 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           };
           if (!blockingDecisionQueued) {
             const blockedLike = slice.status === "blocked";
+            const fallbackRawError = parsed?.summary ?? slice.lastError ??
+              (blockedLike
+                ? "Execution is blocked and needs intervention."
+                : "Agent process exited without a valid output contract.");
+            const fallbackHumanized = humanizeSliceFailure(fallbackRawError);
             fallbackDecisionResult = await requestDecisionQueued({
               initiativeId: run.initiativeId,
               correlationId: slice.runId,
               title: blockedLike
-                ? `Autopilot slice blocked: ${slice.workstreamTitle ?? slice.workstreamId}`
-                : `Autopilot slice failed: ${slice.workstreamTitle ?? slice.workstreamId}`,
-              summary:
-                parsed?.summary ??
-                slice.lastError ??
-                (blockedLike
-                  ? "The slice reported a blocked/decision-required state without a blocking decision payload. Review logs/output and decide whether to retry, unblock, or skip."
-                  : "The slice failed without producing a valid output contract. Review logs/output and decide whether to retry or pause autopilot."),
+                ? `Agent needs your help: ${slice.workstreamTitle ?? slice.workstreamId}`
+                : `${fallbackHumanized.headline}: ${slice.workstreamTitle ?? slice.workstreamId}`,
+              summary: fallbackHumanized.explanation,
               urgency: "high",
               options: [
                 "Retry this workstream slice",
@@ -3164,13 +3165,15 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           statusUpdateResult.applied === 0;
 
         if (!parsed || parsedStatus === "error" || completionHadNoOutcome) {
+          const rawError = slice.lastError ?? (completionHadNoOutcome
+            ? "Completed without verifiable outcomes or artifacts."
+            : "Agent process exited without a valid output contract.");
+          const humanized = humanizeSliceFailure(rawError);
           const attentionTitle =
             completionHadNoOutcome
-              ? `Autopilot slice needs verification: ${slice.workstreamTitle ?? slice.workstreamId}`
-              : `Autopilot slice failed: ${slice.workstreamTitle ?? slice.workstreamId}`;
-          const attentionSummary = completionHadNoOutcome
-            ? "The slice reported completion but did not produce artifacts or status updates. Decide whether to retry, request stronger output, or mark tasks manually."
-            : "The slice exited without a valid output contract. Review logs/output and decide whether to retry or pause autopilot.";
+              ? `Agent finished but produced nothing: ${slice.workstreamTitle ?? slice.workstreamId}`
+              : `${humanized.headline}: ${slice.workstreamTitle ?? slice.workstreamId}`;
+          const attentionSummary = humanized.explanation;
 
           const decisionResult = await requestDecisionQueued({
             initiativeId: run.initiativeId,
