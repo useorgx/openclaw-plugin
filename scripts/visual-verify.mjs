@@ -3,16 +3,26 @@
  * Visual verification script — captures screenshots of all key dashboard surfaces.
  * Run: node scripts/visual-verify.mjs
  */
-import { chromium } from 'playwright';
 import { mkdirSync } from 'fs';
 import { join } from 'path';
+import { loadChromium, resolveQaRunDir, shouldDryRun } from './qa-output-paths.mjs';
 
 const BASE_URL = 'http://127.0.0.1:18789/orgx/live';
-const OUT_DIR = join(import.meta.dirname, '..', 'docs', 'qa', '2026-02-19', 'phase2-audit');
+const OUT_DIR = resolveQaRunDir({
+  argv: process.argv,
+  suite: 'visual-verify',
+});
+const DRY_RUN = shouldDryRun(process.argv);
 
 mkdirSync(OUT_DIR, { recursive: true });
 
 async function main() {
+  if (DRY_RUN) {
+    console.log(`[visual-verify] dry-run output dir: ${OUT_DIR}`);
+    return;
+  }
+
+  const chromium = await loadChromium();
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({
     viewport: { width: 1440, height: 900 },

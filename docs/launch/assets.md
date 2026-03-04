@@ -1,7 +1,6 @@
 # Launch Assets Checklist (OpenClaw Plugin)
 
 ## Existing Assets In This Repo
-- `orgx-live-after-fixes.png` (Mission Control screenshot)
 - `docs/launch/assets/mission-control-2026-02-09.png` (fresh Mission Control screenshot captured from local OpenClaw)
 - `docs/launch/assets/mission-control-2026-02-09.gif` (lightweight Mission Control GIF derived from screenshot)
 - `docs/launch/assets/mission-control-2026-02-09.mp4` (source clip for GIF)

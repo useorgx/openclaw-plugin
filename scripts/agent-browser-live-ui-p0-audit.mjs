@@ -12,8 +12,8 @@
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { chromium } from "playwright";
+import { join } from "node:path";
+import { loadChromium, resolveQaRunDir, shouldDryRun } from "./qa-output-paths.mjs";
 
 const BASE_URL = String(process.env.ORGX_LIVE_BASE_URL || "http://127.0.0.1:18789")
   .trim()
@@ -23,9 +23,12 @@ const WORKSPACE_ID_ENV = String(process.env.ORGX_LIVE_AUDIT_WORKSPACE_ID || "").
 const REQUEST_TIMEOUT_MS = Number.isFinite(Number(process.env.ORGX_LIVE_AUDIT_REQUEST_TIMEOUT_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.ORGX_LIVE_AUDIT_REQUEST_TIMEOUT_MS)))
   : 20_000;
-const RESULT_DIR = resolve(
-  String(process.env.ORGX_LIVE_AUDIT_RESULT_DIR || join(process.cwd(), "artifacts", "live-audits")).trim()
-);
+const RESULT_DIR = resolveQaRunDir({
+  argv: process.argv,
+  suite: "live-ui-p0-audit",
+  envOutputDirVar: "ORGX_LIVE_AUDIT_RESULT_DIR",
+});
+const DRY_RUN = shouldDryRun(process.argv);
 
 const SNAPSHOT_LIMITS = {
   sessions: Number.isFinite(Number(process.env.ORGX_LIVE_AUDIT_SESSIONS_LIMIT))
@@ -132,7 +135,13 @@ function hasPositiveDecisionBadge(values) {
 }
 
 async function run() {
+  if (DRY_RUN) {
+    process.stdout.write(`[live-ui-p0] dry-run output dir: ${RESULT_DIR}\n`);
+    return;
+  }
+
   mkdirSync(RESULT_DIR, { recursive: true });
+  const chromium = await loadChromium();
 
   const startedAt = nowIso();
   const liveUrl = parseLiveUrl(LIVE_URL_BASE);

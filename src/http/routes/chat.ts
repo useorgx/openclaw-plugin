@@ -14,6 +14,7 @@ import {
   sendChatMessage,
   updateChatLaunchStatus,
 } from "../../chat-store.js";
+import { asRecord, asStringArray } from "../../lib/type-coercion.js";
 import type { Router } from "../router.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -33,25 +34,6 @@ type RegisterChatRoutesDeps<TReq, TRes> = {
   sendJson: (res: TRes, status: number, payload: unknown) => void;
   safeErrorMessage: (err: unknown) => string;
 };
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
-function asStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const entry of value) {
-    if (typeof entry !== "string") continue;
-    const trimmed = entry.trim();
-    if (!trimmed || seen.has(trimmed)) continue;
-    seen.add(trimmed);
-    out.push(trimmed);
-  }
-  return out;
-}
 
 function normalizeStatus(value: string | null | undefined): ChatLaunchStatus {
   const normalized = (value ?? "").trim().toLowerCase();
