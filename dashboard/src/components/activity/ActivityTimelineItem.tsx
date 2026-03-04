@@ -41,6 +41,8 @@ function resolveArtifactColor(typeBadge: string | undefined): string {
   return EVIDENCE_CHIP_COLORS.artifact;
 }
 
+export type ActorCategory = 'user' | 'system' | 'orchestrator' | 'agent';
+
 interface ActivityTimelineItemProps {
   renderKey: string;
   displayTitle: string;
@@ -59,7 +61,17 @@ interface ActivityTimelineItemProps {
   ariaLabel: string;
   artifactSnippet?: ArtifactSnippet | null;
   evidenceChips?: EvidenceChip[];
+  actorCategory?: ActorCategory;
+  queuePosition?: { rank: number; state: string } | null;
 }
+
+const QUEUE_STATE_COLORS: Record<string, string> = {
+  running: '#BFFF00',
+  blocked: '#FF6B88',
+  queued: 'rgba(255,255,255,0.5)',
+  completed: 'rgba(191,255,0,0.5)',
+  idle: 'rgba(255,255,255,0.3)',
+};
 
 export function ActivityTimelineItem({
   renderKey,
@@ -79,35 +91,38 @@ export function ActivityTimelineItem({
   ariaLabel,
   artifactSnippet,
   evidenceChips,
+  actorCategory,
+  queuePosition,
 }: ActivityTimelineItemProps) {
   const visibleChips = evidenceChips?.slice(0, 2) ?? [];
   const overflowCount = (evidenceChips?.length ?? 0) - visibleChips.length;
   const commonClassName =
     "group w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3.5 py-3 text-left transition-colors hover:border-strong hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45 cv-auto";
 
+  const isSystem = actorCategory === 'system';
   const content = (
-    <div className="flex items-start gap-3">
+    <div className={cn("flex items-start gap-3", isSystem && "opacity-55")}>
       <div className="mt-0.5">
         <AgentAvatar
-          name={displayAgentName}
+          name={actorCategory === 'user' ? 'You' : displayAgentName}
           hint={displayAgentName}
           size="xs"
         />
       </div>
       <div className="relative min-w-0 flex-1 pl-3">
         <span
-          className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full', isRecent && 'pulse-soft')}
+          className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full', isRecent && !isSystem && 'pulse-soft')}
           style={{
             backgroundColor: railColor,
-            boxShadow: `0 0 14px ${railColor}66`,
+            boxShadow: isSystem ? 'none' : `0 0 14px ${railColor}66`,
           }}
         />
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-caption text-secondary" title={contextLabel}>
-              {contextLabel}
+            <p className={cn("truncate text-caption", isSystem ? "text-muted italic" : "text-secondary")} title={contextLabel}>
+              {isSystem ? `OrgX \u00b7 ${contextLabel}` : contextLabel}
             </p>
-            <p className="mt-0.5 line-clamp-1 break-words text-body font-semibold leading-snug text-bright">
+            <p className={cn("mt-0.5 line-clamp-1 break-words text-body font-semibold leading-snug", isSystem ? "text-secondary" : "text-bright")}>
               {headline || displayTitle}
             </p>
           </div>
@@ -201,6 +216,22 @@ export function ActivityTimelineItem({
           >
             <span className="truncate">{displayAgentName}</span>
           </span>
+          {queuePosition && (() => {
+            const stateColor = QUEUE_STATE_COLORS[queuePosition.state] ?? 'rgba(255,255,255,0.3)';
+            return (
+              <span
+                className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold tracking-[0.01em]"
+                style={{
+                  borderColor: `${stateColor}55`,
+                  backgroundColor: `${stateColor}1A`,
+                  color: stateColor,
+                }}
+              >
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: stateColor }} />
+                {queuePosition.state === 'running' ? 'Active' : `#${queuePosition.rank}`}
+              </span>
+            );
+          })()}
         </div>
       </div>
     </div>
