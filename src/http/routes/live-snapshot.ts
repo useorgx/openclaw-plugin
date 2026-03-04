@@ -775,25 +775,7 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     try {
       const buffered = await deps.readOutboxItems();
       if (buffered.length > 0) {
-        const merged = [...activity, ...buffered]
-          .sort((a, b) => {
-            const d = Date.parse(b.timestamp) - Date.parse(a.timestamp);
-            if (d !== 0) return d;
-            return b.id.localeCompare(a.id);
-          })
-          .slice(0, activityLimit);
-        const deduped: LiveActivityItem[] = [];
-        const seenIds = new Set<string>();
-        const seenSemantic = new Set<string>();
-        for (const item of merged) {
-          if (seenIds.has(item.id)) continue;
-          seenIds.add(item.id);
-          const sk = deps.semanticActivityKey(item);
-          if (sk && seenSemantic.has(sk)) continue;
-          if (sk) seenSemantic.add(sk);
-          deduped.push(item);
-        }
-        activity = deduped;
+        activity = deps.mergeActivities(activity, buffered, activityLimit);
       }
     } catch (err: unknown) {
       degraded.push(`outbox unavailable (${deps.safeErrorMessage(err)})`);
@@ -826,6 +808,9 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       agents: agentContexts,
       runs: runContexts,
     });
+    // Final dedup pass after enrichment — catches items that became
+    // semantically identical after runtime/agent context decoration.
+    activity = deps.mergeActivities(activity, [], activityLimit);
     activity = activity.filter((item) => !shouldHideActivityItem(item));
     sessions = normalizeReportingBlockedSessions({
       sessions,

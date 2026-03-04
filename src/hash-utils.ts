@@ -4,6 +4,17 @@ export function stableHash(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
+export function deterministicActivityId(
+  type: string,
+  runId: string | null,
+  timestamp: string,
+  agentId: string | null,
+  event: string | null
+): string {
+  const input = [type, runId ?? "", timestamp, agentId ?? "", event ?? ""].join("|");
+  return `act-${stableHash(input).slice(0, 32)}`;
+}
+
 export function idempotencyKey(parts: Array<string | null | undefined>): string {
   const raw = parts
     .filter((part): part is string => typeof part === "string" && part.length > 0)

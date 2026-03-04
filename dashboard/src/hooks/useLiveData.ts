@@ -665,26 +665,10 @@ function metadataString(
   return null;
 }
 
-const SEMANTIC_ACTIVITY_EVENTS = new Set([
-  'autopilot_slice_result',
-  'auto_continue_started',
-  'auto_continue_stopped',
-  'next_up_manual_dispatch_started',
-  'autopilot_slice_mcp_handshake_failed',
-  'autopilot_slice_timeout',
-  'autopilot_slice_log_stall',
-  'auto_continue_spawn_guard_blocked',
-  'auto_continue_spawn_guard_rate_limited',
-  'autopilot_autofix_scheduled',
-  'autopilot_autofix_executed',
-  'autopilot_autofix_skipped',
-]);
-
 function semanticActivityKey(item: LiveActivityItem): string | null {
   const metadata = asMetadataRecord(item.metadata);
   const eventRaw = metadata?.event;
   const event = typeof eventRaw === 'string' ? eventRaw.trim().toLowerCase() : '';
-  if (!event || !SEMANTIC_ACTIVITY_EVENTS.has(event)) return null;
 
   const runLike =
     (typeof item.runId === 'string' && item.runId.trim().length > 0
@@ -712,6 +696,7 @@ function semanticActivityKey(item: LiveActivityItem): string | null {
   const parsedStatus = metadataString(metadata, ['parsed_status', 'parsedStatus']);
   const title = (item.title ?? '').trim().toLowerCase();
 
+  if (!event && !runLike && !correlationId) return null;
   if (!runLike && !correlationId && !workstreamId && !taskId) return null;
 
   return [
@@ -727,19 +712,49 @@ function semanticActivityKey(item: LiveActivityItem): string | null {
   ].join('|');
 }
 
+function activityRichness(item: LiveActivityItem): number {
+  let score = 0;
+  const meta = item.metadata as Record<string, unknown> | undefined;
+  if (meta) score += Object.keys(meta).length;
+  if (item.summary) score += 2;
+  if (item.description) score += 2;
+  if (item.agentName) score += 1;
+  if (item.runtimeLabel) score += 1;
+  if (item.runtimeProvider) score += 1;
+  if (item.phase) score += 1;
+  if (item.state) score += 1;
+  return score;
+}
+
 function dedupeActivitySemantically(
   source: LiveActivityItem[],
   maxActivityItems: number
 ): LiveActivityItem[] {
   const seenIds = new Set<string>();
   const seenSemantic = new Set<string>();
+  const semanticIdx = new Map<string, number>();
   const deduped: LiveActivityItem[] = [];
   for (const item of source) {
-    if (seenIds.has(item.id)) continue;
+    if (seenIds.has(item.id)) {
+      const existingIdx = deduped.findIndex(d => d.id === item.id);
+      if (existingIdx >= 0 && activityRichness(item) > activityRichness(deduped[existingIdx])) {
+        deduped[existingIdx] = item;
+      }
+      continue;
+    }
     seenIds.add(item.id);
     const semanticKey = semanticActivityKey(item);
-    if (semanticKey && seenSemantic.has(semanticKey)) continue;
-    if (semanticKey) seenSemantic.add(semanticKey);
+    if (semanticKey && seenSemantic.has(semanticKey)) {
+      const existingIdx = semanticIdx.get(semanticKey)!;
+      if (activityRichness(item) > activityRichness(deduped[existingIdx])) {
+        deduped[existingIdx] = item;
+      }
+      continue;
+    }
+    if (semanticKey) {
+      seenSemantic.add(semanticKey);
+      semanticIdx.set(semanticKey, deduped.length);
+    }
     deduped.push(item);
     if (deduped.length >= maxActivityItems) break;
   }

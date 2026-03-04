@@ -128,6 +128,18 @@ function nextActivityTimeFilter(current: ActivityTimeFilterId): ActivityTimeFilt
   return ACTIVITY_AUTO_EXPAND_ORDER[index + 1] ?? null;
 }
 
+function mapsEqual<K, V extends Record<string, unknown>>(a: Map<K, V>, b: Map<K, V>): boolean {
+  if (a.size !== b.size) return false;
+  for (const [key, valueA] of a) {
+    const valueB = b.get(key);
+    if (!valueB) return false;
+    for (const prop of Object.keys(valueA)) {
+      if (valueA[prop] !== valueB[prop]) return false;
+    }
+  }
+  return true;
+}
+
 function runtimeProviderIdFromLogo(
   provider: SessionTreeNode['runtimeProvider'] | null | undefined
 ): ProviderId {
@@ -2764,6 +2776,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     }
     return map;
   }, [sessions]);
+  const prevSessionSnapshotRef = useRef(new Map<string, { status: string | null; phase: string | null; state: string | null; blockerCount: number; blockerReason: string | null }>());
   const sessionSnapshotByRunId = useMemo(() => {
     const map = new Map<
       string,
@@ -2786,8 +2799,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       map.set(session.runId, snapshot);
       map.set(session.id, snapshot);
     }
+    if (mapsEqual(prevSessionSnapshotRef.current, map)) {
+      return prevSessionSnapshotRef.current;
+    }
+    prevSessionSnapshotRef.current = map;
     return map;
   }, [sessions]);
+  const prevSliceSnapshotRef = useRef(new Map<string, { status: string | null; blockingDecisions: number; nonBlockingDecisions: number; updatedEpoch: number }>());
   const sliceSnapshotByRunId = useMemo(() => {
     const map = new Map<
       string,
@@ -2818,6 +2836,10 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         }
       }
     }
+    if (mapsEqual(prevSliceSnapshotRef.current, map)) {
+      return prevSliceSnapshotRef.current;
+    }
+    prevSliceSnapshotRef.current = map;
     return map;
   }, [sliceRuns]);
   const sessionProgressById = useMemo(() => {
