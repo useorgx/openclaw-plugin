@@ -30,11 +30,12 @@ import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import { ACTIVITY_TIME_FILTERS, resolveActivityTimeFilter } from '@/lib/activityTimeFilters';
 import { useArtifactViewer } from '@/components/artifacts/ArtifactViewerContext';
 import { WhileYouWereAway } from '@/components/activity/WhileYouWereAway';
-import { ActivityTimelineItem, type ArtifactSnippet } from './ActivityTimelineItem';
+import { ActivityTimelineItem, type ArtifactSnippet, type EvidenceChip } from './ActivityTimelineItem';
 import { ActivityDetailModal } from './ActivityDetailModal';
 import { ActivityDetailSummary } from './ActivityDetailSummary';
 import { ChatDockProvider } from './chat/ChatDockContext';
 import { ActivityChatDock } from './chat/ActivityChatDock';
+import { AutopilotBurstSummary } from './AutopilotBurstSummary';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
 import 'react-datepicker/dist/react-datepicker.css';
 
@@ -78,6 +79,16 @@ interface ActivityTimelineProps {
   isLoading?: boolean;
   onOpenNextUp?: () => void;
   devMode?: boolean;
+  nextUpQueue?: Array<{
+    workstreamId: string;
+    workstreamTitle: string | null;
+    queueState: string;
+  }>;
+  autopilotState?: {
+    state: 'idle' | 'running' | 'blocked' | 'stopping';
+    activeWorkstreamId?: string | null;
+    activeWorkstreamTitle?: string | null;
+  } | null;
 }
 
 const INITIAL_RENDER_COUNT = 50;
@@ -875,6 +886,28 @@ function resolveActivityUserState(
   return { state: 'update', why: projection.sentence };
 }
 
+type BurstItemStatus = 'completed' | 'needs_attention' | 'in_progress' | 'blocked' | 'unknown';
+
+function clusterToBurstItems(cluster: DeduplicatedCluster): {
+  workstreamTitle: string;
+  items: { title: string; status: BurstItemStatus; timestamp: string }[];
+} {
+  let workstreamTitle = 'Workstream';
+  const items = cluster.allItems.map((decorated) => {
+    const meta = metadataForItem(decorated.item);
+    const wsTitle = metadataString(meta, ['workstream_title', 'workstreamTitle', 'dispatch_workstream_title']);
+    if (wsTitle) workstreamTitle = wsTitle;
+    const taskTitle = metadataString(meta, ['task_title', 'taskTitle', 'dispatch_task_title']);
+    const title = taskTitle ?? cleanSystemTitle(decorated.item).title;
+    let status: BurstItemStatus = 'unknown';
+    if (decorated.userState === 'completed') status = 'completed';
+    else if (decorated.userState === 'needs_input' || decorated.userState === 'issue') status = 'needs_attention';
+    else if (decorated.userState === 'in_progress') status = 'in_progress';
+    return { title, status, timestamp: decorated.item.timestamp };
+  });
+  return { workstreamTitle, items };
+}
+
 function metadataToJson(metadata: Record<string, unknown> | undefined): string | null {
   if (!metadata || Object.keys(metadata).length === 0) return null;
   try {
@@ -1427,6 +1460,33 @@ function extractArtifactPayload(item: LiveActivityItem | null): ArtifactPayload 
   return null;
 }
 
+/** Map raw artifact types to human labels. */
+function humanizeArtifactType(type: string | null): string {
+  if (!type) return 'Artifact';
+  const lower = type.toLowerCase();
+  if (lower.includes('pull_request') || lower.includes('pr')) return 'Pull Request';
+  if (lower.includes('document') || lower.includes('doc') || lower.includes('spec')) return 'Document';
+  if (lower.includes('code') || lower.includes('implementation')) return 'Code';
+  if (lower.includes('test')) return 'Tests';
+  if (lower.includes('design')) return 'Design';
+  if (lower.includes('config')) return 'Config';
+  if (lower.includes('decision')) return 'Decision';
+  return humanizeText(type);
+}
+
+/** Map artifact type to badge color. */
+function artifactTypeBadgeColor(type: string | null): string {
+  if (!type) return 'rgba(255,255,255,0.4)';
+  const lower = type.toLowerCase();
+  if (lower.includes('code') || lower.includes('pr') || lower.includes('pull_request') || lower.includes('commit')) return colors.lime;
+  if (lower.includes('doc') || lower.includes('spec') || lower.includes('document') || lower.includes('proposal')) return colors.teal;
+  if (lower.includes('design') || lower.includes('a11y') || lower.includes('accessibility')) return colors.iris;
+  if (lower.includes('test') || lower.includes('experiment')) return colors.cyan;
+  if (lower.includes('config') || lower.includes('decision') || lower.includes('routing') || lower.includes('runbook') || lower.includes('incident')) return colors.amber;
+  if (lower.includes('marketing') || lower.includes('sales') || lower.includes('qualification')) return colors.teal;
+  return 'rgba(255,255,255,0.5)';
+}
+
 function extractArtifactSnippet(item: LiveActivityItem): ArtifactSnippet | null {
   const metadata = metadataForItem(item);
   const hasRegisteredId = !!(
@@ -1437,15 +1497,26 @@ function extractArtifactSnippet(item: LiveActivityItem): ArtifactSnippet | null 
   const payload = extractArtifactPayload(item);
   if (!payload && !hasRegisteredId) return null;
 
-  let label = 'Artifact';
-  if (item.type === 'artifact_created') label = 'Created artifact';
-  else if (payload?.source === 'toolOutput' || payload?.source === 'toolOutputs') label = 'Tool output';
-  else if (payload?.source === 'toolResult' || payload?.source === 'toolResults') label = 'Result';
-  else if (payload?.source === 'output' || payload?.source === 'outputs') label = 'Output';
-  else if (hasRegisteredId) label = 'Registered artifact';
+  // Extract typed metadata
+  const artifactType = metadataString(metadata, ['artifact_type', 'artifactType', 'atomic_unit_type']);
+  const artifactTitle = metadataString(metadata, ['artifact_title', 'title', 'name']);
+  const artifactUrl = metadataString(metadata, ['url', 'pr_url', 'commit_url']);
+
+  const typeBadge = humanizeArtifactType(artifactType);
+  let label = typeBadge;
+  if (!artifactType) {
+    if (item.type === 'artifact_created') label = 'Created artifact';
+    else if (payload?.source === 'toolOutput' || payload?.source === 'toolOutputs') label = 'Tool output';
+    else if (payload?.source === 'toolResult' || payload?.source === 'toolResults') label = 'Result';
+    else if (payload?.source === 'output' || payload?.source === 'outputs') label = 'Output';
+    else if (hasRegisteredId) label = 'Registered artifact';
+    else label = 'Artifact';
+  }
 
   let preview = '';
-  if (payload) {
+  if (artifactTitle) {
+    preview = artifactTitle;
+  } else if (payload) {
     const v = payload.value;
     if (typeof v === 'string') {
       preview = v.length > 80 ? v.slice(0, 80) + '…' : v;
@@ -1457,7 +1528,83 @@ function extractArtifactSnippet(item: LiveActivityItem): ArtifactSnippet | null 
     }
   }
 
-  return { label, preview, hasRegisteredId };
+  return {
+    label,
+    preview,
+    hasRegisteredId,
+    title: artifactTitle,
+    typeBadge,
+    url: artifactUrl,
+  };
+}
+
+/**
+ * Extract typed evidence chips from activity item metadata for card display.
+ * Returns up to N chips representing PRs, commits, tests, docs, and artifacts.
+ */
+function extractEvidenceChips(item: LiveActivityItem): EvidenceChip[] {
+  const metadata = metadataForItem(item);
+  if (!metadata) return [];
+
+  const chips: EvidenceChip[] = [];
+  const outcomes =
+    metadata.outcomes && typeof metadata.outcomes === 'object'
+      ? (metadata.outcomes as Record<string, unknown>)
+      : null;
+
+  // PR evidence
+  const prUrl = metadataString(metadata, ['pr_url']) ?? (outcomes ? metadataString(outcomes as Record<string, unknown>, ['pr_url']) : null);
+  const prNumber = metadataString(metadata, ['pr_number']) ?? (outcomes ? metadataString(outcomes as Record<string, unknown>, ['pr_number']) : null);
+  if (prNumber || prUrl) {
+    chips.push({ kind: 'pr', label: prNumber ? `#${prNumber}` : 'linked', url: prUrl });
+  }
+
+  // Commit evidence
+  const commitSha = metadataString(metadata, ['commit_sha']) ?? (outcomes ? metadataString(outcomes as Record<string, unknown>, ['commit_sha']) : null);
+  const commitUrl = metadataString(metadata, ['commit_url']) ?? (outcomes ? metadataString(outcomes as Record<string, unknown>, ['commit_url']) : null);
+  if (commitSha || commitUrl) {
+    chips.push({ kind: 'commit', label: commitSha ? commitSha.slice(0, 7) : 'linked', url: commitUrl });
+  }
+
+  // Test evidence
+  const tests = outcomes?.tests;
+  if (tests && typeof tests === 'object') {
+    const testObj = tests as Record<string, unknown>;
+    const passed = typeof testObj.passed === 'number' ? testObj.passed : null;
+    const failed = typeof testObj.failed === 'number' ? testObj.failed : null;
+    if (passed !== null || failed !== null) {
+      const parts: string[] = [];
+      if (passed !== null) parts.push(`${passed} passed`);
+      if (failed !== null && failed > 0) parts.push(`${failed} failed`);
+      chips.push({ kind: 'test', label: parts.join(', ') });
+    }
+  }
+
+  // Task updates count
+  const taskUpdates =
+    typeof metadata.task_updates === 'number'
+      ? metadata.task_updates
+      : outcomes && typeof outcomes.task_updates === 'number'
+        ? outcomes.task_updates
+        : null;
+  if (taskUpdates && taskUpdates > 0) {
+    chips.push({ kind: 'artifact', label: `${taskUpdates} task${taskUpdates === 1 ? '' : 's'} updated` });
+  }
+
+  // Artifact evidence from metadata.artifacts array
+  const artifactsArray = Array.isArray(metadata.artifacts)
+    ? metadata.artifacts
+    : null;
+  if (artifactsArray && artifactsArray.length > 0 && chips.length < 2) {
+    const first = artifactsArray[0];
+    const title =
+      (first && typeof first === 'object' && typeof (first as Record<string, unknown>).title === 'string')
+        ? (first as Record<string, unknown>).title as string
+        : null;
+    chips.push({ kind: 'doc', label: title ?? `${artifactsArray.length} artifact${artifactsArray.length === 1 ? '' : 's'}` });
+  }
+
+  return chips;
 }
 
 function looksLikeFilesystemPath(value: string): boolean {
@@ -2167,20 +2314,19 @@ function describeDetailOutcome(
   if (eventName === 'auto_continue_stopped') {
     if (stopReason === 'budget_exhausted') {
       return {
-        label: 'Budget exhausted',
-        summary:
-          humanizeActivityBody(item.title) ??
-          'Autopilot stopped because the configured token budget was exhausted.',
-        hint: 'Restart with an explicit token budget or a narrower workstream scope.',
+        label: 'Paused',
+        summary: 'Paused — budget reached',
+        hint: 'Restart with a larger token budget or a narrower workstream scope.',
         tone: 'warning',
       };
     }
     if (stopReason === 'completed') {
+      const taskCount = typeof metadata?.tasks_completed === 'number' ? metadata.tasks_completed : null;
       return {
-        label: 'Completed',
-        summary:
-          humanizeActivityBody(item.title) ??
-          'Autopilot stopped because the current dispatch scope is complete.',
+        label: 'All done',
+        summary: taskCount
+          ? `All queued work complete — ${taskCount} task${taskCount === 1 ? '' : 's'} finished`
+          : 'All queued work complete',
         hint: null,
         tone: 'positive',
       };
@@ -2224,51 +2370,43 @@ function describeDetailOutcome(
 
   // ── autopilot_transition ──
   if (eventName === "autopilot_transition") {
-    const oldState = String(metadata?.old_state ?? "");
     const newState = String(metadata?.new_state ?? "");
-    const reason = String(metadata?.reason ?? "");
     if (newState === "running") {
       return {
-        label: "Autopilot activated",
-        summary: `State changed from ${oldState} to running.`,
-        hint: "Autopilot will dispatch work from the Next Up queue.",
+        label: "Resumed",
+        summary: "Resumed — dispatching work",
+        hint: "Autopilot is actively working through the queue.",
         tone: "positive" as const,
       };
     }
     if (newState === "blocked" || newState === "error") {
       return {
-        label: newState === "error" ? "Autopilot error" : "Autopilot blocked",
-        summary: `State changed from ${oldState} to ${newState}${reason ? `: ${reason}` : ""}.`,
-        hint: "Review the triage queue for actionable items.",
+        label: "Paused",
+        summary: "Paused — waiting for input",
+        hint: "Review blockers and resolve to continue.",
         tone: "critical" as const,
       };
     }
-    return {
-      label: "Autopilot state change",
-      summary: `${oldState} → ${newState}${reason ? ` (${reason})` : ""}.`,
-      hint: null,
-      tone: "neutral" as const,
-    };
+    // Generic transitions suppressed for non-dev (filtered in Phase 3)
+    return null;
   }
 
   if (spawnGuardRateLimited) {
     return {
       label: 'Rate limited',
-      summary: blockedReason
-        ? humanizeActivityBody(blockedReason) ?? 'Spawn guard rate limit reached.'
-        : 'Spawn guard rate limit reached.',
-      hint: 'Adjust limits in settings or wait for the window to reset before retrying.',
+      summary: 'Rate limit reached — will retry in ~2 minutes',
+      hint: 'Adjust limits in settings or wait for the window to reset.',
       tone: 'warning',
     };
   }
 
   if (spawnGuardBlocked) {
     return {
-      label: 'Spawn guard blocked',
+      label: 'Waiting on system',
       summary: blockedReason
-        ? humanizeActivityBody(blockedReason) ?? 'Spawn guard denied dispatch.'
-        : 'Spawn guard denied dispatch.',
-      hint: 'Review guard checks, then retry or approve an override.',
+        ? humanizeActivityBody(blockedReason) ?? 'Waiting for system capacity.'
+        : 'Waiting for system capacity.',
+      hint: 'Capacity will become available automatically, or adjust limits in settings.',
       tone: 'critical',
     };
   }
@@ -2330,13 +2468,15 @@ function describeDetailOutcome(
     stopReason === 'error'
   ) {
     return {
-      label: 'Blocked',
+      label: decisionsNeeded ? 'Waiting on you' : 'Blocked',
       summary: blockedReason
         ? humanizeActivityBody(blockedReason) ?? 'Execution is blocked.'
-        : 'Execution is blocked and needs intervention.',
+        : decisionsNeeded
+          ? 'Blocked waiting on decision from you'
+          : 'Paused after top queue item blocked',
       hint: decisionsNeeded
-        ? 'Resolve the pending decision, then resume the session.'
-        : 'Open the session and retry after fixing the blocker.',
+        ? 'Resolve the pending decision in the Decisions panel to continue.'
+        : 'Review blocker details, then retry or skip to continue.',
       tone: 'critical',
     };
   }
@@ -2466,7 +2606,87 @@ function isSystemNoise(title: string): boolean {
   return SYSTEM_NOISE_PATTERNS.some((pattern) => pattern.test(title));
 }
 
+/**
+ * Narrative title pipeline — produces user-facing titles from structured metadata.
+ * Priority: user_summary → task_title → event-specific template → null (fall through).
+ */
+function narrativeActivityTitle(item: LiveActivityItem): string | null {
+  const metadata = metadataForItem(item);
+  if (!metadata) return null;
+
+  // 1. Pre-written human summary always wins
+  const userSummary = metadataString(metadata, ['user_summary', 'userSummary']);
+  if (userSummary) return userSummary;
+
+  // 2. Task title from IWMT hierarchy
+  const taskTitle =
+    metadataString(metadata, ['task_title', 'taskTitle', 'dispatch_task_title']) ??
+    metadataString(metadata, ['workstream_title', 'workstreamTitle', 'dispatch_workstream_title']);
+
+  // 3. Event-specific templates
+  const eventName = metadataString(metadata, ['event', 'event_name', 'eventName']);
+  const parsedStatus = metadataString(metadata, ['parsed_status', 'status']);
+  const stopReason = metadataString(metadata, ['stop_reason', 'stopReason']);
+  const artifactType = metadataString(metadata, ['artifact_type', 'artifactType']);
+  const artifactTitle = metadataString(metadata, ['artifact_title', 'title', 'name']);
+  const agentName = metadataString(metadata, ['agent_name', 'agentName', 'requested_by_agent_name']);
+
+  switch (eventName) {
+    case 'autopilot_slice_dispatched':
+    case 'autopilot_slice_started':
+      return `Working on ${taskTitle ?? 'queued task'}`;
+    case 'autopilot_slice_result':
+    case 'autopilot_slice_finished': {
+      if (parsedStatus === 'completed' || parsedStatus === 'success') {
+        return taskTitle ? `Finished ${taskTitle}` : 'Task completed';
+      }
+      if (parsedStatus === 'blocked' || parsedStatus === 'needs_decision') {
+        return taskTitle ? `Needs help with ${taskTitle}` : 'Needs your input';
+      }
+      return taskTitle ? `Worked on ${taskTitle}` : null;
+    }
+    case 'auto_continue_started':
+      return 'Autopilot started';
+    case 'auto_continue_stopped': {
+      if (stopReason === 'budget_exhausted') return 'Paused — budget reached';
+      if (stopReason === 'completed') return 'All queued work complete';
+      if (stopReason === 'blocked') return 'Paused — needs your input';
+      if (stopReason === 'error') return 'Paused — hit an error';
+      return 'Autopilot paused';
+    }
+    case 'autopilot_transition':
+      return null; // suppress — Phase 3 filters
+    case 'autopilot_item_skipped':
+      return `Skipped ${taskTitle ?? 'blocked item'}, continuing`;
+    default:
+      break;
+  }
+
+  // Event type-based templates
+  if (item.type === 'run_started') return taskTitle ? `Started ${taskTitle}` : null;
+  if (item.type === 'run_completed') return taskTitle ? `Completed ${taskTitle}` : null;
+  if (item.type === 'run_failed') return taskTitle ? `Hit an issue with ${taskTitle}` : null;
+  if (item.type === 'artifact_created') {
+    const typeLabel = artifactType ? humanizeText(artifactType) : 'artifact';
+    return artifactTitle ? `Created ${typeLabel}: ${artifactTitle}` : `Created ${typeLabel}`;
+  }
+  if (item.type === 'delegation' && agentName && taskTitle) {
+    return `${agentName} is handling ${taskTitle}`;
+  }
+
+  // Spawn guard events
+  if (eventName === 'spawn_guard_blocked' || eventName === 'spawn_guard_rate_limited') {
+    return 'Waiting for capacity';
+  }
+
+  return null;
+}
+
 function cleanSystemTitle(item: LiveActivityItem): { title: string; isSystem: boolean } {
+  // Try narrative title first
+  const narrative = narrativeActivityTitle(item);
+  if (narrative) return { title: narrative, isSystem: false };
+
   const raw = item.title ?? '';
   if (!isSystemNoise(raw)) {
     return { title: humanizeText(raw) || humanizeText(labelForType(item.type)), isSystem: false };
@@ -2483,6 +2703,21 @@ function cleanSystemTitle(item: LiveActivityItem): { title: string; isSystem: bo
   }
   return { title: 'System event', isSystem: true };
 }
+
+/**
+ * Internal orchestrator events hidden from non-dev users.
+ * These are system plumbing — not user-visible activity.
+ */
+const INTERNAL_EVENTS = new Set([
+  'autopilot_transition',
+  'heartbeat',
+  'orchestrator_selection',
+  'orchestrator_dispatch',
+  'spawn_guard_blocked',
+  'spawn_guard_rate_limited',
+  'delegation_flow_started',
+  'delegation_flow_completed',
+]);
 
 const LOW_SIGNAL_SYNC_EVENTS = new Set([
   'changeset_replayed',
@@ -2631,22 +2866,39 @@ function stripInlineMarkdown(text: string): string {
     .replace(/_([^_\n]+)_/g, '$1');
 }
 
+const HEADLINE_NOISE_PREFIXES = [
+  /^Autopilot dispatched slice for\s*/i,
+  /^Orchestrator (selected|dispatched)\s*/i,
+  /^Auto[-_]?continue.*?dispatching\s*/i,
+  /^Slice (started|dispatched) for\s*/i,
+];
+
 function summarizeDetailHeadline(
   item: LiveActivityItem,
   summaryOverride?: string | null
 ): string {
+  // Prefer narrative title when available
+  const narrative = narrativeActivityTitle(item);
+  if (narrative) return narrative;
+
   const source =
     humanizeActivityBody(summaryOverride ?? item.summary) ??
     humanizeActivityBody(item.description) ??
     humanizeText(item.title || labelForType(item.type));
 
-  const normalized = source
+  let normalized = source
     .replace(/\r\n/g, '\n')
     .replace(/```[\s\S]*?```/g, ' ')
     .replace(/^\s{0,3}#{1,6}\s+/gm, '')
     .replace(/^\s*[-*]\s+/gm, '')
     .replace(/\s+/g, ' ')
     .trim();
+
+  // Strip system-speak prefixes
+  for (const prefix of HEADLINE_NOISE_PREFIXES) {
+    normalized = normalized.replace(prefix, '');
+  }
+  normalized = normalized.trim();
 
   const lines = normalized
     .split('\n')
@@ -2701,9 +2953,23 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   isLoading = false,
   onOpenNextUp,
   devMode = false,
+  nextUpQueue,
+  autopilotState = null,
 }: ActivityTimelineProps) {
   const prefersReducedMotion = useReducedMotion();
   const { open: openArtifactViewer } = useArtifactViewer();
+
+  // Queue position lookup for Next Up connection
+  const queueByWorkstream = useMemo(() => {
+    if (!nextUpQueue) return new Map<string, { rank: number; title: string | null; state: string }>();
+    const map = new Map<string, { rank: number; title: string | null; state: string }>();
+    for (let i = 0; i < nextUpQueue.length; i++) {
+      const item = nextUpQueue[i];
+      map.set(item.workstreamId, { rank: i + 1, title: item.workstreamTitle, state: item.queueState });
+    }
+    return map;
+  }, [nextUpQueue]);
+
   const [activeFilter, setActiveFilter] = useState<ActivityFilterId>('all');
   const [showSyncEvents, setShowSyncEvents] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -3156,6 +3422,13 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         continue;
       }
 
+      // Filter internal orchestrator events for non-dev users
+      if (!devMode) {
+        const itemMeta = metadataForItem(decorated.item);
+        const eventName = metadataString(itemMeta, ['event', 'event_name', 'eventName']);
+        if (eventName && INTERNAL_EVENTS.has(eventName)) continue;
+      }
+
       const syncReplayKey = syncReplayDedupKey(decorated.item);
       if (syncReplayKey) {
         if (seenSyncReplayKeys.has(syncReplayKey)) {
@@ -3290,9 +3563,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       for (const decorated of group.items) {
         const normalizedClusterTitle = cleanSystemTitle(decorated.item).title.trim().toLowerCase();
         const syncReplayKey = syncReplayDedupKey(decorated.item);
+        // Autopilot events cluster by workstream + 5-minute window
+        const itemMeta = metadataForItem(decorated.item);
+        const eventName = metadataString(itemMeta, ['event', 'event_name', 'eventName']);
+        const isAutopilotEvent = eventName?.startsWith('autopilot_') || eventName?.startsWith('auto_continue_');
+        const workstreamId = extractWorkstreamId(decorated.item);
         const clusterKey = syncReplayKey
           ? `${decorated.item.type}::sync::${syncReplayKey}`
-          : `${decorated.item.type}::${normalizedClusterTitle}`;
+          : isAutopilotEvent && workstreamId
+            ? `autopilot::${workstreamId}::${Math.floor(decorated.timestampEpoch / 300_000)}`
+            : `${decorated.item.type}::${normalizedClusterTitle}`;
         const existing = clusterMap.get(clusterKey);
         if (existing) {
           existing.count += 1;
@@ -3841,10 +4121,22 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     if (override) return override;
     const syncSummary = syncReplaySummary(activeDecorated?.item ?? null);
     if (syncSummary) return syncSummary;
-    return (
+    const fromItem =
       humanizeActivityBody(activeDecorated?.item.summary) ??
-      humanizeActivityBody(activeDecorated?.item.description)
-    );
+      humanizeActivityBody(activeDecorated?.item.description);
+    if (fromItem) return fromItem;
+
+    // Synthesize fallback — zero empty modals
+    if (activeDecorated) {
+      const item = activeDecorated.item;
+      const meta = metadataForItem(item);
+      const agentName = metadataString(meta, ['agent_name', 'agentName']) ?? item.agentName ?? 'OrgX';
+      const taskTitle = metadataString(meta, ['task_title', 'taskTitle', 'workstream_title', 'workstreamTitle']);
+      const eventType = item.type?.replace(/_/g, ' ') ?? 'activity';
+      if (taskTitle) return `${agentName} worked on ${taskTitle}`;
+      return `${agentName} recorded a ${eventType}`;
+    }
+    return null;
   }, [detailSummaryOverride, activeDecorated]);
   const activeIsSyncReplay = useMemo(
     () => (activeDecorated ? isOutboxSyncReplayEvent(activeDecorated.item) : false),
@@ -4247,7 +4539,12 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       },
     ]);
     const breadcrumb = [initiativeName, workstreamName].filter(Boolean).join(' > ');
-    const contextLabel = breadcrumb || initiativeName || workstreamName || humanizeText(item.type);
+    // Enrich context with queue position when autopilot is active
+    const queueInfo = workstreamId ? queueByWorkstream.get(workstreamId) : undefined;
+    const isActiveInQueue = autopilotState?.state === 'running' && workstreamId === autopilotState?.activeWorkstreamId;
+    const queueSuffix = queueInfo ? ` — #${queueInfo.rank} in queue` : '';
+    const contextLabel = (breadcrumb || initiativeName || workstreamName || humanizeText(item.type))
+      + (isActiveInQueue ? queueSuffix : '');
     const primaryTag = userStateLabel(decorated.userState);
     const timeLabel = new Date(item.timestamp).toLocaleTimeString([], {
       hour: 'numeric',
@@ -4255,6 +4552,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     });
     const relativeTime = formatRelativeTime(item.timestamp);
     const artifactSnippet = decorated.bucket === 'artifact' ? extractArtifactSnippet(item) : null;
+    const evidenceChips = extractEvidenceChips(item);
 
     return (
       <ActivityTimelineItem
@@ -4278,6 +4576,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         }}
         ariaLabel={`Open activity details for ${displayTitle || labelForType(item.type)}`}
         artifactSnippet={artifactSnippet}
+        evidenceChips={evidenceChips.length > 0 ? evidenceChips : undefined}
       />
     );
   };
@@ -4827,14 +5126,20 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                             ? 'No activity yet for this workstream'
                             : agentFilter
                               ? `No recent activity from ${agentFilter}`
-                              : 'No matching activity right now.'
+                              : activeFilter !== 'all'
+                                ? `No matches for this filter. ${filteredTotal > 0 ? `${filteredTotal} events in other categories.` : ''}`
+                                : nextUpQueue && nextUpQueue.length > 0
+                                  ? `Waiting for autopilot to start. Queue has ${nextUpQueue.length} item${nextUpQueue.length === 1 ? '' : 's'} ready.`
+                                  : 'No activity yet'
                     }
                     description={
                       isLoading
                         ? 'Live updates usually appear within a few seconds after dispatch.'
-                        : agentFilter
-                          ? `Try widening the time window or select a different agent.${agentLastActiveLabel ? ` Last active: ${agentLastActiveLabel}.` : ''}`
-                          : `Try widening the time window (${selectedTimeLabel}), changing filters, or launch the next workstream.`
+                        : activeFilter !== 'all'
+                          ? 'Try selecting "All" to see every event.'
+                          : agentFilter
+                            ? `Try widening the time window or select a different agent.${agentLastActiveLabel ? ` Last active: ${agentLastActiveLabel}.` : ''}`
+                            : `Try widening the time window (${selectedTimeLabel}), changing filters, or launch the next workstream.`
                     }
                     className="py-6"
                   />
@@ -4873,13 +5178,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         Show all activity
                       </button>
                     )}
-                    {(hasSessionFilter || selectedWorkstreamId) && (
+                    {(hasSessionFilter || selectedWorkstreamId || activeFilter !== 'all') && (
                       <button
                         type="button"
                         onClick={() => {
                           if (hasSessionFilter) onClearSelection();
                           if (selectedWorkstreamId) onClearWorkstreamFilter?.();
                           if (agentFilter) onClearAgentFilter?.();
+                          if (activeFilter !== 'all') setActiveFilter('all');
                         }}
                         className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition hover:bg-white/[0.08]"
                       >
@@ -4949,6 +5255,23 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 		                          if (cluster.count === 1) {
 		                            return renderItem(cluster.representative, index);
 		                          }
+                              // Autopilot burst summary for clustered autopilot events (3+)
+                              if (cluster.key.startsWith('autopilot::') && cluster.count >= 3) {
+                                const burst = clusterToBurstItems(cluster);
+                                return (
+                                  <AutopilotBurstSummary
+                                    key={cluster.key}
+                                    workstreamTitle={burst.workstreamTitle}
+                                    items={burst.items}
+                                    firstTimestamp={cluster.firstTimestamp}
+                                    lastTimestamp={cluster.representative.timestampEpoch}
+                                    onExpandItem={(i) => {
+                                      const target = cluster.allItems[i];
+                                      if (target) setActiveItemId(target.item.id);
+                                    }}
+                                  />
+                                );
+                              }
 	                          const representativeKey = `cluster:${cluster.key}`;
 	                          return (
 	                            <div key={cluster.key}>
@@ -5003,6 +5326,23 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 		                        if (cluster.count === 1) {
 		                          return renderItem(cluster.representative, index);
 		                        }
+                            // Autopilot burst summary for clustered autopilot events (3+)
+                            if (cluster.key.startsWith('autopilot::') && cluster.count >= 3) {
+                              const burst = clusterToBurstItems(cluster);
+                              return (
+                                <AutopilotBurstSummary
+                                  key={cluster.key}
+                                  workstreamTitle={burst.workstreamTitle}
+                                  items={burst.items}
+                                  firstTimestamp={cluster.firstTimestamp}
+                                  lastTimestamp={cluster.representative.timestampEpoch}
+                                  onExpandItem={(i) => {
+                                    const target = cluster.allItems[i];
+                                    if (target) setActiveItemId(target.item.id);
+                                  }}
+                                />
+                              );
+                            }
 	                        const representativeKey = `cluster:${cluster.key}`;
 	                        return (
 	                          <div key={cluster.key}>
@@ -5300,6 +5640,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                             </span>
                           </div>
                           <div className="flex items-center gap-2">
+                            {devMode && (
                             <div className="inline-flex rounded-full border border-cyan-400/20 bg-black/30 p-0.5 text-caption">
                               <button
                                 type="button"
@@ -5326,6 +5667,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                 JSON
                               </button>
                             </div>
+                            )}
                             {activeArtifactId && (
                               <button
                                 type="button"
@@ -5440,7 +5782,20 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </div>
                     )}
 
-                    {activeSpawnGuard && (
+                    {activeSpawnGuard && !devMode && (
+                      <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-500/[0.06] px-3.5 py-3">
+                        <p className="text-caption text-amber-100/80">
+                          Temporarily paused to manage capacity. Will resume automatically.
+                        </p>
+                        {activeSpawnGuard.retryInMs !== null && (
+                          <p className="mt-1 text-micro text-muted">
+                            Retrying in ~{Math.max(1, Math.round(activeSpawnGuard.retryInMs / 1000))}s
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {activeSpawnGuard && devMode && (
                       <div className="mt-3 rounded-xl border border-amber-300/26 bg-amber-500/[0.08] px-3.5 py-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <p className="text-micro font-semibold uppercase tracking-[0.08em] text-amber-100/85">
@@ -5518,7 +5873,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                     {activeResultItems.length > 0 && (
                       <div>
-                        <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                        <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
                           Results
                         </p>
                         <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-caption sm:grid-cols-3">
@@ -5537,7 +5892,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     {/* --- Execution context (flat layout) --- */}
                     {activeActorFlow && !activeAutopilotContext && (
                       <div>
-                        <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                        <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
                           Delegation
                         </p>
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-body text-secondary">
@@ -5644,7 +5999,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                         {/* People — flat inline row */}
                         <div>
-                          <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                          <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
                             People
                           </p>
                           <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
@@ -5700,7 +6055,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         {/* Scope — flat inline */}
                         {activeExecutionBreakdown && (
                           <div>
-                            <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                            <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
                               Scope
                             </p>
                             <div className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
@@ -5761,7 +6116,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           activeExecutionBreakdown?.parsedStatus ||
                           activeExecutionBreakdown?.stopReason) && (
                           <div>
-                            <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                            <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
                               Current step
                             </p>
                             <div className="space-y-1 text-caption">
@@ -5820,12 +6175,12 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     {/* Summary — flat, no card wrapper */}
                     {activeSummaryText && (
                       <div>
-                        <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                        <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
                           Summary
                         </p>
-                        {detailSummarySource === 'missing' && !activeIsSyncReplay && (
-                          <p className="mb-1 text-caption text-amber-200/75">
-                            Full local turn transcript was unavailable; showing the event summary payload.
+                        {detailSummarySource === 'missing' && !activeIsSyncReplay && devMode && (
+                          <p className="mb-1 text-caption italic text-muted">
+                            Transcript expired — showing event metadata
                           </p>
                         )}
                         <MarkdownText
@@ -5840,7 +6195,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     {humanizeActivityBody(activeDecorated.item.description) &&
                       humanizeActivityBody(activeDecorated.item.description) !== activeSummaryText && (
                       <div>
-                        <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                        <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
                           Details
                         </p>
                         <MarkdownText
@@ -5854,7 +6209,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     {/* Slice narrative — flat */}
                     {activeNarrative && (
                       <div>
-                        <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                        <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
                           Narrative
                         </p>
                         <div className="space-y-1.5 text-caption">
@@ -5889,7 +6244,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     {/* Evidence files — flat rows, deduplicated */}
                     {activeFileEvidenceUnique.length > 0 && (
                       <div>
-                        <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+                        <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
                           Evidence
                         </p>
                         <p className="mb-2 px-1 text-caption text-secondary">
@@ -6004,14 +6359,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     )}
 
                     {/* Separator before debug sections */}
-                    {(activeProvenance ||
+                    {devMode && (activeProvenance ||
                       activeAutopilotContext?.logPath ||
                       activeMetadataJson) && (
                       <div className="border-t border-white/[0.06]" />
                     )}
 
-                    {/* --- Technical & Provenance — collapsible near bottom --- */}
-                    {(activeProvenance ||
+                    {/* --- Technical & Provenance — devMode only --- */}
+                    {devMode && (activeProvenance ||
                       activeAutopilotContext?.logPath ||
                       activeAutopilotContext?.outputPath ||
                       activeExecutionBreakdown?.initiativeId ||
@@ -6152,8 +6507,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       </details>
                     )}
 
-                    {/* Raw metadata — single collapsible for power users */}
-                    {activeMetadataJson && (
+                    {/* Raw metadata — devMode only */}
+                    {devMode && activeMetadataJson && (
                       <details className="group">
                         <summary className="flex cursor-pointer items-center gap-1.5 px-1 text-micro font-semibold uppercase tracking-wider text-muted select-none">
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="transition-transform group-open:rotate-90">

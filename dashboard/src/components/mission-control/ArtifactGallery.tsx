@@ -11,10 +11,12 @@ interface ArtifactGalleryProps {
 function artifactTypeBadge(type: string | null): { label: string; color: string } {
   if (!type) return { label: 'artifact', color: 'rgba(255,255,255,0.4)' };
   const lower = type.toLowerCase();
-  if (lower.includes('code') || lower.includes('pr')) return { label: 'code', color: colors.lime };
-  if (lower.includes('doc') || lower.includes('spec')) return { label: 'doc', color: colors.teal };
-  if (lower.includes('design')) return { label: 'design', color: colors.iris };
-  if (lower.includes('test')) return { label: 'test', color: colors.cyan };
+  if (lower.includes('code') || lower.includes('pr') || lower.includes('pull_request') || lower.includes('commit')) return { label: 'code', color: colors.lime };
+  if (lower.includes('doc') || lower.includes('spec') || lower.includes('document') || lower.includes('proposal')) return { label: 'doc', color: colors.teal };
+  if (lower.includes('design') || lower.includes('a11y') || lower.includes('accessibility')) return { label: 'design', color: colors.iris };
+  if (lower.includes('test') || lower.includes('experiment')) return { label: 'test', color: colors.cyan };
+  if (lower.includes('config') || lower.includes('decision') || lower.includes('routing') || lower.includes('runbook') || lower.includes('incident')) return { label: 'config', color: colors.amber };
+  if (lower.includes('marketing') || lower.includes('qualification') || lower.includes('sales')) return { label: lower.includes('marketing') ? 'marketing' : 'sales', color: colors.teal };
   return { label: type.slice(0, 12), color: 'rgba(255,255,255,0.5)' };
 }
 

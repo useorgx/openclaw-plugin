@@ -199,6 +199,16 @@ type LiveSnapshotRoutesDeps<TReq, TRes> = {
     updatedAt: string;
   };
 
+  getCanonicalAutopilotState?: (initiativeId: string) => {
+    state: "idle" | "running" | "blocked" | "stopping";
+    reason: string | null;
+    activeRunId: string | null;
+    activeWorkstreamId: string | null;
+    activeWorkstreamTitle: string | null;
+    queueHeadTitle: string | null;
+    lastTransitionAt: string;
+  } | null;
+
   sendJson: (res: TRes, status: number, payload: unknown) => void;
 };
 
@@ -218,6 +228,15 @@ type LegacySnapshotPayload = {
   runtimeInstances: RuntimeInstanceRecord[];
   outbox: Record<string, unknown>;
   chat?: ChatSnapshotPayload;
+  autopilot?: {
+    state: "idle" | "running" | "blocked" | "stopping";
+    reason: string | null;
+    activeRunId: string | null;
+    activeWorkstreamId: string | null;
+    activeWorkstreamTitle: string | null;
+    queueHeadTitle: string | null;
+    lastTransitionAt: string;
+  } | null;
   generatedAt: string;
   projectId?: string | null;
   degraded?: string[];
@@ -858,6 +877,14 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
       projectId,
       degraded: degraded.length > 0 ? degraded : undefined,
     } as LegacySnapshotPayload;
+
+    if (typeof deps.getCanonicalAutopilotState === "function" && initiative) {
+      try {
+        payload.autopilot = deps.getCanonicalAutopilotState(initiative) ?? null;
+      } catch {
+        // best effort
+      }
+    }
 
     if (typeof deps.listChatThreads === "function") {
       try {

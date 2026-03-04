@@ -70,17 +70,26 @@ export function ActivityDetailSummary({ item, className }: ActivityDetailSummary
   const tone = resolveTone(item);
   const styles = TONE_STYLES[tone];
 
-  // Don't render if we have no meaningful content
-  if (!summary.taskDescription && !summary.outcomeDescription && !summary.nextStep) {
-    return null;
-  }
+  // Synthesize fallback content — never return null
+  const agentName = (
+    typeof (item.metadata as Record<string, unknown>)?.agent_name === 'string'
+      ? (item.metadata as Record<string, unknown>).agent_name as string
+      : typeof (item.metadata as Record<string, unknown>)?.agentName === 'string'
+        ? (item.metadata as Record<string, unknown>).agentName as string
+        : item.agentName ?? 'OrgX'
+  );
+  const eventType = item.type?.replace(/_/g, ' ') ?? 'activity';
+  const hasMeaningfulContent = summary.taskDescription || summary.outcomeDescription || summary.nextStep;
+  const fallbackTask = !hasMeaningfulContent
+    ? `${agentName} recorded a ${eventType}`
+    : null;
 
   return (
     <div
       className={`rounded-lg border ${styles.border} ${styles.bg} p-6 space-y-5 ${className ?? ''}`}
     >
-      {summary.taskDescription && (
-        <SummaryRow label="Task" value={summary.taskDescription} styles={styles} />
+      {(summary.taskDescription || fallbackTask) && (
+        <SummaryRow label="Task" value={summary.taskDescription ?? fallbackTask!} styles={styles} />
       )}
       {summary.outcomeDescription && (
         <SummaryRow label="Outcome" value={summary.outcomeDescription} styles={styles} />
@@ -104,10 +113,10 @@ function SummaryRow({
   return (
     <div className="flex items-start gap-4">
       <div className="min-w-0 flex-1">
-        <span className={`text-[10px] font-semibold uppercase tracking-widest ${styles.label}`}>
+        <span className={`text-micro font-semibold uppercase tracking-wider ${styles.label}`}>
           {label}
         </span>
-        <p className="text-[14px] leading-relaxed text-white mt-1">{value}</p>
+        <p className="text-body leading-relaxed text-primary mt-1">{value}</p>
       </div>
     </div>
   );

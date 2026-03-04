@@ -2351,6 +2351,8 @@ export function createHttpHandler(
     getAutoContinueLaneForWorkstream,
     scheduleAutoFixForWorkstream,
     startAutoContinueRun,
+    skipCurrentWorkstream,
+    getCanonicalAutopilotState,
   } = createAutoContinueEngine({
     client,
     filename: __filename,
@@ -4182,6 +4184,7 @@ export function createHttpHandler(
     dispatchFallbackWorkstreamTurn,
     tickAutoContinueRun,
     stopAutoContinueRun,
+    skipCurrentWorkstream,
     updateInitiativeAutoContinueState,
     tickAllAutoContinue,
     scheduleAutoFixForWorkstream,
@@ -4375,6 +4378,7 @@ export function createHttpHandler(
     runAction: (runId, action, input) => client.runAction(runId, action, input),
     listChatThreads: ({ commandCenterId, initiativeId, limit, offset }) =>
       listChatThreads({ commandCenterId, initiativeId, limit, offset }),
+    getCanonicalAutopilotState,
     sendJson,
   });
   registerRuntimeHookRoutes(apiRouter, {

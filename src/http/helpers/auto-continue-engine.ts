@@ -2145,6 +2145,20 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         decision_count: decisionIds.length,
         last_error: input.run.lastError,
         error_location: errorLocation,
+        ...(input.reason === "blocked" || input.reason === "error"
+          ? {
+              blocker: {
+                kind: decisionRequired ? "decision_required" as const : "error" as const,
+                summary: input.error ?? input.run.lastError ?? "Execution blocked",
+                required_actor: decisionRequired ? "user" as const : "system" as const,
+                required_action: decisionRequired
+                  ? "Resolve the pending decision in Decisions panel"
+                  : "Review the error and retry",
+                can_skip: true,
+                skip_route: "/orgx/api/autopilot/skip",
+              },
+            }
+          : {}),
       },
     });
 
@@ -2954,11 +2968,53 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               ...mockMeta(slice),
               user_summary: userSummary,
               next_actions: nextActions,
+              outcomes: {
+                pr_url: typeof (parsed as any)?.pr_url === "string" ? (parsed as any).pr_url : null,
+                pr_number: typeof (parsed as any)?.pr_number === "number" ? (parsed as any).pr_number : null,
+                commit_sha: typeof (parsed as any)?.commit_sha === "string" ? (parsed as any).commit_sha : null,
+                commit_url: typeof (parsed as any)?.commit_url === "string" ? (parsed as any).commit_url : null,
+                tests: null,
+                artifact_ids: artifacts.map((a) => a.name).filter(Boolean),
+                task_updates: taskUpdates?.length ?? 0,
+              },
           },
         });
       } catch {
         // best effort
       }
+
+        // Emit explicit session completion event for canonical agent panel state
+        if (slice.status === "completed" || reportedParsedStatus === "completed") {
+          await emitActivitySafe({
+            initiativeId: run.initiativeId,
+            runId: slice.runId,
+            correlationId: slice.runId,
+            phase: "completed",
+            level: "info",
+            message: userSummary ?? `Completed work on ${slice.workstreamTitle ?? "task"}`,
+            metadata: {
+              ...buildSliceEnrichment({
+                run,
+                slice,
+                workstreamId: slice.workstreamId,
+                workstreamTitle: slice.workstreamTitle ?? null,
+                domain: slice.domain,
+                requiredSkills: slice.requiredSkills,
+                userSummary,
+                event: "session_completed",
+              }),
+              session_id: slice.cliSessionId ?? null,
+              source_client: slice.sourceClient,
+              workstream_title: slice.workstreamTitle ?? null,
+              task_title: slice.workstreamTitle ?? slice.workstreamId,
+              duration_ms: slice.finishedAt
+                ? new Date(slice.finishedAt).getTime() - new Date(slice.startedAt).getTime()
+                : null,
+              outcome: reportedParsedStatus ?? slice.status,
+              artifacts_produced: artifacts.length,
+            },
+          });
+        }
 
         if (slice.status === "completed") {
           await emitActivitySafe({
@@ -3486,8 +3542,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 
     // Select the next eligible workstream by scanning ordered todos.
     let selectedWorkstreamId: string | null = null;
+    let selectedQueueRank = 0;
     let deferredBySpawnGuardRateLimit = 0;
+    let queueScanIndex = 0;
     for (const taskId of graph.recentTodos) {
+      queueScanIndex++;
       const node = nodeById.get(taskId);
       if (!node || node.type !== "task") continue;
       if (!isTodoStatus(node.status)) continue;
@@ -3522,6 +3581,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         continue;
       }
       selectedWorkstreamId = node.workstreamId;
+      selectedQueueRank = queueScanIndex + 1;
       break;
     }
 
@@ -4457,6 +4517,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           scope_milestone_ids: slice.scopeMilestoneIds,
           log_path: logPath,
           output_path: outputPath,
+          dispatch_queue_rank: selectedQueueRank > 0 ? selectedQueueRank : null,
+          dispatch_workstream_title: workstreamTitle ?? null,
+          dispatch_task_title: primaryTask.title ?? null,
+          dispatch_selection_reason: "top_of_queue",
           ...mockMeta(slice),
         },
       });
@@ -4497,6 +4561,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         scope_milestone_ids: slice.scopeMilestoneIds,
         log_path: logPath,
         output_path: outputPath,
+        dispatch_queue_rank: selectedQueueRank > 0 ? selectedQueueRank : null,
+        dispatch_workstream_title: workstreamTitle ?? null,
+        dispatch_task_title: primaryTask.title ?? null,
+        dispatch_selection_reason: "top_of_queue",
         ...mockMeta(slice),
       },
     });
@@ -5151,6 +5219,132 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     return run;
   }
 
+  async function skipCurrentWorkstream(
+    initiativeId: string,
+    workstreamId: string,
+    reason?: string
+  ): Promise<{
+    ok: boolean;
+    skippedWorkstreamId: string;
+    nextWorkstreamId?: string;
+    nextWorkstreamTitle?: string;
+  }> {
+    const run = autoContinueRuns.get(initiativeId) ?? null;
+    if (!run) {
+      return { ok: false, skippedWorkstreamId: workstreamId };
+    }
+    ensureRunInternals(run);
+
+    if (!run.blockedWorkstreamIds.includes(workstreamId)) {
+      run.blockedWorkstreamIds.push(workstreamId);
+    }
+    setLaneState(run, {
+      workstreamId,
+      state: LaneState.BLOCKED,
+      activeRunId: null,
+      activeTaskIds: [],
+      blockedReason: reason ?? "Skipped by user",
+      waitingOnWorkstreamIds: [],
+      retryAt: null,
+    });
+    run.updatedAt = new Date().toISOString();
+
+    try {
+      await emitActivitySafe({
+        initiativeId,
+        runId: run.lastRunId ?? undefined,
+        correlationId: run.lastRunId ?? undefined,
+        phase: "review",
+        level: "info",
+        message: `Workstream ${workstreamId} skipped${reason ? `: ${reason}` : ""}.`,
+        metadata: {
+          ...buildSliceEnrichment({
+            run,
+            workstreamId,
+            event: "autopilot_item_skipped",
+          }),
+          skipped_workstream_id: workstreamId,
+          skip_reason: reason ?? null,
+        },
+      });
+    } catch {
+      // best effort
+    }
+
+    // Re-enable the run if it was stopped due to the blocked workstream.
+    if (run.status === RunStatus.STOPPED && run.stopReason === "blocked") {
+      run.status = RunStatus.RUNNING;
+      run.stopReason = null;
+      run.stoppedAt = null;
+      run.stopRequested = false;
+      run.lastError = null;
+    }
+
+    // Trigger the next tick to pick up a different workstream.
+    try {
+      await tickAutoContinueRun(run);
+    } catch {
+      // best effort
+    }
+
+    // Determine what the next workstream is, if any.
+    const nextLane = Object.values(run.laneByWorkstreamId ?? {}).find(
+      (lane) => lane.state === LaneState.RUNNING && lane.workstreamId !== workstreamId
+    ) ?? null;
+
+    return {
+      ok: true,
+      skippedWorkstreamId: workstreamId,
+      nextWorkstreamId: nextLane?.workstreamId ?? undefined,
+      nextWorkstreamTitle: undefined,
+    };
+  }
+
+  function getCanonicalAutopilotState(initiativeId: string): {
+    state: "idle" | "running" | "blocked" | "stopping";
+    reason: string | null;
+    activeRunId: string | null;
+    activeWorkstreamId: string | null;
+    activeWorkstreamTitle: string | null;
+    queueHeadTitle: string | null;
+    lastTransitionAt: string;
+  } | null {
+    const run = autoContinueRuns.get(initiativeId) ?? null;
+    if (!run) return null;
+
+    const canonicalState: "idle" | "running" | "blocked" | "stopping" =
+      run.status === RunStatus.RUNNING
+        ? "running"
+        : run.status === RunStatus.STOPPING
+          ? "stopping"
+          : run.stopReason === "blocked" || run.stopReason === "error"
+            ? "blocked"
+            : "idle";
+
+    const reason =
+      canonicalState === "blocked"
+        ? run.lastError ?? run.stopReason ?? null
+        : canonicalState === "stopping"
+          ? "stop_requested"
+          : null;
+
+    // Find the first active slice to identify the current workstream.
+    const activeSliceRunId = (run.activeSliceRunIds ?? [])[0] ?? run.activeRunId ?? null;
+    const activeSlice = activeSliceRunId
+      ? autoContinueSliceRuns.get(activeSliceRunId) ?? null
+      : null;
+
+    return {
+      state: canonicalState,
+      reason,
+      activeRunId: activeSliceRunId,
+      activeWorkstreamId: activeSlice?.workstreamId ?? null,
+      activeWorkstreamTitle: activeSlice?.workstreamTitle ?? null,
+      queueHeadTitle: activeSlice?.workstreamTitle ?? null,
+      lastTransitionAt: run.updatedAt ?? run.startedAt,
+    };
+  }
+
   return {
     autoContinueRuns,
     autoContinueSliceRuns,
@@ -5172,6 +5366,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     getAutoContinueLaneForWorkstream,
     scheduleAutoFixForWorkstream,
     startAutoContinueRun,
+    skipCurrentWorkstream,
+    getCanonicalAutopilotState,
     // Session store (for resume support)
     workstreamSessionStore,
     getWorkstreamSession,

@@ -74,6 +74,16 @@ type RegisterMissionControlActionsRoutesDeps<TReq, TRes> = {
   }>;
   tickAutoContinueRun: (run: any) => Promise<void>;
   stopAutoContinueRun: (input: any) => Promise<void>;
+  skipCurrentWorkstream: (
+    initiativeId: string,
+    workstreamId: string,
+    reason?: string
+  ) => Promise<{
+    ok: boolean;
+    skippedWorkstreamId: string;
+    nextWorkstreamId?: string;
+    nextWorkstreamTitle?: string;
+  }>;
   updateInitiativeAutoContinueState: (input: any) => Promise<void>;
   tickAllAutoContinue: () => Promise<void>;
   scheduleAutoFixForWorkstream: (input: {
@@ -2231,6 +2241,67 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
       }
     },
     "Mission-control auto-continue stop"
+  );
+
+  router.add(
+    "POST",
+    "mission-control/auto-continue/skip",
+    async ({ req, query, res }) => {
+      try {
+        const payload = await deps.parseJsonRequest(req);
+        const initiativeId =
+          (deps.pickString(payload, ["initiativeId", "initiative_id"]) ??
+            query.get("initiativeId") ??
+            query.get("initiative_id") ??
+            "")
+            .trim();
+
+        if (!initiativeId) {
+          sendRouteError(
+            res,
+            400,
+            "mission-control.auto-continue.skip.validation",
+            "initiativeId is required"
+          );
+          return;
+        }
+
+        const workstreamId =
+          (deps.pickString(payload, ["workstreamId", "workstream_id"]) ??
+            query.get("workstreamId") ??
+            query.get("workstream_id") ??
+            "")
+            .trim();
+
+        if (!workstreamId) {
+          sendRouteError(
+            res,
+            400,
+            "mission-control.auto-continue.skip.validation",
+            "workstreamId is required"
+          );
+          return;
+        }
+
+        const reason =
+          (deps.pickString(payload, ["reason"]) ??
+            query.get("reason") ??
+            "")
+            .trim() || undefined;
+
+        const result = await deps.skipCurrentWorkstream(
+          initiativeId,
+          workstreamId,
+          reason
+        );
+        deps.clearNextUpQueueCache(initiativeId);
+
+        deps.sendJson(res, result.ok ? 200 : 404, result);
+      } catch (err: unknown) {
+        sendRouteException(res, "mission-control.auto-continue.skip.handler", err);
+      }
+    },
+    "Mission-control auto-continue skip"
   );
 
   router.add(
