@@ -9,17 +9,16 @@ import {
   getTaskStatusClass,
   getMilestoneStatusClass,
   formatEntityStatus,
-  statusRank,
 } from '@/lib/entityStatusColors';
 import { clampPercent, completionPercent, isDoneStatus } from '@/lib/progress';
 import { Skeleton } from '@/components/shared/Skeleton';
-import { EntityIcon } from '@/components/shared/EntityIcon';
 import { InferredAgentAvatars } from './AgentInference';
 import { useMissionControl } from './MissionControlContext';
 import { EntityActionButton } from './EntityActionButton';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
 import { EntityArtifactsPanel } from '@/components/artifacts/EntityArtifactsPanel';
 import { QueuePlacementControl } from './QueuePlacementControl';
+import { IwmtLevelIcon, iwmtLevelCode } from './IwmtLevelIcon';
 
 interface WorkstreamDetailProps {
   workstream: InitiativeWorkstream;
@@ -35,10 +34,31 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
   const [taskTitle, setTaskTitle] = useState('');
   const [editMode, setEditMode] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draftName, setDraftName] = useState(workstream.name);
   const [draftSummary, setDraftSummary] = useState(workstream.summary ?? '');
   const [draftStatus, setDraftStatus] = useState(workstream.status);
+
+  // Close overflow menu on outside click or Escape
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (overflowRef.current && !overflowRef.current.contains(e.target as Node)) {
+        setOverflowOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOverflowOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [overflowOpen]);
 
   const { details, isLoading } = useInitiativeDetails({
     initiativeId: initiative.id,
@@ -61,13 +81,33 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
           (t.milestoneId !== null && milestoneIdSet.has(t.milestoneId))
       )
       .sort((a, b) => {
-        const rankDiff = statusRank(a.status) - statusRank(b.status);
-        if (rankDiff !== 0) return rankDiff;
+        const sequenceA =
+          typeof a.sequenceIndex === 'number' ? a.sequenceIndex : Number.POSITIVE_INFINITY;
+        const sequenceB =
+          typeof b.sequenceIndex === 'number' ? b.sequenceIndex : Number.POSITIVE_INFINITY;
+        if (sequenceA !== sequenceB) return sequenceA - sequenceB;
         const dateA = a.createdAt ? Date.parse(a.createdAt) : 0;
         const dateB = b.createdAt ? Date.parse(b.createdAt) : 0;
-        return dateB - dateA;
+        return dateA - dateB;
       });
   }, [details.tasks, milestoneIdSet, workstream.id]);
+  const tasksByMilestone = useMemo(() => {
+    const grouped = new Map<string, typeof tasks>();
+    for (const task of tasks) {
+      if (!task.milestoneId) continue;
+      const current = grouped.get(task.milestoneId);
+      if (current) {
+        current.push(task);
+      } else {
+        grouped.set(task.milestoneId, [task]);
+      }
+    }
+    return grouped;
+  }, [tasks]);
+  const unscopedTasks = useMemo(
+    () => tasks.filter((task) => !task.milestoneId),
+    [tasks]
+  );
 
   const doneTaskCount = tasks.filter((t) => isDoneStatus(t.status)).length;
   const progressValue =
@@ -168,29 +208,16 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
   return (
     <div className="flex h-full w-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto p-6">
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-1.5 text-caption">
-          <EntityIcon type="initiative" size={12} className="flex-shrink-0 opacity-80" />
-          <button
-            onClick={() => openModal({ type: 'initiative', entity: initiative })}
-            className="break-words text-secondary transition-colors hover:text-white"
-          >
-            {initiative.name}
-          </button>
-          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-faint">
-            <path d="m9 18 6-6-6-6" />
-          </svg>
-          <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
-          <span className="break-words font-medium text-primary">{workstream.name}</span>
-        </div>
-
       {/* Header */}
       <div className="space-y-2">
         <div className="flex items-center gap-3">
-          <EntityIcon type="workstream" size={16} />
+          <IwmtLevelIcon level="workstream" size={16} />
           <h2 className="text-title font-semibold text-white">
             {workstream.name}
           </h2>
+          <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-white/65">
+            {workstream.hierarchyLabel ?? iwmtLevelCode('workstream')}
+          </span>
           <span
             className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getWorkstreamStatusClass(workstream.status)}`}
           >
@@ -275,53 +302,145 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
         </div>
       ) : (
         <>
-          {/* Milestones — flat rows */}
-          {milestones.length > 0 && (
-            <div className="space-y-1">
-              {milestones.map((ms) => (
-                <button
-                  key={ms.id}
-                  onClick={() => openModal({ type: 'milestone', entity: ms, initiative })}
-                  className="flex w-full items-center justify-between gap-2 rounded-lg py-2 pl-3 pr-2 text-left transition-colors hover:bg-white/[0.04]"
-                >
-                  <span className="text-body text-bright break-words">{ms.title}</span>
-                  <span className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getMilestoneStatusClass(ms.status)}`}>
-                    {formatEntityStatus(ms.status)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
+          {(milestones.length > 0 || unscopedTasks.length > 0) && (
+            <section className="space-y-3">
+              <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/55">
+                IWMT Composition
+              </h3>
 
-          {/* Tasks — flat rows with status-tinted left border */}
-          {tasks.length > 0 && (
-            <div className="space-y-1">
-              {tasks.map((task) => {
-                const ts = task.status.toLowerCase();
-                const borderColor = ['active', 'in_progress'].includes(ts) ? colors.lime
-                  : ts === 'blocked' ? colors.red
-                  : ['done', 'completed'].includes(ts) ? colors.teal
-                  : 'rgba(255,255,255,0.08)';
-                return (
-                  <button
-                    key={task.id}
-                    onClick={() => openModal({ type: 'task', entity: task, initiative })}
-                    className="flex w-full items-center justify-between gap-2 rounded-lg border-l-2 py-2 pl-3 pr-2 text-left transition-colors hover:bg-white/[0.04]"
-                    style={{ borderLeftColor: borderColor }}
-                  >
-                    <div className="min-w-0">
-                      <span className="text-body text-bright break-words">{task.title}</span>
-                      {task.priority && (
-                        <span className="text-micro text-muted mt-0.5 block uppercase tracking-wider">{task.priority}</span>
-                      )}
+              <div className="space-y-2.5">
+                {milestones.map((milestone) => {
+                  const milestoneTasks = tasksByMilestone.get(milestone.id) ?? [];
+                  const doneMilestoneTasks = milestoneTasks.filter((task) =>
+                    isDoneStatus(task.status)
+                  ).length;
+
+                  return (
+                    <article
+                      key={milestone.id}
+                      className="rounded-xl border border-white/[0.08] bg-white/[0.02] px-3 py-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <button
+                          onClick={() =>
+                            openModal({ type: 'milestone', entity: milestone, initiative })
+                          }
+                          className="group min-w-0 flex-1 text-left"
+                        >
+                          <div className="flex min-w-0 items-start gap-2.5">
+                            <span className="mt-0.5 inline-flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-md border border-white/[0.12] bg-white/[0.04]">
+                              <IwmtLevelIcon level="milestone" size={12} />
+                            </span>
+                            <div className="min-w-0">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/58">
+                                  {milestone.hierarchyLabel ?? iwmtLevelCode('milestone')}
+                                </span>
+                                <span className="truncate text-body text-bright">
+                                  {milestone.title}
+                                </span>
+                              </div>
+                              <p className="mt-0.5 text-caption text-muted">
+                                {doneMilestoneTasks}/{milestoneTasks.length} tasks done
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                        <span
+                          className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getMilestoneStatusClass(
+                            milestone.status
+                          )}`}
+                        >
+                          {formatEntityStatus(milestone.status)}
+                        </span>
+                      </div>
+
+                      <div className="ml-7 mt-2.5 border-l border-white/[0.08] pl-3">
+                        {milestoneTasks.length > 0 ? (
+                          <div className="space-y-1.5">
+                            {milestoneTasks.map((task) => (
+                              <button
+                                key={task.id}
+                                onClick={() =>
+                                  openModal({ type: 'task', entity: task, initiative })
+                                }
+                                className="flex w-full items-center justify-between gap-2 rounded-lg bg-white/[0.015] px-2 py-1.5 text-left transition-colors hover:bg-white/[0.06]"
+                              >
+                                <div className="min-w-0">
+                                  <div className="flex min-w-0 items-center gap-2">
+                                    <IwmtLevelIcon level="task" size={11} className="flex-shrink-0" />
+                                    <span className="text-micro uppercase tracking-[0.08em] text-white/50">
+                                      {task.hierarchyLabel ?? iwmtLevelCode('task')}
+                                    </span>
+                                    <span className="truncate text-caption text-bright">
+                                      {task.title}
+                                    </span>
+                                  </div>
+                                  {task.priority && (
+                                    <p className="mt-0.5 text-micro uppercase tracking-[0.08em] text-muted">
+                                      {task.priority}
+                                    </p>
+                                  )}
+                                </div>
+                                <span
+                                  className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getTaskStatusClass(
+                                    task.status
+                                  )}`}
+                                >
+                                  {formatEntityStatus(task.status)}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="rounded-lg border border-dashed border-white/[0.1] bg-white/[0.01] px-3 py-2 text-micro text-muted">
+                            No tasks yet.
+                          </p>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
+
+                {unscopedTasks.length > 0 && (
+                  <article className="rounded-xl border border-white/[0.08] bg-white/[0.015] px-3 py-2.5">
+                    <p className="text-micro uppercase tracking-[0.1em] text-white/50">
+                      Unscoped tasks
+                    </p>
+                    <div className="mt-2 space-y-1.5">
+                      {unscopedTasks.map((task) => (
+                        <button
+                          key={task.id}
+                          onClick={() =>
+                            openModal({ type: 'task', entity: task, initiative })
+                          }
+                          className="flex w-full items-center justify-between gap-2 rounded-lg bg-white/[0.015] px-2 py-1.5 text-left transition-colors hover:bg-white/[0.06]"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <IwmtLevelIcon level="task" size={11} className="flex-shrink-0" />
+                              <span className="text-micro uppercase tracking-[0.08em] text-white/50">
+                                {task.hierarchyLabel ?? iwmtLevelCode('task')}
+                              </span>
+                              <span className="truncate text-caption text-bright">
+                                {task.title}
+                              </span>
+                            </div>
+                          </div>
+                          <span
+                            className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getTaskStatusClass(
+                              task.status
+                            )}`}
+                          >
+                            {formatEntityStatus(task.status)}
+                          </span>
+                        </button>
+                      ))}
                     </div>
-                    <span className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getTaskStatusClass(task.status)}`}>
-                      {formatEntityStatus(task.status)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+                  </article>
+                )}
+              </div>
+            </section>
           )}
 
           <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent" />
@@ -453,46 +572,70 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
 
           <div className="flex-1" />
 
-          {confirmDelete ? (
-            <div className="flex items-center gap-2">
-              <span className="text-caption text-secondary">Delete workstream?</span>
-              <EntityActionButton
-                label="Delete"
-                color={colors.red}
-                variant="destructive"
-                onClick={() =>
-                  mutations.deleteEntity.mutate(
-                    { type: 'workstream', id: workstream.id },
-                    {
-                      onSuccess: () => closeModal(),
-                      onError: (error) =>
-                        setNotice(
-                          formatNoticeError(
-                            error instanceof Error ? error.message : '',
-                            'Failed to delete workstream.'
-                          )
-                        ),
-                    }
-                  )
-                }
-                disabled={isMutating}
-              />
-              <EntityActionButton
-                label="Keep"
-                variant="ghost"
-                onClick={() => setConfirmDelete(false)}
-                disabled={isMutating}
-              />
-            </div>
-          ) : (
-            <EntityActionButton
-              label="Delete"
-              color={colors.red}
-              variant="destructive"
-              onClick={() => setConfirmDelete(true)}
+          {/* Overflow menu */}
+          <div className="relative" ref={overflowRef}>
+            <button
+              type="button"
+              className="rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-secondary hover:bg-white/10 hover:text-primary transition-colors text-sm leading-none"
+              onClick={() => { setOverflowOpen((v) => !v); setConfirmDelete(false); }}
+              aria-label="More actions"
               disabled={isMutating}
-            />
-          )}
+            >
+              &#x22EF;
+            </button>
+            {overflowOpen && (
+              <div className="absolute bottom-full right-0 mb-1 min-w-[160px] rounded-lg border border-white/10 bg-[#0c1322] shadow-xl z-50">
+                {confirmDelete ? (
+                  <div className="flex flex-col gap-1 p-2">
+                    <span className="text-caption text-secondary px-2">Delete workstream?</span>
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-md px-3 py-1.5 text-sm hover:bg-white/5 transition-colors"
+                      style={{ color: colors.red }}
+                      onClick={() =>
+                        mutations.deleteEntity.mutate(
+                          { type: 'workstream', id: workstream.id },
+                          {
+                            onSuccess: () => closeModal(),
+                            onError: (error) =>
+                              setNotice(
+                                formatNoticeError(
+                                  error instanceof Error ? error.message : '',
+                                  'Failed to delete workstream.'
+                                )
+                              ),
+                          }
+                        )
+                      }
+                      disabled={isMutating}
+                    >
+                      Confirm Delete
+                    </button>
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-md px-3 py-1.5 text-sm text-secondary hover:bg-white/5 transition-colors"
+                      onClick={() => setConfirmDelete(false)}
+                      disabled={isMutating}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-1">
+                    <button
+                      type="button"
+                      className="w-full text-left rounded-md px-3 py-1.5 text-sm hover:bg-white/5 transition-colors"
+                      style={{ color: colors.red }}
+                      onClick={() => setConfirmDelete(true)}
+                      disabled={isMutating}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           {addingTask ? (
             <form

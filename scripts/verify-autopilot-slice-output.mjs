@@ -70,7 +70,6 @@ function parseRequiredSkills(value) {
     for (const token of explicitSkillTokens) {
       addSkill(unique, token);
     }
-    return [...unique];
   }
 
   if (raw.startsWith("[") && raw.endsWith("]")) {

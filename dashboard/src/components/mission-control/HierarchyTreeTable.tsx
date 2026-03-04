@@ -46,6 +46,30 @@ type SortDir = 'asc' | 'desc';
 type StatusScope = 'all' | 'open' | 'blocked' | 'done';
 type QueuePlacement = 'top' | 'bottom';
 
+function relativeEta(iso: string | null): { label: string; tone: 'overdue' | 'soon' | 'normal' | 'none' } {
+  if (!iso) return { label: '—', tone: 'none' };
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return { label: '—', tone: 'none' };
+  const now = new Date();
+  const diffMs = date.getTime() - now.getTime();
+  const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays < -1) return { label: `${Math.abs(diffDays)}d overdue`, tone: 'overdue' };
+  if (diffDays === -1) return { label: 'Yesterday', tone: 'overdue' };
+  if (diffDays === 0) return { label: 'Today', tone: 'soon' };
+  if (diffDays === 1) return { label: 'Tomorrow', tone: 'soon' };
+  if (diffDays <= 7) return { label: `In ${diffDays} days`, tone: 'soon' };
+  // Beyond a week, show short date (e.g. "Feb 20")
+  const month = date.toLocaleString('en-US', { month: 'short' });
+  const day = date.getDate();
+  return { label: `${month} ${day}`, tone: 'normal' };
+}
+
+function relativeEtaClass(tone: 'overdue' | 'soon' | 'normal' | 'none'): string {
+  if (tone === 'overdue') return 'text-red-300/90';
+  if (tone === 'soon') return 'text-amber-200/85';
+  return '';
+}
+
 function toLocalInputValue(iso: string | null): string {
   if (!iso) return '';
   const date = new Date(iso);
@@ -90,26 +114,34 @@ function renderPriorityBadge(priorityNum: number): {
   const safe = Number.isFinite(priorityNum) ? Math.max(1, Math.min(100, Math.round(priorityNum))) : 50;
   if (safe <= 12) {
     return {
-      label: `P1 Urgent`,
-      toneClass: 'border-red-300/35 bg-red-500/[0.14] text-red-100',
+      label: 'Urgent',
+      toneClass: 'font-bold text-red-200/90',
     };
   }
   if (safe <= 30) {
     return {
-      label: `P2 High`,
-      toneClass: 'border-amber-300/35 bg-amber-500/[0.14] text-amber-100',
+      label: 'High',
+      toneClass: 'font-semibold text-amber-100/80',
     };
   }
   if (safe <= 60) {
     return {
-      label: `P3 Medium`,
-      toneClass: 'border-[#BFFF00]/35 bg-[#BFFF00]/14 text-[#E1FFB2]',
+      label: 'Medium',
+      toneClass: 'font-medium text-secondary',
     };
   }
   return {
-    label: `P4 Low`,
-    toneClass: 'border-white/[0.2] bg-white/[0.08] text-white/70',
+    label: 'Low',
+    toneClass: 'font-normal text-muted',
   };
+}
+
+function priorityWord(priorityNum: number): { label: string | null; showInQueue: boolean } {
+  const safe = Number.isFinite(priorityNum) ? Math.max(1, Math.min(100, Math.round(priorityNum))) : 50;
+  if (safe <= 12) return { label: 'Urgent', showInQueue: true };
+  if (safe <= 30) return { label: 'High', showInQueue: true };
+  // Medium/Low = no label in queue (it's the default)
+  return { label: null, showInQueue: false };
 }
 
 function ancestorIds(nodeId: string, nodes: MissionControlNode[]): Set<string> {
@@ -697,6 +729,29 @@ export function HierarchyTreeTable({
     workstreams,
   ]);
 
+  // Agent deduplication: detect if all visible rows share the same agent(s)
+  const sharedAgent = useMemo(() => {
+    if (rows.length === 0) return null;
+    const rowsWithAgents = rows.filter(({ node }) => node.assignedAgents.length > 0);
+    if (rowsWithAgents.length === 0) return null;
+    const firstAgentKey = rowsWithAgents[0].node.assignedAgents
+      .map((a) => a.id)
+      .sort()
+      .join(',');
+    const allSame = rowsWithAgents.every(
+      ({ node }) =>
+        node.assignedAgents
+          .map((a) => a.id)
+          .sort()
+          .join(',') === firstAgentKey
+    );
+    if (!allSame) return null;
+    // Also check that all rows have agents (or nearly all — if some are unassigned, still dedup)
+    if (rowsWithAgents.length < rows.length * 0.7) return null;
+    return rowsWithAgents[0].node.assignedAgents;
+  }, [rows]);
+  const hideAssignedColumn = sharedAgent !== null && !editMode;
+
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
@@ -885,20 +940,30 @@ export function HierarchyTreeTable({
     };
   }, [rows.length]);
 
-  const renderColumnGroup = () => (
-    <colgroup>
-      <col style={{ width: 40 }} />
-      <col style={{ width: 360 }} />
-      <col style={{ width: 188 }} />
-      <col style={{ width: 124 }} />
-      <col style={{ width: 120 }} />
-      <col style={{ width: 96 }} />
-      <col style={{ width: 156 }} />
-      <col style={{ width: 100 }} />
-      <col style={{ width: 100 }} />
-      <col style={{ width: 180 }} />
-    </colgroup>
-  );
+  const renderColumnGroup = () =>
+    editMode ? (
+      <colgroup>
+        <col style={{ width: 40 }} />
+        <col style={{ width: 360 }} />
+        <col style={{ width: 188 }} />
+        <col style={{ width: 124 }} />
+        <col style={{ width: 120 }} />
+        <col style={{ width: 96 }} />
+        <col style={{ width: 156 }} />
+        <col style={{ width: 100 }} />
+        <col style={{ width: 100 }} />
+        <col style={{ width: 180 }} />
+      </colgroup>
+    ) : (
+      <colgroup>
+        <col style={{ width: 40 }} />
+        <col /> {/* Item — flex */}
+        {!hideAssignedColumn && <col style={{ width: 72 }} />}
+        <col style={{ width: 160 }} /> {/* Status + Progress merged */}
+        <col style={{ width: 80 }} /> {/* Priority */}
+        <col style={{ width: 120 }} /> {/* ETA */}
+      </colgroup>
+    );
 
   return (
     <section className="space-y-2.5">
@@ -1204,6 +1269,21 @@ export function HierarchyTreeTable({
         </div>
       )}
 
+      {sharedAgent && !editMode && (
+        <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
+          <div className="flex items-center -space-x-1.5">
+            {sharedAgent.slice(0, 2).map((agent) => (
+              <div key={agent.id} className="rounded-full ring-1 ring-[#02040A]">
+                <AgentAvatar name={agent.name} hint={agent.id} size="xs" />
+              </div>
+            ))}
+          </div>
+          <span className="text-caption text-secondary">
+            Assigned to {sharedAgent.map((a) => a.name).join(', ')}
+          </span>
+        </div>
+      )}
+
       <div className="relative min-w-0 max-w-full overflow-visible rounded-xl border border-white/[0.07] bg-black/[0.14] p-2">
         <div
           ref={tableViewportRef}
@@ -1220,7 +1300,7 @@ export function HierarchyTreeTable({
               onScroll={handleHeaderScroll}
               className="overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
-              <table className="w-full min-w-[1464px] table-fixed border-separate border-spacing-y-0">
+              <table className={`w-full table-fixed border-separate border-spacing-y-0 ${editMode ? 'min-w-[1464px]' : ''}`}>
                 {renderColumnGroup()}
                 <thead>
                   <tr className="text-left text-micro uppercase tracking-[0.08em] text-muted">
@@ -1233,29 +1313,25 @@ export function HierarchyTreeTable({
                     >
                       Item <SortChevron field="title" />
                     </th>
-                    <th className="px-2 py-1.5">Assigned</th>
-                    <th
-                      className="px-2 py-1.5 cursor-pointer select-none"
-                      onClick={() => toggleSort('status')}
-                    >
-                      Status <SortChevron field="status" />
-                    </th>
-                    <th className="px-2 py-1.5">Progress</th>
-                    <th
-                      className="px-2 py-1.5 cursor-pointer select-none"
-                      onClick={() => toggleSort('priority')}
-                    >
-                      Priority <SortChevron field="priority" />
-                    </th>
-                    <th
-                      className="px-2 py-1.5 cursor-pointer select-none"
-                      onClick={() => toggleSort('eta')}
-                    >
-                      ETA <SortChevron field="eta" />
-                    </th>
-                    <th className="px-2 py-1.5">Duration (h)</th>
-                    <th className="px-2 py-1.5">Budget ($)</th>
-                    <th className="px-2 py-1.5">Dependencies</th>
+                    {editMode ? (
+                      <>
+                        <th className="px-2 py-1.5">Assigned</th>
+                        <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('status')}>Status <SortChevron field="status" /></th>
+                        <th className="px-2 py-1.5">Progress</th>
+                        <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('priority')}>Priority <SortChevron field="priority" /></th>
+                        <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('eta')}>ETA <SortChevron field="eta" /></th>
+                        <th className="px-2 py-1.5">Duration (h)</th>
+                        <th className="px-2 py-1.5">Budget ($)</th>
+                        <th className="px-2 py-1.5">Dependencies</th>
+                      </>
+                    ) : (
+                      <>
+                        {!hideAssignedColumn && <th className="px-2 py-1.5">Assigned</th>}
+                        <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('status')}>Status <SortChevron field="status" /></th>
+                        <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('priority')}>Priority <SortChevron field="priority" /></th>
+                        <th className="px-2 py-1.5 cursor-pointer select-none" onClick={() => toggleSort('eta')}>ETA <SortChevron field="eta" /></th>
+                      </>
+                    )}
                   </tr>
                 </thead>
               </table>
@@ -1263,7 +1339,7 @@ export function HierarchyTreeTable({
           </div>
 
           <div ref={bodyScrollRef} onScroll={handleBodyScroll} className="overflow-x-auto">
-            <table className="w-full min-w-[1464px] table-fixed border-separate border-spacing-y-1.5">
+            <table className={`w-full table-fixed border-separate border-spacing-y-1.5 ${editMode ? 'min-w-[1464px]' : ''}`}>
               {renderColumnGroup()}
               <tbody>
             {rows.map(({ node, depth, canCollapse }) => {
@@ -1356,8 +1432,8 @@ export function HierarchyTreeTable({
                         </button>
                       </div>
 
-                      {!editMode && (
-                        <div className="ml-1 grid w-[168px] min-w-[168px] grid-cols-[124px_34px] items-center justify-end gap-2">
+                      {!editMode && !isDoneStatus(node.status) && (
+                        <div className="ml-1 grid w-[168px] min-w-[168px] grid-cols-[124px_34px] items-center justify-end gap-2 opacity-0 translate-x-1 transition-all duration-150 group-hover/row:opacity-100 group-hover/row:translate-x-0 group-focus-within/row:opacity-100 group-focus-within/row:translate-x-0 touch-device:opacity-60 touch-device:translate-x-0">
                           {canQueueNode ? (
                             <QueuePlacementControl
                               label="Queue"
@@ -1394,7 +1470,8 @@ export function HierarchyTreeTable({
                     </div>
                   </td>
 
-                  {/* Assigned (moved to position 2) */}
+                  {/* Assigned — hidden when all rows share same agent */}
+                  {!hideAssignedColumn && (
                   <td className="px-2 py-1.5 text-caption text-primary whitespace-nowrap">
                     {editableRow ? (
                       <input
@@ -1418,197 +1495,184 @@ export function HierarchyTreeTable({
                     ) : (
                       <div className="flex items-center gap-2">
                         {node.assignedAgents.length > 0 ? (
-                          <>
-                            <div className="flex items-center -space-x-1.5">
-                              {node.assignedAgents.slice(0, 3).map((agent) => (
-                                <div
-                                  key={`${node.id}:${agent.id}`}
-                                  title={agent.name}
-                                  className="rounded-full ring-1 ring-[#02040A]"
-                                >
-                                  <AgentAvatar
-                                    name={agent.name}
-                                    hint={`${agent.id} ${node.title}`}
-                                    size="xs"
-                                  />
-                                </div>
-                              ))}
-                            </div>
-                            <span
-                              className="max-w-[110px] truncate text-micro text-white/62"
-                              title={assignedNames}
-                            >
-                              {node.assignedAgents[0]?.name}
-                              {node.assignedAgents.length > 1
-                                ? ` +${node.assignedAgents.length - 1}`
-                                : ''}
-                            </span>
-                          </>
+                          <div
+                            className="flex items-center -space-x-1.5"
+                            title={assignedNames}
+                          >
+                            {node.assignedAgents.slice(0, 3).map((agent) => (
+                              <div
+                                key={`${node.id}:${agent.id}`}
+                                title={agent.name}
+                                className="rounded-full ring-1 ring-[#02040A]"
+                              >
+                                <AgentAvatar
+                                  name={agent.name}
+                                  hint={`${agent.id} ${node.title}`}
+                                  size="xs"
+                                />
+                              </div>
+                            ))}
+                          </div>
                         ) : (
-                          <span className="text-muted">Unassigned</span>
+                          <span className="text-muted">—</span>
                         )}
                       </div>
                     )}
                   </td>
+                  )}
 
-                  {/* Status */}
-                  <td className="px-2 py-1.5 text-caption text-primary">
-                    {editableRow ? (
-                      <select
-                        defaultValue={normalizeStatusKey(node.status)}
-                        onClick={(event) => event.stopPropagation()}
-                        onChange={(event) => {
-                          void onUpdateNode(node, { status: event.target.value });
-                        }}
-                        className="rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
-                      >
-                        {STATUS_OPTIONS.map((status) => (
-                          <option key={status} value={status}>
-                            {formatEntityStatus(status)}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="status-pill whitespace-nowrap" data-tone={statusTone(node.status)}>
-                        {formatEntityStatus(node.status)}
-                      </span>
-                    )}
-                  </td>
-
-                  {/* Progress */}
-                  <td className="px-2 py-1.5 text-caption text-primary">
-                    {completion !== undefined && (node.type === 'workstream' || node.type === 'milestone') ? (
-                      <div className="flex items-center gap-2">
-                        <div className="h-1 w-[72px] rounded-full bg-white/[0.06] overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${completion}%`,
-                              backgroundColor: node.type === 'milestone' ? colors.teal : colors.lime,
+                  {editMode ? (
+                    <>
+                      {/* Edit mode: all columns */}
+                      <td className="px-2 py-1.5 text-caption text-primary">
+                        {editableRow ? (
+                          <select
+                            defaultValue={normalizeStatusKey(node.status)}
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) => {
+                              void onUpdateNode(node, { status: event.target.value });
                             }}
+                            className="rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
+                          >
+                            {STATUS_OPTIONS.map((status) => (
+                              <option key={status} value={status}>
+                                {formatEntityStatus(status)}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="status-pill whitespace-nowrap" data-tone={statusTone(node.status)}>
+                            {formatEntityStatus(node.status)}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 text-caption text-primary">
+                        {completion !== undefined && (node.type === 'workstream' || node.type === 'milestone') ? (
+                          <div className="flex items-center gap-2">
+                            <div className="h-1 w-[72px] rounded-full bg-white/[0.06] overflow-hidden">
+                              <div
+                                className="h-full rounded-full transition-all"
+                                style={{
+                                  width: `${completion}%`,
+                                  backgroundColor: node.type === 'milestone' ? colors.teal : colors.lime,
+                                }}
+                              />
+                            </div>
+                            <span className="text-micro text-secondary" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                              {completion}%
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 text-caption text-primary">
+                        {editableRow ? (
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            defaultValue={node.priorityNum}
+                            onClick={(event) => event.stopPropagation()}
+                            onBlur={(event) => {
+                              const next = Number(event.currentTarget.value);
+                              if (Number.isFinite(next)) {
+                                void onUpdateNode(node, { priority_num: next });
+                              }
+                            }}
+                            className="w-[72px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
                           />
+                        ) : (
+                          <span className={`text-micro tracking-[0.02em] ${priorityBadge.toneClass}`}>
+                            {priorityBadge.label}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 text-caption text-primary">
+                        {editableRow ? (
+                          <input
+                            type="datetime-local"
+                            defaultValue={toLocalInputValue(node.etaEndAt)}
+                            onClick={(event) => event.stopPropagation()}
+                            onBlur={(event) => {
+                              const value = event.currentTarget.value;
+                              void onUpdateNode(node, { eta_end_at: value ? new Date(value).toISOString() : null });
+                            }}
+                            className="w-[176px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
+                          />
+                        ) : (() => {
+                          const eta = relativeEta(node.etaEndAt);
+                          return <span className={relativeEtaClass(eta.tone)} title={node.etaEndAt ? new Date(node.etaEndAt).toLocaleString() : undefined}>{eta.label}</span>;
+                        })()}
+                      </td>
+                      <td className="px-2 py-1.5 text-caption text-primary">
+                        {editableRow && node.type !== 'task' ? (
+                          <input type="number" min={0} step={0.5} defaultValue={node.expectedDurationHours} onClick={(event) => event.stopPropagation()} onBlur={(event) => { const value = Number(event.currentTarget.value); if (Number.isFinite(value)) void onUpdateNode(node, { expected_duration_hours: value }); }} className="w-[82px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82" />
+                        ) : <span>{node.expectedDurationHours}</span>}
+                      </td>
+                      <td className="px-2 py-1.5 text-caption text-primary">
+                        {editableRow && node.type !== 'task' ? (
+                          <input type="number" min={0} step={1} defaultValue={node.expectedBudgetUsd} onClick={(event) => event.stopPropagation()} onBlur={(event) => { const value = Number(event.currentTarget.value); if (Number.isFinite(value)) void onUpdateNode(node, { expected_budget_usd: value }); }} className="w-[92px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82" />
+                        ) : <span>${node.expectedBudgetUsd.toLocaleString()}</span>}
+                      </td>
+                      <td className="rounded-r-lg px-2 py-1.5 text-caption text-primary">
+                        {editableRow ? (
+                          <div onClick={(event) => event.stopPropagation()}>
+                            <DependencyEditorPopover dependencies={node.dependencyIds} allNodes={allNodeHints} onSave={(nextDependencyIds) => void onUpdateNode(node, { depends_on: nextDependencyIds })} />
+                          </div>
+                        ) : (
+                          <div className="max-w-[250px] truncate">
+                            {dependencyCount(node) > 0 ? `${dependencyCount(node)} · ${dependencyLabels}` : '—'}
+                          </div>
+                        )}
+                      </td>
+                    </>
+                  ) : (
+                    <>
+                      {/* Compact mode: Status+Progress merged, Priority, ETA */}
+                      <td className="px-2 py-1.5 text-caption text-primary">
+                        <div className="flex items-center gap-2">
+                          <span className="status-pill whitespace-nowrap" data-tone={statusTone(node.status)}>
+                            {formatEntityStatus(node.status)}
+                          </span>
+                          {completion !== undefined && (node.type === 'workstream' || node.type === 'milestone') && (
+                            <div className="flex items-center gap-1.5">
+                              <div className="h-1 w-[40px] rounded-full bg-white/[0.06] overflow-hidden">
+                                <div
+                                  className="h-full rounded-full transition-all"
+                                  style={{
+                                    width: `${completion}%`,
+                                    backgroundColor: node.type === 'milestone' ? colors.teal : colors.lime,
+                                  }}
+                                />
+                              </div>
+                              <span className="text-micro text-secondary" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                                {completion}%
+                              </span>
+                            </div>
+                          )}
                         </div>
-                        <span className="text-micro text-secondary" style={{ fontVariantNumeric: 'tabular-nums' }}>
-                          {completion}%
+                      </td>
+                      <td className="px-2 py-1.5 text-caption text-primary">
+                        <span className={`text-micro tracking-[0.02em] ${priorityBadge.toneClass}`}>
+                          {priorityBadge.label}
                         </span>
-                      </div>
-                    ) : (
-                      <span className="text-muted">—</span>
-                    )}
-                  </td>
-
-                  {/* Priority */}
-                  <td className="px-2 py-1.5 text-caption text-primary">
-                    {editableRow ? (
-                      <input
-                        type="number"
-                        min={1}
-                        max={100}
-                        defaultValue={node.priorityNum}
-                        onClick={(event) => event.stopPropagation()}
-                        onBlur={(event) => {
-                          const next = Number(event.currentTarget.value);
-                          if (Number.isFinite(next)) {
-                            void onUpdateNode(node, { priority_num: next });
-                          }
-                        }}
-                        className="w-[72px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
-                      />
-                    ) : (
-                      <span
-                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] ${priorityBadge.toneClass}`}
-                        title={`Priority ${priorityBadge.label}`}
-                      >
-                        {priorityBadge.label}
-                      </span>
-                    )}
-                  </td>
-
-                  {/* ETA */}
-                  <td className="px-2 py-1.5 text-caption text-primary">
-                    {editableRow ? (
-                      <input
-                        type="datetime-local"
-                        defaultValue={toLocalInputValue(node.etaEndAt)}
-                        onClick={(event) => event.stopPropagation()}
-                        onBlur={(event) => {
-                          const value = event.currentTarget.value;
-                          void onUpdateNode(node, { eta_end_at: value ? new Date(value).toISOString() : null });
-                        }}
-                        className="w-[176px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
-                      />
-                    ) : (
-                      <span>{node.etaEndAt ? new Date(node.etaEndAt).toLocaleString() : '—'}</span>
-                    )}
-                  </td>
-
-                  {/* Duration */}
-                  <td className="px-2 py-1.5 text-caption text-primary">
-                    {editableRow && node.type !== 'task' ? (
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        defaultValue={node.expectedDurationHours}
-                        onClick={(event) => event.stopPropagation()}
-                        onBlur={(event) => {
-                          const value = Number(event.currentTarget.value);
-                          if (Number.isFinite(value)) {
-                            void onUpdateNode(node, { expected_duration_hours: value });
-                          }
-                        }}
-                        className="w-[82px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
-                      />
-                    ) : (
-                      <span>{node.expectedDurationHours}</span>
-                    )}
-                  </td>
-
-                  {/* Budget */}
-                  <td className="px-2 py-1.5 text-caption text-primary">
-                    {editableRow && node.type !== 'task' ? (
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        defaultValue={node.expectedBudgetUsd}
-                        onClick={(event) => event.stopPropagation()}
-                        onBlur={(event) => {
-                          const value = Number(event.currentTarget.value);
-                          if (Number.isFinite(value)) {
-                            void onUpdateNode(node, { expected_budget_usd: value });
-                          }
-                        }}
-                        className="w-[92px] rounded border border-strong bg-white/[0.06] px-2 py-1 text-micro text-white/82"
-                      />
-                    ) : (
-                      <span>
-                        ${node.expectedBudgetUsd.toLocaleString()}
-                        {editableRow && node.type === 'task' ? ' (from task spec)' : ''}
-                      </span>
-                    )}
-                  </td>
-
-                  {/* Dependencies */}
-                  <td className="rounded-r-lg px-2 py-1.5 text-caption text-primary">
-                    {editableRow ? (
-                      <div onClick={(event) => event.stopPropagation()}>
-                        <DependencyEditorPopover
-                          dependencies={node.dependencyIds}
-                          allNodes={allNodeHints}
-                          onSave={(nextDependencyIds) =>
-                            void onUpdateNode(node, { depends_on: nextDependencyIds })
-                          }
-                        />
-                      </div>
-                    ) : (
-                      <div className="max-w-[250px] truncate">
-                        {dependencyCount(node) > 0
-                          ? `${dependencyCount(node)} · ${dependencyLabels}`
-                          : '—'}
-                      </div>
-                    )}
-                  </td>
+                      </td>
+                      <td className="rounded-r-lg px-2 py-1.5 text-caption text-primary">
+                        {(() => {
+                          const eta = relativeEta(node.etaEndAt);
+                          return (
+                            <span
+                              className={relativeEtaClass(eta.tone)}
+                              title={node.etaEndAt ? new Date(node.etaEndAt).toLocaleString() : undefined}
+                            >
+                              {eta.label}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                    </>
+                  )}
                 </tr>
               );
             })}

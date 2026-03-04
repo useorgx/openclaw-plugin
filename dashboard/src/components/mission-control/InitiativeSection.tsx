@@ -581,6 +581,7 @@ export function InitiativeSection({
     .trim()
     .toLowerCase()
     .replace(/[\s-]+/g, '_');
+  const isAlreadyActive = new Set(['active', 'in_progress', 'running']).has(startableStatus);
   const canStartInitiative = new Set([
     'paused',
     'draft',
@@ -588,26 +589,24 @@ export function InitiativeSection({
     'todo',
     'backlog',
     'queued',
-  ]).has(startableStatus);
-  const startActionLabel = startableStatus === 'paused' ? 'Resume' : 'Start';
+  ]).has(startableStatus) || isAlreadyActive; // Active initiatives can "Start" by queuing next workstream
+  const startActionLabel = isAlreadyActive
+    ? 'Play next'
+    : startableStatus === 'paused'
+      ? 'Resume'
+      : 'Start';
   const startDisabledReason = useMemo(() => {
     if (canStartInitiative) return null;
     if (warnings.length > 0) {
-      return 'Live sync is degraded and this initiative cannot be started from here yet. Refresh sync or reconnect OrgX, then retry.';
-    }
-    if (['active', 'in_progress', 'running'].includes(startableStatus)) {
-      return 'Initiative is already active. Queue or play the next workstream instead of starting again.';
+      return 'Live sync is degraded. Refresh sync or reconnect OrgX, then retry.';
     }
     if (['blocked'].includes(startableStatus)) {
-      return 'Initiative is blocked. Resolve blockers, then resume.';
+      return null; // Don't lecture — the BLOCKED badge is enough visual signal
     }
     if (['completed', 'done', 'archived', 'cancelled', 'deleted'].includes(startableStatus)) {
-      return 'Initiative is completed or archived. Reopen it before starting new execution.';
+      return null; // Status badge communicates this; no banner needed
     }
-    if (startableStatus.length > 0) {
-      return `Start is unavailable while status is ${formatEntityStatus(startableStatus)}.`;
-    }
-    return 'Start is unavailable until initiative status is loaded.';
+    return null;
   }, [canStartInitiative, startableStatus, warnings.length]);
   const showQueueControl = !isSquished;
   const showStartControl = true;
@@ -785,6 +784,11 @@ export function InitiativeSection({
 
   const startInitiative = (event: React.MouseEvent) => {
     event.stopPropagation();
+    // If already active, queue the next workstream instead of redundantly setting status
+    if (isAlreadyActive) {
+      void queueInitiative('bottom');
+      return;
+    }
     mutations.updateEntity.mutate({
       type: 'initiative',
       id: initiative.id,
@@ -896,6 +900,12 @@ export function InitiativeSection({
           >
             {initiativeStatusLabel}
           </span>
+          {degraded.length > 0 && (
+            <span
+              className="ml-1 h-2 w-2 flex-shrink-0 rounded-full bg-amber-400/70 animate-pulse"
+              title={`Sync degraded: ${degraded.length} issue${degraded.length !== 1 ? 's' : ''}`}
+            />
+          )}
         </div>
 
         {/* Radial progress — compact, shown below lg */}
@@ -1069,7 +1079,8 @@ export function InitiativeSection({
           {queueNotice.message}
         </div>
       )}
-      {!canStartInitiative && startDisabledReason && (
+      {/* Degraded-sync warning only — never lecture users about status; buttons should just work */}
+      {startDisabledReason && warnings.length > 0 && (
         <div
           role="note"
           className="mx-3 mb-2 rounded-lg border border-amber-300/20 bg-amber-500/[0.08] px-2.5 py-1.5 text-micro text-amber-100/90"
@@ -1109,89 +1120,73 @@ export function InitiativeSection({
                 }}
                   className="space-y-3.5"
                 >
-                  {warnings.length > 0 && (
-                    <motion.div
-                      variants={staggerItem}
-                      className="overflow-hidden rounded-lg border border-amber-300/15 bg-amber-500/[0.06]"
-                    >
-                      <div className="flex items-center justify-between gap-2 px-3 py-2">
-                        <button
-                          type="button"
-                          onClick={() => setWarningsExpanded((prev) => !prev)}
-                          className="flex min-w-0 flex-1 items-center justify-between text-left transition-colors hover:text-white"
-                        >
-                          <span className="truncate text-caption text-amber-100/85">
-                            {canAutoFixCycles
-                              ? `Dependency loop detected (${cycleEdgeCount || cycleWarnings.length} edges)`
-                              : `${warnings.length} data source${warnings.length > 1 ? 's' : ''} unavailable`}
-                          </span>
-                          <svg
-                            width="10"
-                            height="10"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2.5"
-                            className={`ml-2 text-amber-100/55 transition-transform ${warningsExpanded ? 'rotate-180' : ''}`}
-                          >
-                            <path d="m6 9 6 6 6-6" />
-                          </svg>
-                        </button>
-                        {canAutoFixCycles ? (
-                          <button
-                            type="button"
-                            onClick={autoFixDependencyCycles}
-                            disabled={isAutoFixingCycles}
-                            className="control-pill h-7 flex-shrink-0 px-2.5 text-micro font-semibold text-[#D8FFA1] disabled:opacity-45"
-                          >
-                            {isAutoFixingCycles ? 'Fixing…' : 'Auto-fix'}
-                          </button>
-                        ) : null}
-                      </div>
-                      <AnimatePresence>
-                        {warningsExpanded && (
-                          <motion.div
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: 'auto', opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{ duration: 0.15 }}
-                            className="overflow-hidden"
-                          >
-                            <div className="space-y-1 px-3 pb-2">
-                              {warnings.map((w, i) => (
-                                <div key={i} className="text-micro text-amber-100/72">
-                                  {humanizeWarning(w)}
-                                </div>
-                              ))}
-                            </div>
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </motion.div>
-                  )}
+                  {/* Non-cycle warnings shown as collapsible footer (below Dependency Map) */}
 
-                  {(todoTaskCount > 0 || activeTaskCount > 0 || totalExpectedDurationHours > 0 || totalExpectedBudgetUsd > 0) && (
+                  {(todoTaskCount > 0 || activeTaskCount > 0 || doneTaskCount > 0 || totalExpectedDurationHours > 0) && (
                     <motion.div variants={staggerItem}>
-                      <CollapsibleSection title="Stats" storageKey={`stats.${initiative.id}`} defaultOpen>
-                        <div className="grid gap-2 py-0.5 sm:grid-cols-2 lg:grid-cols-4">
-                          <MetricChip
-                            label="Queue"
-                            value={`${todoTaskCount} todo · ${activeTaskCount} active`}
+                      <div className="flex items-center gap-4 py-1">
+                        {/* Progress Ring */}
+                        <svg viewBox="0 0 68 68" className="h-16 w-16 flex-shrink-0" aria-label={`${progress}% complete`}>
+                          <circle cx="34" cy="34" r="28" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="5" />
+                          <motion.circle
+                            cx="34" cy="34" r="28"
+                            fill="none"
+                            stroke={statusColor(effectiveInitiativeStatus)}
+                            strokeWidth="5"
+                            strokeLinecap="round"
+                            initial={false}
+                            animate={{
+                              strokeDasharray: `${((progress === 0 ? 2 : progress) / 100) * 175.93} 175.93`,
+                              opacity: progress === 0 ? 0.45 : 1,
+                            }}
+                            transition={{ type: 'spring', stiffness: 260, damping: 34, mass: 0.75 }}
+                            transform="rotate(-90 34 34)"
                           />
-                          <MetricChip
-                            label="Completed"
-                            value={`${doneTaskCount}/${taskNodes.length || 0}`}
-                          />
-                          <MetricChip
-                            label="Duration"
-                            value={`${totalExpectedDurationHours}h`}
-                          />
-                          <MetricChip
-                            label="Budget"
-                            value={`$${totalExpectedBudgetUsd.toLocaleString()}`}
-                          />
+                          <text
+                            x="34" y="32"
+                            textAnchor="middle"
+                            dominantBaseline="central"
+                            fill="currentColor"
+                            fontSize="14"
+                            fontWeight="700"
+                            className="text-bright"
+                          >
+                            {progress}%
+                          </text>
+                          <text
+                            x="34" y="46"
+                            textAnchor="middle"
+                            dominantBaseline="central"
+                            fill="currentColor"
+                            fontSize="8"
+                            className="text-muted"
+                          >
+                            {doneTaskCount}/{taskNodes.length} done
+                          </text>
+                        </svg>
+                        {/* Inline stat pairs */}
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-caption text-secondary">
+                          <span>
+                            <span className="text-bright font-medium">Queue:</span> {todoTaskCount}{activeTaskCount > 0 ? ` (${activeTaskCount} active)` : ''}
+                          </span>
+                          {totalExpectedDurationHours > 0 && (
+                            <>
+                              <span className="text-white/20">·</span>
+                              <span>
+                                <span className="text-bright font-medium">Duration:</span> {totalExpectedDurationHours}h
+                              </span>
+                            </>
+                          )}
+                          {totalExpectedBudgetUsd > 0 && (
+                            <>
+                              <span className="text-white/20">·</span>
+                              <span>
+                                <span className="text-bright font-medium">Budget:</span> ${totalExpectedBudgetUsd.toLocaleString()}
+                              </span>
+                            </>
+                          )}
                         </div>
-                      </CollapsibleSection>
+                      </div>
                     </motion.div>
                   )}
 
@@ -1211,7 +1206,20 @@ export function InitiativeSection({
                   )}
 
                   <motion.div variants={staggerItem}>
-                    <CollapsibleSection title="Dependency Map" storageKey={`depmap.${initiative.id}`} defaultOpen>
+                    <CollapsibleSection
+                      title="Dependency Map"
+                      storageKey={`depmap.${initiative.id}`}
+                      defaultOpen
+                      badge={
+                        canAutoFixCycles
+                          ? {
+                              label: `${cycleEdgeCount || cycleWarnings.length} cycle${(cycleEdgeCount || cycleWarnings.length) === 1 ? '' : 's'}`,
+                              tone: 'warning',
+                              action: { label: 'Fix', onClick: autoFixDependencyCycles, busy: isAutoFixingCycles },
+                            }
+                          : null
+                      }
+                    >
                       <DependencyMapPanel
                         nodes={nodes}
                         edges={edges}
@@ -1225,6 +1233,49 @@ export function InitiativeSection({
                           }
                         }}
                       />
+                      {/* Non-cycle warnings as collapsible footer */}
+                      {warnings.filter((w) => !/cyclic dependency edge/i.test(w)).length > 0 && (
+                        <div className="mt-2">
+                          <button
+                            type="button"
+                            onClick={() => setWarningsExpanded((prev) => !prev)}
+                            className="flex items-center gap-1.5 text-micro text-amber-200/65 transition-colors hover:text-amber-100/85"
+                          >
+                            <span className="h-1.5 w-1.5 rounded-full bg-amber-300/60" />
+                            {warnings.filter((w) => !/cyclic dependency edge/i.test(w)).length} warning{warnings.filter((w) => !/cyclic dependency edge/i.test(w)).length !== 1 ? 's' : ''}
+                            <svg
+                              width="8"
+                              height="8"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2.5"
+                              className={`transition-transform ${warningsExpanded ? 'rotate-180' : ''}`}
+                            >
+                              <path d="m6 9 6 6 6-6" />
+                            </svg>
+                          </button>
+                          <AnimatePresence>
+                            {warningsExpanded && (
+                              <motion.div
+                                initial={{ height: 0, opacity: 0 }}
+                                animate={{ height: 'auto', opacity: 1 }}
+                                exit={{ height: 0, opacity: 0 }}
+                                transition={{ duration: 0.15 }}
+                                className="overflow-hidden"
+                              >
+                                <div className="space-y-1 pt-1.5">
+                                  {warnings.filter((w) => !/cyclic dependency edge/i.test(w)).map((w, i) => (
+                                    <div key={i} className="text-micro text-amber-100/60">
+                                      {humanizeWarning(w)}
+                                    </div>
+                                  ))}
+                                </div>
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+                      )}
                     </CollapsibleSection>
                   </motion.div>
 

@@ -816,6 +816,7 @@ function MissionControlInner({
   );
   const internalNextActionQueue = useNextUpQueue({
     projectId: workspaceInitiativeId,
+    limit: 40,
     authToken,
     embedMode,
     enabled: nextUpQueueModel ? false : initiatives.length > 0,

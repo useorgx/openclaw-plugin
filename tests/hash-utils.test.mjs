@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { idempotencyKey, stableHash } from "../dist/hash-utils.js";
+import { deterministicActivityId, idempotencyKey, stableHash } from "../dist/hash-utils.js";
 
 test("stableHash returns deterministic sha256 hex output", () => {
   assert.equal(
@@ -19,4 +19,43 @@ test("idempotencyKey sanitizes unsafe characters and keeps <=120 chars", () => {
 test("idempotencyKey uses stable non-empty prefix when parts are empty", () => {
   const value = idempotencyKey([null, undefined, ""]);
   assert.match(value, /^openclaw:[a-f0-9]{20}$/);
+});
+
+test("deterministicActivityId is stable for same inputs", () => {
+  const id1 = deterministicActivityId(
+    "progress",
+    "run-123",
+    "2026-03-04T10:00:00.000Z",
+    "agent-7",
+    "updated"
+  );
+  const id2 = deterministicActivityId(
+    "progress",
+    "run-123",
+    "2026-03-04T10:00:00.000Z",
+    "agent-7",
+    "updated"
+  );
+
+  assert.equal(id1, id2);
+  assert.match(id1, /^act-[a-f0-9]{32}$/);
+});
+
+test("deterministicActivityId normalizes nullable fields", () => {
+  const idWithNulls = deterministicActivityId(
+    "decision",
+    null,
+    "2026-03-04T10:00:00.000Z",
+    null,
+    null
+  );
+  const idWithEmptyStrings = deterministicActivityId(
+    "decision",
+    "",
+    "2026-03-04T10:00:00.000Z",
+    "",
+    ""
+  );
+
+  assert.equal(idWithNulls, idWithEmptyStrings);
 });

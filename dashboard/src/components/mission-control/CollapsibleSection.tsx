@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+interface SectionBadge {
+  label: string;
+  tone: 'warning' | 'error' | 'info';
+  action?: { label: string; onClick: () => void; busy?: boolean };
+}
+
 interface CollapsibleSectionProps {
   title: string;
   defaultOpen?: boolean;
@@ -9,6 +15,7 @@ interface CollapsibleSectionProps {
   stickyOffsetClass?: string;
   stickyTop?: string;
   contentOverflowVisible?: boolean;
+  badge?: SectionBadge | null;
   children: React.ReactNode;
 }
 
@@ -39,6 +46,7 @@ export function CollapsibleSection({
   stickyOffsetClass = 'top-0',
   stickyTop,
   contentOverflowVisible = false,
+  badge,
   children,
 }: CollapsibleSectionProps) {
   const [isOpen, setIsOpen] = useState(() =>
@@ -109,6 +117,40 @@ export function CollapsibleSection({
         <span className="text-caption font-semibold tracking-[0.02em] text-white/68">
           {title}
         </span>
+        {badge && (
+          <span className="flex items-center gap-1.5">
+            <span className="text-micro text-white/45">·</span>
+            <span
+              className={`text-micro ${
+                badge.tone === 'error' ? 'text-red-200/80' : badge.tone === 'warning' ? 'text-amber-200/80' : 'text-secondary'
+              }`}
+            >
+              {badge.label}
+            </span>
+            {badge.action && (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  badge.action!.onClick();
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.stopPropagation();
+                    event.preventDefault();
+                    badge.action!.onClick();
+                  }
+                }}
+                className={`text-micro font-semibold text-[#D8FFA1] transition-colors hover:text-white ${
+                  badge.action.busy ? 'pointer-events-none opacity-45' : 'cursor-pointer'
+                }`}
+              >
+                {badge.action.busy ? 'Fixing…' : badge.action.label}
+              </span>
+            )}
+          </span>
+        )}
       </button>
       <AnimatePresence initial={false}>
         {isOpen && (
