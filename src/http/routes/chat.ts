@@ -22,7 +22,7 @@ type JsonRecord = Record<string, unknown>;
 type RegisterChatRoutesDeps<TReq, TRes> = {
   parseJsonRequest: (req: TReq) => Promise<JsonRecord>;
   pickString: (input: Record<string, unknown>, keys: string[]) => string | null;
-  parsePositiveInt: (raw: string | null, fallback: number) => number;
+  parsePositiveInt: (raw: string | null, fallback: number, max?: number) => number;
   emitActivitySafe?: (input: {
     initiativeId: string | null;
     sourceClient?: string;
@@ -237,8 +237,8 @@ export function registerChatRoutes<TReq, TRes>(
         const initiativeId = query.get("initiative_id") ?? query.get("initiative");
         const searchQuery = query.get("query") ?? query.get("q");
         const status = query.get("status");
-        const limit = deps.parsePositiveInt(query.get("limit"), 60);
-        const offset = deps.parsePositiveInt(query.get("offset"), 0);
+        const limit = deps.parsePositiveInt(query.get("limit"), 60, 200);
+        const offset = deps.parsePositiveInt(query.get("offset"), 0, 10000);
         sendThreadList(deps, res, {
           commandCenterId: commandCenterId?.trim() ?? null,
           initiativeId: initiativeId?.trim() ?? null,

@@ -73,7 +73,7 @@ async function withSoftTimeout<T>(
 }
 
 type LiveSnapshotRoutesDeps<TReq, TRes> = {
-  parsePositiveInt: (raw: string | null, fallback: number) => number;
+  parsePositiveInt: (raw: string | null, fallback: number, max?: number) => number;
   readSnapshotResponseCache: (key: string) => Record<string, unknown> | null;
   writeSnapshotResponseCache: (key: string, payload: Record<string, unknown>) => void;
   safeErrorMessage: (err: unknown) => string;
@@ -488,15 +488,18 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
   ): SnapshotQuery {
     const sessionsLimit = deps.parsePositiveInt(
       query.get("sessionsLimit") ?? query.get("sessions_limit"),
-      320
+      320,
+      1000
     );
     const activityLimit = deps.parsePositiveInt(
       query.get("activityLimit") ?? query.get("activity_limit"),
-      600
+      600,
+      2000
     );
     const decisionsLimit = deps.parsePositiveInt(
       query.get("decisionsLimit") ?? query.get("decisions_limit"),
-      120
+      120,
+      500
     );
     const initiative = query.get("initiative");
     const scope = resolveWorkspaceScope(query, headerScope, {

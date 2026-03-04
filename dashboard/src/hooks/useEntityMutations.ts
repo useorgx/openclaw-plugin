@@ -246,10 +246,10 @@ export function useEntityMutations(ctx: MutationContext) {
   };
 
   const entityActionToStatus: Record<string, string> = {
-    start: 'in_progress',
-    complete: 'done',
+    start: 'active',
+    complete: 'completed',
     block: 'blocked',
-    unblock: 'in_progress',
+    unblock: 'active',
     pause: 'paused',
     resume: 'active',
   };

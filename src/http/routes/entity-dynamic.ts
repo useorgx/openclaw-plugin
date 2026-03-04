@@ -32,6 +32,61 @@ type RegisterEntityDynamicRoutesDeps<TReq, TRes> = {
   safeErrorMessage: (err: unknown) => string;
 };
 
+function resolveEntityActionStatus(
+  entityType: string,
+  entityAction: string
+): string | null {
+  const normalizedType = entityType.trim().toLowerCase();
+  const normalizedAction = entityAction.trim().toLowerCase();
+
+  const defaultStatusMap: Record<string, string> = {
+    start: "in_progress",
+    complete: "done",
+    block: "blocked",
+    unblock: "in_progress",
+    pause: "paused",
+    resume: "active",
+  };
+
+  const statusMapByEntityType: Record<string, Record<string, string>> = {
+    initiative: {
+      start: "active",
+      complete: "completed",
+      block: "blocked",
+      unblock: "active",
+      pause: "paused",
+      resume: "active",
+    },
+    workstream: {
+      start: "active",
+      complete: "completed",
+      block: "blocked",
+      unblock: "active",
+      pause: "paused",
+      resume: "active",
+    },
+    milestone: {
+      start: "in_progress",
+      complete: "completed",
+      block: "at_risk",
+      unblock: "in_progress",
+      pause: "planned",
+      resume: "in_progress",
+    },
+    task: {
+      start: "in_progress",
+      complete: "done",
+      block: "blocked",
+      unblock: "in_progress",
+      pause: "todo",
+      resume: "in_progress",
+    },
+  };
+
+  const map = statusMapByEntityType[normalizedType] ?? defaultStatusMap;
+  return map[normalizedAction] ?? null;
+}
+
 export function registerEntityDynamicRoutes<TReq, TRes>(
   router: Router<Record<string, never>, TReq, TRes>,
   deps: RegisterEntityDynamicRoutesDeps<TReq, TRes>
@@ -186,15 +241,7 @@ export function registerEntityDynamicRoutes<TReq, TRes>(
             return;
           }
 
-          const statusMap: Record<string, string> = {
-            start: "in_progress",
-            complete: "done",
-            block: "blocked",
-            unblock: "in_progress",
-            pause: "paused",
-            resume: "active",
-          };
-          const newStatus = statusMap[entityAction];
+          const newStatus = resolveEntityActionStatus(entityType, entityAction);
           if (!newStatus) {
             deps.sendJson(res, 400, {
               error: `Unknown entity action: ${entityAction}`,

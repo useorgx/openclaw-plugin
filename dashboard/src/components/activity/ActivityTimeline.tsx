@@ -731,6 +731,58 @@ function classifyActivity(item: LiveActivityItem): ActivityBucket {
   return 'message';
 }
 
+function activitySignalsCompletion(
+  item: LiveActivityItem,
+  metadata: Record<string, unknown> | undefined
+): boolean {
+  if (
+    item.type === 'run_completed' ||
+    item.type === 'milestone_completed' ||
+    item.type === 'decision_resolved'
+  ) {
+    return true;
+  }
+
+  const statusSignal = metadataString(metadata, [
+    'status',
+    'state',
+    'phase',
+    'lifecycle_state',
+    'lifecycleState',
+    'parsed_status',
+    'parsedStatus',
+    'run_status',
+    'runStatus',
+  ]);
+  if (isDoneLikeStatus(statusSignal)) return true;
+
+  const stopReason = metadataString(metadata, ['stop_reason', 'stopReason']);
+  if (normalizeStatusKey(stopReason) === 'completed') return true;
+
+  const progressPct = metadata ? metadataPercent(metadata, [
+    'progress_pct',
+    'progressPct',
+    'progress_percent',
+    'progressPercent',
+    'completion_pct',
+    'completionPct',
+    'slice_progress_pct',
+    'sliceProgressPct',
+  ]) : null;
+  const decisionRequired =
+    item.decisionRequired === true ||
+    metadataBoolean(metadata, ['decision_required', 'decisionRequired']) === true;
+  const blockingDecisions =
+    metadataCount(metadata, [
+      'blocking_decisions',
+      'blockingDecisions',
+      'blocking_decision_count',
+      'blockingDecisionCount',
+    ]) ?? 0;
+
+  return progressPct !== null && progressPct >= 100 && !decisionRequired && blockingDecisions === 0;
+}
+
 function labelForType(type: LiveActivityType): string {
   // Exhaustive Record — compile error if a new LiveActivityType is added
   // without a label entry here.
@@ -2934,11 +2986,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       const metadata = metadataForItem(item);
       const sessionSnapshot = runId ? sessionSnapshotByRunId.get(runId) ?? null : null;
       const sliceSnapshot = runId ? sliceSnapshotByRunId.get(runId) ?? null : null;
+      const completionSignal = activitySignalsCompletion(item, metadata);
       const projection = projectRunStatus({
-        sessionStatus: sessionSnapshot?.status ?? (runId ? sessionStatusById.get(runId) ?? null : null),
-        sessionPhase: sessionSnapshot?.phase ?? null,
-        sessionState: sessionSnapshot?.state ?? null,
-        sliceStatus: sliceSnapshot?.status ?? null,
+        sessionStatus: completionSignal
+          ? null
+          : sessionSnapshot?.status ?? (runId ? sessionStatusById.get(runId) ?? null : null),
+        sessionPhase: completionSignal ? null : sessionSnapshot?.phase ?? null,
+        sessionState: completionSignal ? null : sessionSnapshot?.state ?? null,
+        sliceStatus: completionSignal ? null : sliceSnapshot?.status ?? null,
         activityType: item.type,
         activityStatus: metadataString(metadata, [
           'status',
@@ -2965,11 +3020,11 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             'non_blocking_decisions',
             'nonBlockingDecisions',
             'decision_count',
-            'decisionCount',
-            'decisions',
-          ]) ?? sliceSnapshot?.nonBlockingDecisions ?? 0,
-        blockerCount: sessionSnapshot?.blockerCount ?? 0,
-        blockerReason: sessionSnapshot?.blockerReason ?? null,
+          'decisionCount',
+          'decisions',
+        ]) ?? sliceSnapshot?.nonBlockingDecisions ?? 0,
+        blockerCount: completionSignal ? 0 : sessionSnapshot?.blockerCount ?? 0,
+        blockerReason: completionSignal ? null : sessionSnapshot?.blockerReason ?? null,
       });
       const userState = resolveActivityUserState(bucket, projection);
       const searchText = [

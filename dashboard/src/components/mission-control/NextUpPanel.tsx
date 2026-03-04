@@ -260,8 +260,17 @@ function formatQueueErrorMessage(raw: string): string {
   return humanizeWarning(compact || raw) || 'Next Up is temporarily unavailable.';
 }
 
-function formatQueueDegradedMessage(raw: string): string {
+function formatQueueDegradedMessage(raw: string): string | null {
   const normalized = raw.trim().toLowerCase();
+  // Suppress non-actionable system messages — users can't fix circular deps or timeline
+  // estimation quirks, so showing them as toasts only creates anxiety.
+  if (
+    normalized.includes('circular') ||
+    normalized.includes('timeline estimate') ||
+    normalized.includes('adjusted accordingly')
+  ) {
+    return null;
+  }
   if (
     normalized.includes('timed out') ||
     normalized.includes('timeout') ||
@@ -897,7 +906,7 @@ export function NextUpPanel({
 
   const showStatusBanner = statusTone !== null;
   const showSignalToast =
-    degraded.length > 0 && !signalToastHidden && menuKey === null && !queueSettingsOpen;
+    degraded.length > 0 && primaryDegradedMessage !== null && !signalToastHidden && menuKey === null && !queueSettingsOpen;
   const selectedCount = visibleSelection.length;
   const hasVisibleCards = useMemo(() => {
     if (zoomLevel === 'initiative') return visibleInitiativeGroups.length > 0;
@@ -922,8 +931,8 @@ export function NextUpPanel({
       : zoomLevel === 'milestone'
         ? 'No milestone slices in the queue right now.'
         : runningItemCount > 0
-          ? `No queued workstreams yet. ${runningItemCount} running item${runningItemCount === 1 ? '' : 's'} still in-flight.`
-          : degraded.length > 0
+          ? `All queued work is in progress (${runningItemCount} running).`
+          : degraded.length > 0 && primaryDegradedMessage
             ? 'Queue signal is delayed right now.'
             : 'No queued workstreams right now.';
 
@@ -1299,8 +1308,12 @@ export function NextUpPanel({
           <EmptyState
             icon="queue"
             headline={emptyStateMessage}
-            description={primaryDegradedMessage ?? 'Create an initiative or add workstreams to populate the queue.'}
-            primaryAction={degraded.length > 0 ? {
+            description={
+              runningItemCount > 0
+                ? 'Check the In Progress tab to see active work.'
+                : primaryDegradedMessage ?? 'Create an initiative or add workstreams to populate the queue.'
+            }
+            primaryAction={degraded.length > 0 && primaryDegradedMessage ? {
               label: 'Retry now',
               onClick: () => {
                 setSignalToastHidden(false);

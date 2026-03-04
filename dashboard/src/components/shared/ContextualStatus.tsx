@@ -42,22 +42,24 @@ function resolveState(props: ContextualStatusProps): {
   }
 
   if (blocked > 0 && decisionsCount > 0) {
+    const blockedLabel = blocked > 20 ? '20+ blocked' : `${blocked} blocked`;
     return {
       key: `blocked-decisions-${blocked}-${decisionsCount}-${running}`,
       segments: [
         ...(running > 0 ? [{ text: `${running} running · ` }] : []),
-        { text: `${blocked} blocked`, color: colors.red, clickable: true, onClick: onBlockedClick },
+        { text: blockedLabel, color: colors.textMuted, clickable: true, onClick: onBlockedClick },
         { text: ' · ' },
-        { text: `${decisionsCount} need your input`, color: colors.amber, clickable: true, onClick: onDecisionsClick },
+        { text: `${decisionsCount} decisions`, color: colors.amber, clickable: true, onClick: onDecisionsClick },
       ],
     };
   }
 
   if (blocked > 0) {
+    const blockedLabel = blocked > 20 ? '20+ blocked' : `${blocked} blocked`;
     return {
       key: `blocked-${blocked}-${running}`,
       segments: [
-        { text: `${blocked} blocked`, color: colors.red, clickable: true, onClick: onBlockedClick },
+        { text: blockedLabel, color: colors.textMuted, clickable: true, onClick: onBlockedClick },
         ...(running > 0 ? [{ text: ` · ${running} running` }] : []),
       ],
     };
@@ -68,7 +70,7 @@ function resolveState(props: ContextualStatusProps): {
       key: `decisions-${decisionsCount}-${running}`,
       segments: [
         ...(running > 0 ? [{ text: `${running} running`, color: colors.lime }, { text: ' · ' }] : []),
-        { text: `${decisionsCount} need your input`, color: colors.amber, clickable: true, onClick: onDecisionsClick },
+        { text: `${decisionsCount} decisions`, color: colors.amber, clickable: true, onClick: onDecisionsClick },
       ],
     };
   }
@@ -102,7 +104,7 @@ export function ContextualStatus(props: ContextualStatusProps) {
               <button
                 key={i}
                 onClick={seg.onClick}
-                className="font-semibold transition-opacity hover:opacity-80"
+                className="font-semibold underline decoration-dotted underline-offset-4 transition-opacity hover:opacity-80"
                 style={{ color: seg.color }}
               >
                 {seg.text}

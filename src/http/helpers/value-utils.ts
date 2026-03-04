@@ -58,7 +58,11 @@ export function toIsoString(value: string | null): string | null {
   return new Date(parsed).toISOString();
 }
 
-export function parsePositiveInt(raw: string | null, fallback: number): number {
+export function parsePositiveInt(
+  raw: string | null,
+  fallback: number,
+  max: number = Number.POSITIVE_INFINITY
+): number {
   if (!raw) return fallback;
   const normalized = raw.trim();
   if (!normalized) return fallback;
@@ -66,7 +70,9 @@ export function parsePositiveInt(raw: string | null, fallback: number): number {
   if (!Number.isFinite(parsed)) return fallback;
   // Offset-like parameters may intentionally allow zero when fallback is zero.
   const minimum = fallback <= 0 ? 0 : 1;
-  return Math.max(minimum, Math.floor(parsed));
+  const clamped = Math.max(minimum, Math.floor(parsed));
+  if (!Number.isFinite(max)) return clamped;
+  return Math.min(clamped, Math.max(minimum, Math.floor(max)));
 }
 
 export function parseBooleanQuery(raw: string | null): boolean {

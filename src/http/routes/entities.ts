@@ -4,6 +4,7 @@ import {
   resolveWorkspaceScope,
   workspaceScopeFromHeaders,
 } from "../helpers/workspace-scope.js";
+import { deriveInitiativeLifecycleStatus } from "../helpers/mission-control.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -121,6 +122,71 @@ function toObjectArray(input: unknown): Array<Record<string, unknown>> {
   return input.filter(
     (item): item is Record<string, unknown> => Boolean(item) && typeof item === "object"
   );
+}
+
+async function reconcileInitiativeStatusesFromWorkstreams<TReq, TRes>(
+  deps: RegisterEntitiesRoutesDeps<TReq, TRes>,
+  rows: Array<Record<string, unknown>>,
+  input: {
+    initiativeId?: string;
+    workspaceId?: string;
+  }
+): Promise<Array<Record<string, unknown>>> {
+  if (rows.length === 0) return rows;
+
+  const initiativeIds = new Set(
+    rows
+      .map((row) => deps.pickString(row, ["id"]))
+      .filter((value): value is string => Boolean(value))
+  );
+  if (initiativeIds.size === 0) return rows;
+
+  const scopedInitiativeId = input.initiativeId?.trim() ?? "";
+  const scopedWorkspaceId = input.workspaceId?.trim() ?? "";
+  if (!scopedInitiativeId && !scopedWorkspaceId) {
+    // Avoid unscoped global workstream scans.
+    return rows;
+  }
+
+  const filters: Record<string, unknown> = { limit: 2000 };
+  if (scopedInitiativeId) {
+    filters.initiative_id = scopedInitiativeId;
+  }
+  if (scopedWorkspaceId) {
+    filters.workspace_id = scopedWorkspaceId;
+    filters.command_center_id = scopedWorkspaceId;
+  }
+
+  const response = await deps.client.listEntities("workstream", filters);
+  const workstreamRows = toObjectArray(
+    response && typeof response === "object"
+      ? (response as Record<string, unknown>).data
+      : []
+  );
+
+  const childStatusesByInitiative = new Map<string, string[]>();
+  for (const workstreamRow of workstreamRows) {
+    const initiativeId = deps.pickString(workstreamRow, ["initiative_id", "initiativeId"]);
+    if (!initiativeId || !initiativeIds.has(initiativeId)) continue;
+    const status = deps.pickString(workstreamRow, ["status"]) ?? "todo";
+    const statuses = childStatusesByInitiative.get(initiativeId) ?? [];
+    statuses.push(status);
+    childStatusesByInitiative.set(initiativeId, statuses);
+  }
+
+  return rows.map((row) => {
+    const initiativeId = deps.pickString(row, ["id"]);
+    const status = deps.pickString(row, ["status"]);
+    if (!initiativeId || !status) return row;
+    const childStatuses = childStatusesByInitiative.get(initiativeId) ?? [];
+    if (childStatuses.length === 0) return row;
+    const normalized = deriveInitiativeLifecycleStatus(status, childStatuses);
+    if (normalized === status) return row;
+    return {
+      ...row,
+      status: normalized,
+    };
+  });
 }
 
 export function registerEntitiesRoutes<TReq, TRes>(
@@ -449,14 +515,22 @@ export function registerEntitiesRoutes<TReq, TRes>(
                 return rowScope.trim() === workspaceScopeId;
               })
             : searchedRows;
+        const reconciledRows = await reconcileInitiativeStatusesFromWorkstreams(
+          deps,
+          rows,
+          {
+            initiativeId: id,
+            workspaceId: workspaceScopeId,
+          }
+        ).catch(() => rows);
         deps.sendJson(res, 200, {
           ...payload,
-          data: deps.applyLocalInitiativeOverrides(rows),
+          data: deps.applyLocalInitiativeOverrides(reconciledRows),
           pagination:
             payload.pagination && typeof payload.pagination === "object"
               ? {
                   ...(payload.pagination as Record<string, unknown>),
-                  total: rows.length,
+                  total: reconciledRows.length,
                 }
               : payload.pagination,
         });
