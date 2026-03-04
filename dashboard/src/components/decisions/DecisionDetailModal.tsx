@@ -9,6 +9,8 @@ import { EvidenceCard } from '@/components/shared/EvidenceCard';
 import { BreadcrumbNav } from '@/components/shared/BreadcrumbNav';
 import { ScopeProgressCard, buildScopeFromContext } from '@/components/shared/ScopeProgressCard';
 import { humanizeWarning } from '@/lib/humanize';
+import { humanizeDecisionContext, suggestedOptionsToLiveOptions } from '@/lib/humanize-decision-context';
+import { computeDecisionImpact, formatDecisionImpact, type MissionControlGraphRef } from '@/lib/compute-decision-impact';
 import { motion, AnimatePresence } from 'framer-motion';
 import type { LiveDecision, LiveDecisionOption } from '@/types';
 
@@ -42,6 +44,8 @@ interface DecisionDetailModalProps {
   currentIndex?: number;
   totalCount?: number;
   onFocusRunId?: (runId: string) => void;
+  /** Mission control graph for impact computation (optional) */
+  graph?: MissionControlGraphRef | null;
 }
 
 type ModalPhase = 'idle' | 'approving' | 'rejecting' | 'success' | 'rejected' | 'error';
@@ -112,6 +116,7 @@ export function DecisionDetailModal({
   currentIndex,
   totalCount,
   onFocusRunId,
+  graph,
 }: DecisionDetailModalProps) {
   const [phase, setPhase] = useState<ModalPhase>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -216,12 +221,32 @@ export function DecisionDetailModal({
     return parsed.slice(0, 12);
   }, [metadata]);
 
+  // Humanize raw decision context for operator display
+  const humanized = useMemo(() => {
+    if (!decision) return null;
+    return humanizeDecisionContext(decision);
+  }, [decision?.context, decision?.title, decision?.decisionType]);
+
+  // Impact computation from graph
+  const impact = useMemo(() => {
+    if (!decision) return null;
+    return computeDecisionImpact(decision, graph ?? null);
+  }, [decision?.workstreamId, decision?.initiativeId, graph]);
+
+  // Urgency escalation: decisions waiting > 24h get extra visual treatment
+  const isUrgent = (decision?.waitingMinutes ?? 0) > 1440;
+
   const options = useMemo(() => {
     if (decision?.options && decision.options.length > 0) {
       return decision.options;
     }
-    return legacyOptions;
-  }, [decision?.options, legacyOptions]);
+    if (legacyOptions.length > 0) return legacyOptions;
+    // Auto-generate from humanized context when no options at all
+    if (humanized && humanized.suggestedOptions.length > 0) {
+      return suggestedOptionsToLiveOptions(humanized.suggestedOptions);
+    }
+    return [];
+  }, [decision?.options, legacyOptions, humanized]);
 
   const selectedOptionRecord = useMemo(
     () => options.find((option) => option.id === selectedOption) ?? null,
@@ -474,7 +499,13 @@ export function DecisionDetailModal({
 
   return (
     <Modal open={open} onClose={onClose} maxWidth="max-w-xl">
-      <div className="flex h-full min-h-0 w-full flex-col">
+      <div
+        className="flex h-full min-h-0 w-full flex-col"
+        style={isUrgent ? {
+          boxShadow: `inset 0 0 0 1px ${colors.amber}30`,
+          borderRadius: 'inherit',
+        } : undefined}
+      >
         {/* 1. Urgency accent line */}
         <div
           className="h-[2px] w-full flex-shrink-0"
@@ -508,6 +539,7 @@ export function DecisionDetailModal({
               {currentIndex != null && totalCount != null && (
                 <span className="text-micro text-muted tabular-nums">
                   {currentIndex + 1} of {totalCount}
+                  <span className="ml-1 hidden sm:inline">&middot; Longest waiting first</span>
                 </span>
               )}
             </div>
@@ -551,7 +583,9 @@ export function DecisionDetailModal({
                 <div className="flex flex-wrap items-center gap-2 text-body text-secondary">
                   <span>{decision.agentName || 'OrgX Autopilot'}</span>
                   <span className="text-white/[0.15]">|</span>
-                  <span>{formatDurationWithUrgency(decision.waitingMinutes).text}</span>
+                  <span className={isUrgent ? 'font-semibold text-red-300' : ''}>
+                    {formatDurationWithUrgency(decision.waitingMinutes).text}
+                  </span>
                   {decisionType && (
                     <>
                       <span className="text-white/[0.15]">|</span>
@@ -649,8 +683,37 @@ export function DecisionDetailModal({
             </div>
           )}
 
-          {/* 7. Context */}
-          {context ? (
+          {/* 6b. Urgency callout for long-waiting decisions */}
+          {isUrgent && (
+            <div className="mb-4 rounded-xl border border-amber-400/[0.3] bg-amber-500/[0.08] px-4 py-3">
+              <p className="text-body text-amber-200">
+                This decision has been waiting{' '}
+                <span className="font-semibold text-amber-100">
+                  {formatDurationWithUrgency(decision.waitingMinutes).text}
+                </span>
+                . Downstream work is paused.
+              </p>
+            </div>
+          )}
+
+          {/* 7. Context — humanized when raw, verbatim when rich */}
+          {humanized && humanized.headline !== decision.title ? (
+            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+              <p className="text-micro font-semibold uppercase tracking-wider text-muted mb-2">What happened</p>
+              <p className="text-body text-primary leading-relaxed">{humanized.explanation}</p>
+              {Object.keys(humanized.structuredDetails).length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-caption text-secondary">
+                  {Object.entries(humanized.structuredDetails)
+                    .filter(([, v]) => v != null)
+                    .map(([k, v]) => (
+                      <span key={k}>
+                        {k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}: {v}
+                      </span>
+                    ))}
+                </div>
+              )}
+            </div>
+          ) : context ? (
             <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
               <MarkdownText text={context} mode="block" />
             </div>
@@ -735,45 +798,25 @@ export function DecisionDetailModal({
             </div>
           )}
 
-          {/* 9. Note field - expandable */}
-          {isPending && (
-            <div className="mt-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowNotes((prev) => !prev);
-                  if (!showNotes) {
-                    requestAnimationFrame(() => noteRef.current?.focus());
-                  }
-                }}
-                className="flex w-full items-center gap-2 px-1 text-caption text-secondary transition-colors hover:text-white"
-              >
-                <svg
-                  width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                  className="transition-transform"
-                  style={{ transform: showNotes ? 'rotate(90deg)' : 'rotate(0deg)' }}
-                >
-                  <polyline points="9 18 15 12 9 6" />
-                </svg>
-                Add a note
-              </button>
-              {showNotes && (
-                <div className="mt-2">
-                  <textarea
-                    ref={noteRef}
-                    value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    disabled={busy}
-                    placeholder="Optional context for this decision..."
-                    rows={3}
-                    className="w-full resize-none rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-body text-primary placeholder-white/30 outline-none transition-colors focus:border-white/[0.16] focus:bg-white/[0.04]"
-                  />
-                  {selectedOptionRecord?.requiresNote && note.trim().length === 0 && (
-                    <p className="mt-2 text-caption text-amber-300">
-                      This option requires a note before submission.
-                    </p>
-                  )}
-                </div>
+          {/* 9. Impact section */}
+          {impact && (
+            <div className="mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+              <p className="text-micro font-semibold uppercase tracking-wider text-muted mb-2">Impact</p>
+              <p className="text-body text-primary leading-relaxed">
+                {formatDecisionImpact(impact)}
+              </p>
+              {impact.blockedWorkstreams.length > 0 && (
+                <ul className="mt-2 space-y-1 text-caption text-secondary">
+                  {impact.blockedWorkstreams.map((ws) => (
+                    <li key={ws.id} className="flex items-center gap-2">
+                      <span className="inline-block h-1 w-1 rounded-full bg-amber-400 flex-shrink-0" />
+                      {ws.title}
+                      {ws.status === 'blocked' && (
+                        <span className="text-amber-400 text-micro">(blocked)</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           )}

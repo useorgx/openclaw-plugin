@@ -11,6 +11,7 @@ import { ArtifactGallery } from './ArtifactGallery';
 import { MetricRow } from '@/components/shared/MetricRow';
 import { formatRelativeTime } from '@/lib/time';
 import { sanitizeDisplayText, humanizeStopReason, humanizeLaneState } from '@/lib/humanize';
+import { dedupeSliceSections, synthesizeOutcome } from '@/lib/suppress-unknown-fields';
 import { colors, motion as motionTokens } from '@/lib/tokens';
 import { projectRunStatus } from '@/lib/runStatusModel';
 import type { NextUpQueueItem, SliceRunProjection } from '@/types';
@@ -292,6 +293,8 @@ function extractData(target: SliceDetailTarget) {
     : 'OrgX';
   return {
     initiativeId: sliceRun.initiativeId,
+    // SliceRunProjection doesn't carry initiativeTitle; rely on scope/breadcrumb
+    // context from the parent. The ScopeProgressCard will fall back to shortId.
     initiativeTitle: null as string | null,
     initiativeStatus: null as string | null,
     workstreamId: sliceRun.workstreamId,
@@ -840,13 +843,13 @@ export function SliceDetailModal({
                     </span>
                   )}
                 </div>
-                {sr?.statusExplainer && (
+                {sr?.statusExplainer && target.source !== 'needs_input' && (
                   <p className="mt-2 text-body text-secondary">{sr.statusExplainer}</p>
                 )}
               </div>
             </motion.div>
 
-            {/* Metrics */}
+            {/* Metrics — suppress zero counts */}
             {sr && (
               <MetricRow
                 metrics={[
@@ -860,8 +863,8 @@ export function SliceDetailModal({
                       return `${(ms / 3_600_000).toFixed(1)}h`;
                     })(),
                   }] : []),
-                  { label: 'Artifacts', value: sr.artifactCount, color: colors.teal },
-                  { label: 'Decisions', value: sr.decisionCount, color: colors.amber },
+                  ...(sr.artifactCount > 0 ? [{ label: 'Artifacts', value: sr.artifactCount, color: colors.teal }] : []),
+                  ...(sr.decisionCount > 0 ? [{ label: 'Decisions', value: sr.decisionCount, color: colors.amber }] : []),
                 ]}
                 className="pb-4 border-b border-white/[0.04]"
               />
@@ -874,72 +877,89 @@ export function SliceDetailModal({
 
             <SectionDivider />
 
-            {target.source === 'needs_input' && sr ? (
-              <>
-                {/* Action card */}
-                <motion.div
-                  variants={sectionVariants}
-                  initial="hidden"
-                  animate="visible"
-                  exit="exit"
-                  custom={sectionIndex++}
-                  className={`rounded-xl border px-4 py-3 ${canonicalNarrativeClass}`}
-                >
-                  <p className="section-kicker">What to do now</p>
-                  <p className="mt-1 text-body text-primary">
-                    {canonicalProjection.sentence}
-                  </p>
-                  {sr.artifactCount > 0 ? (
-                    <p className="mt-1 text-caption text-secondary">
-                      {sr.artifactCount} artifact{sr.artifactCount === 1 ? '' : 's'} ready for review.
-                    </p>
-                  ) : null}
-                  {sr.blockingDecisionCount > 0 ? (
-                    <p className="mt-1 text-caption text-secondary">
-                      {sr.blockingDecisionCount} blocking decision
-                      {sr.blockingDecisionCount === 1 ? '' : 's'} waiting.
-                    </p>
-                  ) : null}
-                  {nextActionLabel ? (
-                    <p className="mt-1 text-caption text-secondary">Recommended action: {nextActionLabel}</p>
-                  ) : null}
-                </motion.div>
-
-                {/* Status explainer — only when different from blockReason */}
-                {sr.statusExplainer && sr.statusExplainer !== d.blockReason && (
+            {target.source === 'needs_input' && sr ? (() => {
+              // B1: Deduplicate sections — suppress repeated content
+              const deduped = dedupeSliceSections({
+                statusExplainer: sr.statusExplainer,
+                summary: d.blockReason,
+                lastEventSummary: sr.lastEventSummary,
+              });
+              // B2: Outcome synthesis — richer explanation from structured data
+              const synthesized = synthesizeOutcome({
+                lifecycleState: sr.status,
+                artifactCount: sr.artifactCount,
+                artifacts: sr.artifacts.map(a => ({ title: a.title, type: a.type ?? 'unknown' })),
+                statusExplainer: sr.statusExplainer,
+                confidence: sr.confidence,
+              });
+              const outcomeText = synthesized ?? deduped.outcome;
+              return (
+                <>
+                  {/* Action card */}
                   <motion.div
                     variants={sectionVariants}
                     initial="hidden"
                     animate="visible"
                     exit="exit"
                     custom={sectionIndex++}
+                    className={`rounded-xl border px-4 py-3 ${canonicalNarrativeClass}`}
                   >
-                    <p className="section-kicker">What happened</p>
-                    <p className="mt-1 text-body text-secondary leading-relaxed">
-                      {sanitizeDisplayText(sr.statusExplainer)}
+                    <p className="section-kicker">What to do now</p>
+                    <p className="mt-1 text-body text-primary">
+                      {canonicalProjection.sentence}
                     </p>
+                    {sr.artifactCount > 0 ? (
+                      <p className="mt-1 text-caption text-secondary">
+                        {sr.artifactCount} artifact{sr.artifactCount === 1 ? '' : 's'} ready for review.
+                      </p>
+                    ) : null}
+                    {sr.blockingDecisionCount > 0 ? (
+                      <p className="mt-1 text-caption text-secondary">
+                        {sr.blockingDecisionCount} blocking decision
+                        {sr.blockingDecisionCount === 1 ? '' : 's'} waiting.
+                      </p>
+                    ) : null}
+                    {nextActionLabel ? (
+                      <p className="mt-1 text-caption text-secondary">Recommended action: {nextActionLabel}</p>
+                    ) : null}
                   </motion.div>
-                )}
 
-                {/* Last activity — the most recent thing the agent did */}
-                {sr.lastEventSummary && (
-                  <motion.div
-                    variants={sectionVariants}
-                    initial="hidden"
-                    animate="visible"
-                    exit="exit"
-                    custom={sectionIndex++}
-                  >
-                    <p className="section-kicker">Last activity</p>
-                    <p className="mt-1 text-caption text-white/50 leading-relaxed">
-                      {sanitizeDisplayText(sr.lastEventSummary)}
-                    </p>
-                  </motion.div>
-                )}
+                  {/* Outcome — synthesized or deduplicated */}
+                  {outcomeText && (
+                    <motion.div
+                      variants={sectionVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      custom={sectionIndex++}
+                    >
+                      <p className="section-kicker">Outcome</p>
+                      <p className="mt-1 text-body text-secondary leading-relaxed">
+                        {sanitizeDisplayText(outcomeText)}
+                      </p>
+                    </motion.div>
+                  )}
 
-                <SectionDivider />
-              </>
-            ) : null}
+                  {/* Last activity — only if it adds NEW information */}
+                  {deduped.lastActivity && (
+                    <motion.div
+                      variants={sectionVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      custom={sectionIndex++}
+                    >
+                      <p className="section-kicker">Last activity</p>
+                      <p className="mt-1 text-caption text-white/50 leading-relaxed">
+                        {sanitizeDisplayText(deduped.lastActivity)}
+                      </p>
+                    </motion.div>
+                  )}
+
+                  <SectionDivider />
+                </>
+              );
+            })() : null}
 
             {/* ───── 2. Context & Details card ───── */}
             {(d.blockReason || d.autoContinue || (d.agentSource && d.agentSource !== 'assigned')) && (

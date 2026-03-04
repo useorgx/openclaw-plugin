@@ -2001,7 +2001,7 @@ function resolveAutopilotProgress(
     return {
       pct,
       source: 'metadata',
-      label: terminalStop ? stoppedLabel : 'Reported by slice metadata',
+      label: terminalStop ? stoppedLabel : 'Progress',
       tone,
       terminalStop,
     };
@@ -2011,7 +2011,7 @@ function resolveAutopilotProgress(
     return {
       pct: sessionProgress,
       source: 'session',
-      label: terminalStop ? stoppedLabel : 'Derived from runtime session',
+      label: terminalStop ? stoppedLabel : 'Progress',
       tone,
       terminalStop,
     };
@@ -2023,7 +2023,7 @@ function resolveAutopilotProgress(
   return {
     pct: lifecycle,
     source: 'lifecycle',
-    label: terminalStop ? stoppedLabel : 'Estimated from dispatch lifecycle',
+    label: terminalStop ? stoppedLabel : 'Progress',
     tone,
     terminalStop,
   };
@@ -4993,7 +4993,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   }}
                 />
                 <span className="text-caption text-secondary">
-                  {userStateLabel(activeDecorated.userState)} · {activeIndex + 1}/{filtered.length}
+                  {userStateLabel(activeDecorated.userState)} · {activeIndex + 1}/{filtered.length} sessions
                 </span>
                 {copyNotice && (
                   <Pill tone="neutral" className="text-micro font-semibold tracking-[0.02em]">
@@ -5477,6 +5477,19 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
                     {activeAutopilotContext && (
                       <div className="space-y-5">
+                        {/* C1: Promoted ACTION NEEDED card — when blocked with a next step */}
+                        {activeExecutionBreakdown?.nextStep && (activeAutopilotProgress?.tone === 'critical' || activeAutopilotProgress?.tone === 'warning') && (
+                          <div className="rounded-xl border border-red-400/25 bg-red-500/[0.08] px-4 py-3">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="inline-block h-2 w-2 rounded-full bg-red-400" />
+                              <p className="text-micro font-semibold uppercase tracking-wider text-red-200">Action needed</p>
+                            </div>
+                            <p className="text-body text-primary leading-relaxed">
+                              {activeExecutionBreakdown.nextStep}
+                            </p>
+                          </div>
+                        )}
+
                         {/* Session status — compact inline */}
                         <div>
                           <div className="flex items-center gap-2">
@@ -5487,11 +5500,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               {humanizeStopReason(activeAutopilotContext.event) ?? humanizeText(activeAutopilotContext.event)}
                             </span>
                           </div>
-                          {activeRelatedAutopilotSlice && (
-                            <p className="mt-1 px-1 text-caption text-muted">
-                              Based on related activity ({humanizeText(activeRelatedAutopilotSlice.relation)}).
-                            </p>
-                          )}
                         </div>
 
                         {/* Progress bar — inline, no card wrapper */}
@@ -5555,14 +5563,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                 <span>{activeAutopilotExecutorLabel}</span>
                               </div>
                             </div>
-                            <div>
-                              <div className="text-micro text-muted">Dispatcher</div>
-                              <div className="mt-0.5 text-body text-primary">
-                                {activeAutopilotContext.dispatcherClient
-                                  ? humanizeText(activeAutopilotContext.dispatcherClient)
-                                  : 'OrgX'}
+                            {activeAutopilotContext.dispatcherClient && activeAutopilotContext.dispatcherClient !== 'unknown' && (
+                              <div>
+                                <div className="text-micro text-muted">Dispatcher</div>
+                                <div className="mt-0.5 text-body text-primary">
+                                  {humanizeText(activeAutopilotContext.dispatcherClient)}
+                                </div>
                               </div>
-                            </div>
+                            )}
                             {(activeAutopilotContext.domain || activeAutopilotContext.requiredSkills.length > 0) && (
                               <div>
                                 <div className="text-micro text-muted">Policy</div>
@@ -5597,19 +5605,21 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                   </span>
                                 )}
                               </div>
-                              <div className="flex items-center justify-between gap-2 py-1">
-                                <div>
-                                  <div className="text-micro text-muted">Workstream</div>
-                                  <p className="mt-0.5 text-body text-primary">
-                                    {activeExecutionBreakdown.workstreamTitle ?? (activeExecutionBreakdown.workstreamId ? humanizeId(activeExecutionBreakdown.workstreamId) : '\u2014')}
-                                  </p>
+                              {(activeExecutionBreakdown.workstreamTitle || activeExecutionBreakdown.workstreamId) && (
+                                <div className="flex items-center justify-between gap-2 py-1">
+                                  <div>
+                                    <div className="text-micro text-muted">Workstream</div>
+                                    <p className="mt-0.5 text-body text-primary">
+                                      {activeExecutionBreakdown.workstreamTitle ?? humanizeId(activeExecutionBreakdown.workstreamId!)}
+                                    </p>
+                                  </div>
+                                  {activeExecutionBreakdown.workstreamStatus && (
+                                    <span className="flex-shrink-0 text-micro text-muted">
+                                      {humanizeText(activeExecutionBreakdown.workstreamStatus)}
+                                    </span>
+                                  )}
                                 </div>
-                                {activeExecutionBreakdown.workstreamStatus && (
-                                  <span className="flex-shrink-0 text-micro text-muted">
-                                    {humanizeText(activeExecutionBreakdown.workstreamStatus)}
-                                  </span>
-                                )}
-                              </div>
+                              )}
                             </div>
                             {activeExecutionBreakdown.initiativeWorkstreamPct !== null && (
                               <div className="mt-3">
