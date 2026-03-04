@@ -167,6 +167,9 @@ export function safeErrorMessage(err: unknown): string {
   const sanitized = stripStructuredNoise(normalizedMessage);
   const normalized = sanitized.toLowerCase();
   if (normalized.length > 0) {
+    if (normalized.includes("relation does not exist")) {
+      return sanitized;
+    }
     if (normalized.includes("internal_error") || normalized.includes("internal server error")) {
       return "temporary server issue";
     }
@@ -938,10 +941,12 @@ export async function buildMissionControlGraph(
   degraded: string[];
   cycleDiagnostics?: MissionControlCycleDiagnostics;
 }> {
-  if (!UUID_RE.test(initiativeId)) {
-    throw new Error(`buildMissionControlGraph: initiativeId must be a UUID, got "${initiativeId}"`);
-  }
   const degraded: string[] = [];
+  if (!UUID_RE.test(initiativeId)) {
+    degraded.push(
+      `initiative id "${initiativeId}" is non-UUID; using compatibility graph lookup`
+    );
+  }
   const preloadedInitiative = options?.initiativeEntity ?? null;
   const [initiativeResult, workstreamResult, milestoneResult, taskResult] = await Promise.all([
     preloadedInitiative

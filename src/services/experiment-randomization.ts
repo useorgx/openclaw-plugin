@@ -52,8 +52,13 @@ function normalizeArms(arms: RandomizationArm[]): RandomizationArm[] {
     throw new Error("arms must include at least one entry");
   }
 
+  const seenIds = new Set<string>();
   const sanitized = arms.map((arm, index) => {
     const id = sanitizeIdentifier(arm?.id, `arms[${index}].id`);
+    if (seenIds.has(id)) {
+      throw new Error(`arms[${index}].id must be unique`);
+    }
+    seenIds.add(id);
     const weight = Number.isFinite(arm?.weight) ? Number(arm.weight) : Number.NaN;
     if (!Number.isFinite(weight) || weight <= 0) {
       throw new Error(`arms[${index}].weight must be > 0`);
@@ -95,6 +100,8 @@ function sanitizeIdentifier(value: unknown, field: string): string {
 }
 
 function bucketFromHash(hash: string): number {
-  const first53Bits = hash.slice(0, 14);
-  return parseInt(first53Bits, 16) / MAX_UINT53;
+  // Keep only 53 high-order bits from the 56-bit hex prefix.
+  const first56Bits = parseInt(hash.slice(0, 14), 16);
+  const first53Bits = Math.floor(first56Bits / 8);
+  return first53Bits / (MAX_UINT53 + 1);
 }

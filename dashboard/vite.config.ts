@@ -32,6 +32,8 @@ export default defineConfig(({ command }) => {
       : undefined,
     build: {
       outDir: 'dist',
+      // Keep warning signal meaningful for this dashboard's intentional vendor profile.
+      chunkSizeWarningLimit: 700,
       sourcemap: false,
       minify: 'esbuild',
       rollupOptions: {
@@ -41,15 +43,34 @@ export default defineConfig(({ command }) => {
           chunkFileNames: 'assets/[hash].js',
           assetFileNames: 'assets/[hash][extname]',
           manualChunks(id) {
-            if (!id.includes('node_modules')) return;
-            // Keep high-churn app code separate from low-churn vendor for better caching.
-            if (id.includes('posthog-js')) return 'telemetry';
-            if (id.includes('react-markdown') || id.includes('remark-gfm')) return 'markdown';
-            if (id.includes('react-dom')) return 'react-vendor';
-            if (id.includes('react')) return 'react-vendor';
-            if (id.includes('@tanstack')) return 'tanstack';
-            if (id.includes('framer-motion')) return 'motion';
-            return 'vendor';
+            if (!id.includes('node_modules')) return undefined;
+            const normalizedId = id.replaceAll('\\', '/');
+            // Keep stable heavy deps split without forcing a catch-all vendor chunk.
+            if (
+              normalizedId.includes('/node_modules/@ai-sdk/') ||
+              normalizedId.includes('/node_modules/ai/')
+            ) {
+              return 'ai-sdk';
+            }
+            if (normalizedId.includes('/node_modules/date-fns/')) return 'date-fns';
+            if (normalizedId.includes('/node_modules/react-datepicker/')) return 'datepicker';
+            if (normalizedId.includes('/node_modules/posthog-js/')) return 'telemetry';
+            if (
+              normalizedId.includes('/node_modules/react-markdown/') ||
+              normalizedId.includes('/node_modules/remark-gfm/')
+            ) {
+              return 'markdown';
+            }
+            if (
+              normalizedId.includes('/node_modules/react-dom/') ||
+              normalizedId.includes('/node_modules/react/') ||
+              normalizedId.includes('/node_modules/scheduler/')
+            ) {
+              return 'react-core';
+            }
+            if (normalizedId.includes('/node_modules/@tanstack/')) return 'tanstack';
+            if (normalizedId.includes('/node_modules/framer-motion/')) return 'motion';
+            return undefined;
           },
         },
       },

@@ -307,6 +307,9 @@ function safeErrorMessage(err: unknown): string {
     if (normalized.includes("failed to fetch") || normalized.includes("network")) {
       return "network request failed";
     }
+    if (normalized.includes("relation does not exist")) {
+      return sanitized;
+    }
     if (normalized.includes("internal_error") || normalized.includes("internal server error")) {
       return "temporary server issue";
     }
@@ -567,6 +570,16 @@ function deriveStructuredActivityBucket(input: {
     ]) ?? 0;
 
   if (event === "autopilot_slice_result") {
+    const parsedStatus =
+      typeof metadata?.parsed_status === "string"
+        ? metadata.parsed_status.trim().toLowerCase()
+        : typeof metadata?.parsedStatus === "string"
+          ? metadata.parsedStatus.trim().toLowerCase()
+          : "";
+    if (parsedStatus === "completed" && decisionRequired === false) {
+      if (artifacts > 0) return "artifact";
+      return "message";
+    }
     // Any blocked slice result needs decision-first surfacing in the Activity UX.
     if (input.phase === "blocked") return "decision";
     if (decisionRequired || blockingDecisions > 0) return "decision";

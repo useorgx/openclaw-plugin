@@ -2429,6 +2429,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	              const event =
 	                killDecision.kind === "timeout" ? "autopilot_slice_timeout" : "autopilot_slice_log_stall";
 	              const humanLabel = killDecision.kind === "timeout" ? "timed out" : "stalled";
+                const stallDecisionTitle =
+                  killDecision.kind === "timeout"
+                    ? `Autopilot slice timed out: ${slice.workstreamTitle ?? slice.workstreamId}`
+                    : `Autopilot slice stalled: ${slice.workstreamTitle ?? slice.workstreamId}`;
 
 	              await emitActivitySafe({
 	                initiativeId: run.initiativeId,
@@ -2466,7 +2470,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 		              const decisionResult = await requestDecisionQueued({
 	                initiativeId: run.initiativeId,
 	                correlationId: slice.runId,
-	                title: `Agent ${humanLabel === "timed out" ? "ran out of time" : "stopped making progress"}: ${slice.workstreamTitle ?? slice.workstreamId}`,
+	                title: stallDecisionTitle,
 	                summary:
 	                  humanizeSliceFailureSummary(slice.lastError ?? `Autopilot slice ${humanLabel}`),
 	                urgency: "high",
@@ -2606,15 +2610,28 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           0,
           allDecisions.length - normalizedBlockingDecisionCount
         );
-        const effectiveParsedStatus =
+        const operationalParsedStatus =
           parsedStatus === "completed" && normalizedBlockingDecisionCount > 0
             ? "needs_decision"
             : parsedStatus;
+        const parsedSummarySignal = String(parsed?.summary ?? "").toLowerCase();
+        const parsedLooksLikeNoOutcomeCompletion =
+          operationalParsedStatus === "error" &&
+          (parsedSummarySignal.includes("without verifiable outcomes") ||
+            parsedSummarySignal.includes("without output") ||
+            parsedSummarySignal.includes("without artifacts") ||
+            parsedSummarySignal.includes("did not report artifacts") ||
+            (parsedSummarySignal.includes("did not report") &&
+              parsedSummarySignal.includes("status updates")) ||
+            parsedSummarySignal.includes("produced nothing"));
+        const reportedParsedStatus = parsedLooksLikeNoOutcomeCompletion
+          ? "completed"
+          : operationalParsedStatus;
 
         slice.status =
-          effectiveParsedStatus === "completed"
+          operationalParsedStatus === "completed"
             ? "completed"
-            : effectiveParsedStatus === "blocked" || effectiveParsedStatus === "needs_decision"
+            : operationalParsedStatus === "blocked" || operationalParsedStatus === "needs_decision"
               ? "blocked"
               : "error";
         slice.finishedAt = now;
@@ -2713,7 +2730,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           : [];
         const resultEnvelope = {
           summary: userSummary,
-          parsed_status: effectiveParsedStatus,
+          parsed_status: reportedParsedStatus,
           task_updates: taskUpdates,
           milestone_updates: milestoneUpdates,
           next_actions: nextActions,
@@ -2918,7 +2935,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               correlation_id: slice.runId,
               requested_by_agent_id: run.agentId,
               requested_by_agent_name: run.agentName,
-              status: effectiveParsedStatus,
+              status: reportedParsedStatus,
               artifacts: artifacts.length,
               decisions: allDecisions.length,
               blocking_decisions: normalizedBlockingDecisionCount,
@@ -2964,7 +2981,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               userSummary,
               event: "autopilot_slice_handoff",
               extra: {
-                parsed_status: effectiveParsedStatus,
+                parsed_status: reportedParsedStatus,
                 artifacts: artifacts.length,
                 decisions: decisions.length,
                 decision_ids: decisionIds,
@@ -3013,7 +3030,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             behavior_config_hash: slice.behaviorConfigHash,
             policy_source: slice.behaviorPolicySource,
             behavior_automation_level: slice.behaviorAutomationLevel,
-            parsed_status: effectiveParsedStatus,
+            parsed_status: reportedParsedStatus,
             has_output: Boolean(parsed),
             artifacts: artifacts.length,
             decisions: allDecisions.length,
@@ -3023,7 +3040,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             blocking_decision_ids: Array.from(new Set(blockingDecisionIds)),
             non_blocking_decision_ids: Array.from(new Set(nonBlockingDecisionIds)),
             decision_required:
-              blockingDecisionQueued || effectiveParsedStatus === "needs_decision",
+              blockingDecisionQueued || operationalParsedStatus === "needs_decision",
             status_updates_applied: statusUpdateResult.applied,
             status_updates_buffered: statusUpdateResult.buffered,
             reported_skill_evidence_count: skillEvidence.length,
@@ -3062,20 +3079,71 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             queued: false,
             decisionIds: [],
           };
+          const fallbackRawError =
+            parsed?.summary ??
+            slice.lastError ??
+            (slice.status === "blocked"
+              ? "Execution is blocked and needs intervention."
+              : "Agent process exited without a valid output contract.");
+          const fallbackHumanized = humanizeSliceFailure(fallbackRawError);
+          const fallbackErrorSignal = [
+            parsed?.summary ?? null,
+            slice.lastError ?? null,
+            fallbackRawError,
+          ]
+            .filter(
+              (entry): entry is string =>
+                typeof entry === "string" && entry.trim().length > 0
+            )
+            .join(" ")
+            .toLowerCase();
+          const looksLikeNoOutcome =
+            fallbackErrorSignal.includes("without verifiable outcomes") ||
+            fallbackErrorSignal.includes("without output") ||
+            fallbackErrorSignal.includes("without artifacts") ||
+            fallbackErrorSignal.includes("did not report artifacts") ||
+            (fallbackErrorSignal.includes("did not report") &&
+              fallbackErrorSignal.includes("status updates")) ||
+            fallbackErrorSignal.includes("produced nothing");
+          const looksLikeStall =
+            fallbackErrorSignal.includes("stall") ||
+            fallbackErrorSignal.includes("stopped making progress");
+          const looksLikeTimeout =
+            fallbackErrorSignal.includes("timeout") ||
+            fallbackErrorSignal.includes("timed out") ||
+            fallbackErrorSignal.includes("ran out of time");
+          const blockedLike =
+            slice.status === "blocked" ||
+            looksLikeNoOutcome ||
+            looksLikeStall ||
+            looksLikeTimeout;
+          const decisionConflictSource = looksLikeNoOutcome
+            ? "slice_completed_without_outcome"
+            : looksLikeTimeout
+              ? "slice_timeout"
+              : looksLikeStall
+                ? "slice_stall_no_output"
+            : blockedLike
+              ? "slice_missing_blocking_decision"
+              : "slice_invalid_output";
+          const fallbackDecisionTitle = looksLikeNoOutcome
+            ? `Autopilot slice needs verification: ${slice.workstreamTitle ?? slice.workstreamId}`
+            : looksLikeStall
+              ? `Autopilot slice stalled: ${slice.workstreamTitle ?? slice.workstreamId}`
+              : looksLikeTimeout
+                ? `Autopilot slice timed out: ${slice.workstreamTitle ?? slice.workstreamId}`
+                : blockedLike
+                  ? `Autopilot slice blocked: ${slice.workstreamTitle ?? slice.workstreamId}`
+              : `Autopilot slice failed: ${slice.workstreamTitle ?? slice.workstreamId}`;
+          const fallbackDecisionSummary = looksLikeNoOutcome
+            ? "The slice reported completion but did not produce artifacts or status updates. Decide whether to retry, request stronger output, or mark tasks manually."
+            : fallbackHumanized.explanation;
           if (!blockingDecisionQueued) {
-            const blockedLike = slice.status === "blocked";
-            const fallbackRawError = parsed?.summary ?? slice.lastError ??
-              (blockedLike
-                ? "Execution is blocked and needs intervention."
-                : "Agent process exited without a valid output contract.");
-            const fallbackHumanized = humanizeSliceFailure(fallbackRawError);
             fallbackDecisionResult = await requestDecisionQueued({
               initiativeId: run.initiativeId,
               correlationId: slice.runId,
-              title: blockedLike
-                ? `Agent needs your help: ${slice.workstreamTitle ?? slice.workstreamId}`
-                : `${fallbackHumanized.headline}: ${slice.workstreamTitle ?? slice.workstreamId}`,
-              summary: fallbackHumanized.explanation,
+              title: fallbackDecisionTitle,
+              summary: fallbackDecisionSummary,
               urgency: "high",
               options: [
                 "Retry this workstream slice",
@@ -3083,40 +3151,40 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
                 "Skip this workstream for now",
               ],
               blocking: true,
-              decisionType: blockedLike ? "autopilot_blocked_without_decision" : "autopilot_failure",
+              decisionType: looksLikeNoOutcome
+                ? "autopilot_completed_without_outcome"
+                : blockedLike
+                  ? "autopilot_blocked_without_decision"
+                  : "autopilot_failure",
               workstreamId: slice.workstreamId,
               agentId: slice.agentId,
               sourceSystem: "orgx-autopilot",
-              conflictSource: blockedLike
-                ? "slice_missing_blocking_decision"
-                : "slice_invalid_output",
+              conflictSource: decisionConflictSource,
               dedupeKey: [
                 "autopilot",
                 run.initiativeId,
                 slice.workstreamId,
-                blockedLike ? "slice_missing_blocking_decision" : "slice_invalid_output",
+                decisionConflictSource,
               ].join(":"),
 	              recommendedAction:
                 nextActions[0] ??
 	                "Review the output contract and logs, then retry or pause autopilot until the blocker is resolved.",
               sourceRunId: slice.runId,
-              sourceRef: {
-                run_id: slice.runId,
-                workstream_id: slice.workstreamId,
-                parsed_status: effectiveParsedStatus,
-              },
+                sourceRef: {
+                  run_id: slice.runId,
+                  workstream_id: slice.workstreamId,
+                  parsed_status: reportedParsedStatus,
+                },
 	              evidenceRefs: [
 	                {
-	                  evidence_type: "slice_output_validation",
+                  evidence_type: "slice_output_validation",
                   title: "Slice output requires fallback decision",
                   summary:
-                    parsed?.summary ??
-                    slice.lastError ??
-                    "Slice did not provide a blocking decision payload.",
+                    fallbackDecisionSummary,
                   source_pointer: slice.outputPath,
 	                  payload: {
 	                    log_path: slice.logPath,
-	                    parsed_status: effectiveParsedStatus,
+	                    parsed_status: reportedParsedStatus,
 	                  },
 	                },
                   ...artifactEvidenceRefs,
@@ -3132,7 +3200,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               blockedReason:
                 parsed?.summary ??
                 slice.lastError ??
-                `Slice returned status: ${effectiveParsedStatus}`,
+                `Slice returned status: ${reportedParsedStatus}`,
               waitingOnWorkstreamIds: [],
               retryAt: null,
             });
@@ -3140,13 +3208,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               run.blockedWorkstreamIds.push(slice.workstreamId);
             }
 
-		          await stopAutoContinueRun({
+          await stopAutoContinueRun({
 	            run,
-	            reason: slice.status === "error" ? "error" : "blocked",
+	            reason: blockedLike ? "blocked" : "error",
 	            error:
-	              parsed?.summary ??
-              slice.lastError ??
-              `Slice returned status: ${effectiveParsedStatus}`,
+	              fallbackRawError,
 	              decisionRequired:
                   blockingDecisionQueued || fallbackDecisionResult.queued,
                 decisionIds: Array.from(

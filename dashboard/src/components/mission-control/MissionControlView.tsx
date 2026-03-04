@@ -60,7 +60,6 @@ interface MissionControlViewProps {
   nextUpQueueModel?: UseNextUpQueueResult;
   nextUpActionsModel?: ReturnType<typeof useNextUpQueueActions>;
   snapshotVersion?: number | null;
-  nextUpActiveElsewhereCount?: number;
 }
 
 function toStatusKey(value: string | null | undefined): string {
@@ -301,7 +300,6 @@ export function MissionControlView({
   nextUpQueueModel,
   nextUpActionsModel,
   snapshotVersion = null,
-  nextUpActiveElsewhereCount,
 }: MissionControlViewProps) {
   const agentEntityMap = useAgentEntityMap({ activities, agents, initiatives });
 
@@ -329,7 +327,6 @@ export function MissionControlView({
         nextUpQueueModel={nextUpQueueModel}
         nextUpActionsModel={nextUpActionsModel}
         snapshotVersion={snapshotVersion}
-        nextUpActiveElsewhereCount={nextUpActiveElsewhereCount}
       />
     </MissionControlProvider>
   );
@@ -382,7 +379,6 @@ function MissionControlInner({
   nextUpQueueModel,
   nextUpActionsModel,
   snapshotVersion = null,
-  nextUpActiveElsewhereCount,
 }: {
   initiatives: Initiative[];
   runtimeInstances: RuntimeInstance[];
@@ -401,7 +397,6 @@ function MissionControlInner({
   nextUpQueueModel?: UseNextUpQueueResult;
   nextUpActionsModel?: ReturnType<typeof useNextUpQueueActions>;
   snapshotVersion?: number | null;
-  nextUpActiveElsewhereCount?: number;
 }) {
   const {
     searchQuery,
@@ -2696,7 +2691,6 @@ function MissionControlInner({
                                     queueModel={nextActionQueue}
                                     queueActions={nextUpActions}
                                     snapshotVersion={snapshotVersion}
-                                    activeElsewhereCount={nextUpActiveElsewhereCount}
                                     onPlayWorkstream={(item) =>
                                       startWorkstreamWithConflictHandling(item, {
                                         surface: 'card',
@@ -2847,7 +2841,6 @@ function MissionControlInner({
                                     queueModel={nextActionQueue}
                                     queueActions={nextUpActions}
                                     snapshotVersion={snapshotVersion}
-                                    activeElsewhereCount={nextUpActiveElsewhereCount}
                                     onPlayWorkstream={(item) =>
                                       startWorkstreamWithConflictHandling(item, {
                                         surface: 'card',

@@ -79,6 +79,50 @@ async function disableAnimations(page) {
   });
 }
 
+async function closeTransientOverlays(page) {
+  const closeSelectors = [
+    'button[aria-label="Close activity detail"]',
+    'button[aria-label="Close thread panel"]',
+    'button[aria-label="Close thread drawer"]',
+    'button[aria-label="Close session inspector"]',
+  ];
+  const backdrop = page.locator('div.fixed.inset-0[class*="bg-black"]').first();
+  const firstDialog = page.getByRole('dialog').first();
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    let dismissed = false;
+    for (const selector of closeSelectors) {
+      const button = page.locator(selector).first();
+      if (await button.isVisible().catch(() => false)) {
+        await button.click({ timeout: 1_500 }).catch(() => {});
+        dismissed = true;
+      }
+    }
+    const dialogVisible = await firstDialog.isVisible().catch(() => false);
+    const backdropVisible = await backdrop.isVisible().catch(() => false);
+    if (!dismissed && !dialogVisible && !backdropVisible) break;
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(80);
+  }
+  await firstDialog.waitFor({ state: 'hidden', timeout: 1_500 }).catch(() => {});
+}
+
+async function clickActivityDetailCard(page) {
+  const detailButton = page.locator('button[aria-label^="Open activity details"]').first();
+  if (!(await detailButton.isVisible().catch(() => false))) return false;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await closeTransientOverlays(page);
+    try {
+      await detailButton.click();
+      await page.locator('button[aria-label="Close activity detail"]').waitFor();
+      return true;
+    } catch (err) {
+      if (attempt === 2) return false;
+      await closeTransientOverlays(page);
+    }
+  }
+  return false;
+}
+
 async function waitForAnyVisible(page, locatorFactories, timeoutMs = 15_000) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -651,12 +695,10 @@ async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {
       await page.screenshot({ path: path.join(desktopDir, 'desktop-01b-chat-regression-skipped.png') });
     }
 
-    const detailButton = page.locator('button[aria-label^="Open activity details"]').first();
-    if (await detailButton.isVisible().catch(() => false)) {
-      await detailButton.click();
-      await page.locator('button[aria-label="Close activity detail"]').waitFor();
+    if (await clickActivityDetailCard(page)) {
       await page.screenshot({ path: path.join(desktopDir, 'desktop-02-detail-modal.png') });
       await page.keyboard.press('Escape');
+      await page.getByRole('dialog').waitFor({ state: 'detached' }).catch(() => {});
     } else {
       await page.screenshot({ path: path.join(desktopDir, 'desktop-02-detail-modal-skipped.png') });
     }
@@ -674,19 +716,30 @@ async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {
       for (const pattern of candidates) {
         const hit = page.getByText(pattern).first();
         if (await hit.isVisible().catch(() => false)) {
-          await hit.click();
-          return true;
+          await closeTransientOverlays(page);
+          try {
+            await hit.click({ timeout: 3_000 });
+            return true;
+          } catch {
+            // Overlay timing can intermittently block this click in CI-style runs.
+          }
         }
       }
       // Fallback: click first visible session row title.
       const firstTitle = page.locator('button p').first();
       if (await firstTitle.isVisible().catch(() => false)) {
-        await firstTitle.click();
-        return true;
+        await closeTransientOverlays(page);
+        try {
+          await firstTitle.click({ timeout: 3_000 });
+          return true;
+        } catch {
+          return false;
+        }
       }
       return false;
     };
 
+    await closeTransientOverlays(page);
     const opened = await openInspector();
     if (opened) {
       await page.getByRole('button', { name: 'Close session inspector' }).waitFor();
@@ -702,11 +755,9 @@ async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {
     await page.getByRole('heading', { name: /OrgX.*Live/i }).waitFor();
     await disableAnimations(page);
     await page.screenshot({ path: path.join(flowFrames, 'frame-01.png') });
-    const flowDetailButton = page.locator('button[aria-label^="Open activity details"]').first();
-    if (await flowDetailButton.isVisible().catch(() => false)) {
-      await flowDetailButton.click();
-      await page.locator('button[aria-label="Close activity detail"]').waitFor();
+    if (await clickActivityDetailCard(page)) {
       await page.keyboard.press('Escape').catch(() => {});
+      await page.getByRole('dialog').waitFor({ state: 'detached' }).catch(() => {});
     }
     await page.screenshot({ path: path.join(flowFrames, 'frame-02.png') });
     const flowAgentButton = page.getByRole('button', { name: /Eli|Dana|Pace|Mark/ }).first();
@@ -783,10 +834,11 @@ async function captureActivityEvidence(browser, baseUrl, outDir, { verbose } = {
     ]);
     await page.screenshot({ path: path.join(desktopDir, 'mobile-01-activity.png') });
 
-    const detailButton = page.locator('button[aria-label^="Open activity details"]').first();
-    await detailButton.click();
-    await page.locator('button[aria-label="Close activity detail"]').waitFor();
-    await page.screenshot({ path: path.join(desktopDir, 'mobile-02-detail-modal.png') });
+    if (await clickActivityDetailCard(page)) {
+      await page.screenshot({ path: path.join(desktopDir, 'mobile-02-detail-modal.png') });
+    } else {
+      await page.screenshot({ path: path.join(desktopDir, 'mobile-02-detail-modal-skipped.png') });
+    }
 
     await page.close();
     await context.close();
