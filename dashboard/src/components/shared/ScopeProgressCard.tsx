@@ -1,7 +1,8 @@
 import { memo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { EntityIcon } from '@/components/shared/EntityIcon';
-import { colors } from '@/lib/tokens';
+import { colors, stateTones } from '@/lib/tokens';
+import type { MilestoneBreakdownEntry } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -187,6 +188,198 @@ function resolveStatus(status?: string | null): ScopeNode['status'] {
   if (status === 'blocked' || status === 'awaiting_input') return 'blocked';
   return 'pending';
 }
+
+// ---------------------------------------------------------------------------
+// Milestone breakdown builders
+// ---------------------------------------------------------------------------
+
+function normalizeTaskStatus(s: string): ScopeNode['status'] {
+  if (s === 'done' || s === 'completed') return 'done';
+  if (s === 'active' || s === 'running' || s === 'in_progress') return 'active';
+  if (s === 'blocked') return 'blocked';
+  if (s === 'failed') return 'failed';
+  return 'pending';
+}
+
+export function buildScopeFromMilestoneBreakdown(milestones: MilestoneBreakdownEntry[]): ScopeNode[] {
+  return milestones.map((ms) => ({
+    id: ms.id,
+    label: ms.title,
+    type: 'milestone' as const,
+    status:
+      ms.doneTasks === ms.totalTasks && ms.totalTasks > 0
+        ? 'done'
+        : ms.tasks.some((t) => t.status === 'active' || t.status === 'running' || t.status === 'in_progress')
+          ? 'active'
+          : 'pending',
+    progress: { done: ms.doneTasks, total: ms.totalTasks },
+    children: ms.tasks.map((t) => ({
+      id: t.id,
+      label: t.title,
+      type: 'task' as const,
+      status: normalizeTaskStatus(t.status),
+    })),
+  }));
+}
+
+export function groupScopeByState(nodes: ScopeNode[]): {
+  inProgress: ScopeNode[];
+  completed: ScopeNode[];
+  upcoming: ScopeNode[];
+  blocked: ScopeNode[];
+} {
+  const inProgress: ScopeNode[] = [];
+  const completed: ScopeNode[] = [];
+  const upcoming: ScopeNode[] = [];
+  const blocked: ScopeNode[] = [];
+  for (const node of nodes) {
+    if (node.status === 'done') completed.push(node);
+    else if (node.status === 'active') inProgress.push(node);
+    else if (node.status === 'blocked' || node.status === 'failed') blocked.push(node);
+    else upcoming.push(node);
+  }
+  return { inProgress, completed, upcoming, blocked };
+}
+
+// ---------------------------------------------------------------------------
+// Segmented progress bar (compact cards)
+// ---------------------------------------------------------------------------
+
+export const SegmentedProgressBar = memo(function SegmentedProgressBar({
+  milestones,
+  height = 3,
+}: {
+  milestones: MilestoneBreakdownEntry[];
+  height?: number;
+}) {
+  const total = milestones.reduce((s, m) => s + m.totalTasks, 0);
+  if (total === 0) return null;
+  return (
+    <div className="flex w-full gap-px overflow-hidden rounded-full" style={{ height }}>
+      {milestones.map((ms) => {
+        const widthPct = (ms.totalTasks / total) * 100;
+        const fillPct = ms.totalTasks > 0 ? (ms.doneTasks / ms.totalTasks) * 100 : 0;
+        const allDone = ms.doneTasks === ms.totalTasks && ms.totalTasks > 0;
+        return (
+          <div
+            key={ms.id}
+            className="relative overflow-hidden rounded-full bg-white/[0.06]"
+            style={{ width: `${widthPct}%` }}
+          >
+            <div
+              className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-500"
+              style={{
+                width: `${fillPct}%`,
+                backgroundColor: allDone ? colors.teal : `${colors.lime}99`,
+              }}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Scope grouped view (modals)
+// ---------------------------------------------------------------------------
+
+const SCOPE_SECTION_TONES: Record<string, { border: string; background: string; text: string }> = {
+  active: stateTones.active,
+  done: stateTones.done,
+  blocked: stateTones.blocked,
+  planned: stateTones.planned,
+};
+
+function ScopeSection({
+  label,
+  count,
+  tone,
+  nodes,
+  defaultOpen,
+  compact,
+}: {
+  label: string;
+  count: number;
+  tone: 'active' | 'done' | 'blocked' | 'planned';
+  nodes: ScopeNode[];
+  defaultOpen: boolean;
+  compact?: boolean;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const toneValues = SCOPE_SECTION_TONES[tone] ?? stateTones.planned;
+  return (
+    <div
+      className="overflow-hidden rounded-lg border"
+      style={{ borderColor: toneValues.border, backgroundColor: toneValues.background }}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center justify-between px-2.5 py-1.5"
+      >
+        <span
+          className="text-micro font-semibold uppercase tracking-[0.08em]"
+          style={{ color: toneValues.text }}
+        >
+          {label}{' '}
+          <span className="ml-1 font-normal opacity-70">{count}</span>
+        </span>
+        <motion.svg
+          viewBox="0 0 12 12"
+          fill="none"
+          className="h-3 w-3"
+          style={{ color: toneValues.text }}
+          animate={{ rotate: open ? 180 : 0 }}
+          transition={{ duration: 0.15 }}
+        >
+          <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </motion.svg>
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden"
+          >
+            <div className="px-1 pb-1.5">
+              <ScopeProgressCard nodes={nodes} compact={compact} />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+export const ScopeGroupedView = memo(function ScopeGroupedView({
+  nodes,
+  compact = false,
+}: {
+  nodes: ScopeNode[];
+  compact?: boolean;
+}) {
+  const groups = groupScopeByState(nodes);
+  return (
+    <div className="space-y-2">
+      {groups.blocked.length > 0 && (
+        <ScopeSection label="BLOCKED" count={groups.blocked.length} tone="blocked" nodes={groups.blocked} defaultOpen compact={compact} />
+      )}
+      {groups.inProgress.length > 0 && (
+        <ScopeSection label="IN PROGRESS" count={groups.inProgress.length} tone="active" nodes={groups.inProgress} defaultOpen compact={compact} />
+      )}
+      {groups.completed.length > 0 && (
+        <ScopeSection label="COMPLETED" count={groups.completed.length} tone="done" nodes={groups.completed} defaultOpen={false} compact={compact} />
+      )}
+      {groups.upcoming.length > 0 && (
+        <ScopeSection label="UPCOMING" count={groups.upcoming.length} tone="planned" nodes={groups.upcoming} defaultOpen={false} compact={compact} />
+      )}
+    </div>
+  );
+});
 
 // ---------------------------------------------------------------------------
 // Status visuals

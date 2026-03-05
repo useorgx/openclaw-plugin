@@ -35,6 +35,7 @@ import {
   type InProgressRow,
 } from '@/components/mission-control/InProgressPanel';
 import { NeedsInputPanel, selectNeedsInputRows } from '@/components/mission-control/NeedsInputPanel';
+import { CompletedPanel, type CompletedWorkRow } from '@/components/mission-control/CompletedPanel';
 import type { SliceDetailTarget } from '@/components/mission-control/SliceDetailModal';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
@@ -382,8 +383,9 @@ function isSyntheticActivityItem(item: LiveActivityItem): boolean {
 
 /** Items emitted by mock autopilot workers during test harness runs. */
 function isMockActivityItem(item: LiveActivityItem): boolean {
-  const meta = (item as any).metadata;
-  return meta != null && typeof meta === 'object' && meta.mock === true;
+  const meta = (item as { metadata?: unknown }).metadata;
+  if (meta == null || typeof meta !== 'object') return false;
+  return (meta as { mock?: unknown }).mock === true;
 }
 
 function isConfigureEngineeringAgentIntent(value: string): boolean {
@@ -788,7 +790,9 @@ function DashboardShell({
       setInProgressSubFilter('needs_attention');
     }
   }, []);
-  const [inProgressSubFilter, setInProgressSubFilter] = useState<'all' | 'needs_attention'>('all');
+  const [inProgressSubFilter, setInProgressSubFilter] = useState<
+    'all' | 'needs_attention' | 'completed'
+  >('all');
   const actionableSliceRuns = useMemo<SliceRunProjection[]>(
     () => (Array.isArray(data.sliceRuns) ? data.sliceRuns : []),
     [data.sliceRuns]
@@ -807,6 +811,91 @@ function DashboardShell({
     [actionableSliceRuns]
   );
   const needsInputCount = needsInputRows.length + (decisionsVisible ? data.decisions.length : 0);
+  const completedRows = useMemo<CompletedWorkRow[]>(() => {
+    const completedSlices = actionableSliceRuns.filter((slice) => {
+      const status = normalizeStatus(slice.status);
+      return status === 'completed' || status === 'archived';
+    });
+    if (completedSlices.length === 0) return [];
+
+    const sessionByRunId = new Map<string, SessionTreeNode>();
+    for (const session of sessionNodesInScope) {
+      const runId = session.runId?.trim();
+      if (runId && !sessionByRunId.has(runId)) {
+        sessionByRunId.set(runId, session);
+      }
+      const id = session.id?.trim();
+      if (id && !sessionByRunId.has(id)) {
+        sessionByRunId.set(id, session);
+      }
+    }
+
+    const initiativeTitleById = new Map<string, string>();
+    for (const session of sessionNodesInScope) {
+      const id = session.initiativeId?.trim();
+      const label = session.groupLabel?.trim();
+      if (!id || !label || initiativeTitleById.has(id)) continue;
+      initiativeTitleById.set(id, label);
+    }
+
+    const rows: CompletedWorkRow[] = [];
+    for (const slice of completedSlices) {
+      const runId = (slice.runId ?? slice.sliceRunId ?? '').trim();
+      if (!runId) continue;
+
+      const session =
+        sessionByRunId.get(runId) ??
+        sessionByRunId.get(slice.sliceRunId) ??
+        null;
+      const initiativeId = slice.initiativeId ?? session?.initiativeId ?? null;
+      const timelineEvents = activityInScope
+        .filter((item) => {
+          const itemRunId = resolveActivityRunId(item);
+          const itemSliceRunId = resolveActivitySliceRunId(item);
+          if (itemRunId && (itemRunId === runId || itemRunId === slice.sliceRunId)) return true;
+          if (itemSliceRunId && itemSliceRunId === slice.sliceRunId) return true;
+          return false;
+        })
+        .sort((a, b) => toEpoch(a.timestamp) - toEpoch(b.timestamp));
+
+      rows.push({
+        key: `completed:${slice.sliceRunId}`,
+        runId,
+        title:
+          slice.workstreamTitle ??
+          session?.title ??
+          `Completed slice ${slice.sliceRunId.slice(0, 8)}`,
+        statusExplainer:
+          slice.statusExplainer ??
+          slice.lastEventSummary ??
+          session?.lastEventSummary ??
+          null,
+        initiativeTitle: initiativeId ? initiativeTitleById.get(initiativeId) ?? initiativeId : null,
+        workstreamTitle: slice.workstreamTitle ?? session?.title ?? null,
+        scope: slice.scope ?? null,
+        taskIds: Array.isArray(slice.taskIds) ? slice.taskIds : [],
+        milestoneIds: Array.isArray(slice.milestoneIds) ? slice.milestoneIds : [],
+        artifacts: Array.isArray(slice.artifacts) ? slice.artifacts : [],
+        artifactCount: slice.artifactCount ?? 0,
+        completedAt:
+          slice.completedAt ??
+          slice.updatedAt ??
+          slice.lastEventAt ??
+          session?.updatedAt ??
+          session?.lastEventAt ??
+          null,
+        timelineEvents,
+      });
+    }
+
+    rows.sort((a, b) => toEpoch(b.completedAt) - toEpoch(a.completedAt));
+    return rows;
+  }, [
+    actionableSliceRuns,
+    activityInScope,
+    sessionNodesInScope,
+  ]);
+  const completedInProgressCount = completedRows.length;
 
   const [sliceDetailTarget, setSliceDetailTarget] = useState<SliceDetailTarget | null>(null);
 
@@ -3185,6 +3274,19 @@ function DashboardShell({
                       <span>Needs attention</span>
                       <span className="tabular-nums opacity-80">{needsInputCount}</span>
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setInProgressSubFilter('completed')}
+                      className={cn(
+                        'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro font-semibold transition-colors',
+                        inProgressSubFilter === 'completed'
+                          ? 'bg-[#14B8A6]/16 text-[#A9FFF3]'
+                          : 'text-secondary hover:bg-white/[0.06] hover:text-bright'
+                      )}
+                    >
+                      <span>Completed</span>
+                      <span className="tabular-nums opacity-80">{completedInProgressCount}</span>
+                    </button>
                   </div>
                 ) : null}
 
@@ -3290,6 +3392,12 @@ function DashboardShell({
                           </div>
                         </section>
                       </div>
+                    ) : inProgressSubFilter === 'completed' ? (
+                      <CompletedPanel
+                        rows={completedRows}
+                        onFocusRunId={focusActivityRunId}
+                        onOpenNextUp={() => setInitiativesSidebarTab('next_up')}
+                      />
                     ) : (
                       <InProgressPanel
                         className="h-full min-h-0"
