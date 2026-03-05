@@ -37,6 +37,8 @@ import { ChatDockProvider } from './chat/ChatDockContext';
 import { ActivityChatDock } from './chat/ActivityChatDock';
 import { AutopilotBurstSummary } from './AutopilotBurstSummary';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { buildScopeFromMilestoneBreakdown, ScopeGroupedView } from '@/components/shared/ScopeProgressCard';
+import type { MilestoneBreakdownEntry } from '@/types';
 import 'react-datepicker/dist/react-datepicker.css';
 
 interface ActivityTimelineProps {
@@ -1394,6 +1396,13 @@ type FileEvidencePath = {
   path: string;
 };
 
+type StructuredStatusUpdate = {
+  scope: 'Task' | 'Milestone';
+  label: string;
+  status: string | null;
+  reason: string | null;
+};
+
 function resolveFileEvidenceHref(path: string): string {
   const trimmed = path.trim();
   if (!trimmed) return "";
@@ -1660,6 +1669,115 @@ function extractEvidenceChips(item: LiveActivityItem): EvidenceChip[] {
   return chips;
 }
 
+function extractStructuredStatusUpdates(metadata: Record<string, unknown> | undefined): StructuredStatusUpdate[] {
+  if (!metadata) return [];
+
+  const result = asMetadataRecord(metadata.result);
+  const sources = [metadata, result].filter(
+    (entry): entry is Record<string, unknown> => Boolean(entry)
+  );
+  const updates: StructuredStatusUpdate[] = [];
+  const dedupe = new Set<string>();
+
+  const pushUpdates = (scope: StructuredStatusUpdate['scope'], raw: unknown) => {
+    if (!Array.isArray(raw)) return;
+    for (const candidate of raw) {
+      const record = asMetadataRecord(candidate);
+      if (!record) continue;
+      const idKey = scope === 'Task' ? ['task_id', 'taskId', 'id'] : ['milestone_id', 'milestoneId', 'id'];
+      const titleKey = scope === 'Task'
+        ? ['task_title', 'taskTitle', 'title', 'name']
+        : ['milestone_title', 'milestoneTitle', 'title', 'name'];
+      const id = metadataString(record, idKey);
+      const rawLabel =
+        metadataString(record, titleKey) ??
+        (id && !isOpaqueId(id) ? id : null) ??
+        scope;
+      const label = readableContextLabel(rawLabel, id) ?? humanizeText(rawLabel);
+      const status = metadataString(record, ['status', 'state']);
+      const reason = humanizeActivityBody(
+        metadataString(record, ['reason', 'summary', 'description', 'note'])
+      );
+      const key = `${scope}|${label.toLowerCase()}|${(status ?? '').toLowerCase()}|${(reason ?? '').toLowerCase()}`;
+      if (dedupe.has(key)) continue;
+      dedupe.add(key);
+      updates.push({
+        scope,
+        label,
+        status: status ? humanizeText(status) : null,
+        reason,
+      });
+    }
+  };
+
+  for (const source of sources) {
+    pushUpdates('Task', source.task_updates ?? source.taskUpdates);
+    pushUpdates('Milestone', source.milestone_updates ?? source.milestoneUpdates);
+  }
+
+  return updates;
+}
+
+function summarizeStatusUpdatesForCard(item: LiveActivityItem): string | null {
+  const metadata = metadataForItem(item);
+  if (!metadata) return null;
+
+  const eventName = metadataString(metadata, ['event', 'event_name', 'eventName'])?.toLowerCase() ?? '';
+  const updates = extractStructuredStatusUpdates(metadata);
+  const statusUpdatesApplied = countFromValue(
+    metadata.status_updates_applied ?? metadata.statusUpdatesApplied
+  );
+  const bufferedRaw = metadata.status_updates_buffered ?? metadata.statusUpdatesBuffered;
+  const isBuffered =
+    eventName.includes('status_updates_buffered') ||
+    bufferedRaw === true ||
+    (typeof bufferedRaw === 'number' && bufferedRaw > 0) ||
+    (typeof bufferedRaw === 'string' && ['true', '1', 'yes'].includes(bufferedRaw.trim().toLowerCase()));
+
+  if (isBuffered) {
+    if (updates.length > 0) {
+      const first = updates[0];
+      return `Queued ${updates.length} update${updates.length === 1 ? '' : 's'}: ${first.label}${first.status ? ` → ${first.status}` : ''}`;
+    }
+    if (statusUpdatesApplied !== null && statusUpdatesApplied > 0) {
+      return `Queued ${statusUpdatesApplied} status update${statusUpdatesApplied === 1 ? '' : 's'} for sync`;
+    }
+    return 'Queued status updates for sync';
+  }
+
+  if (statusUpdatesApplied !== null && statusUpdatesApplied > 0) {
+    return `Applied ${statusUpdatesApplied} status update${statusUpdatesApplied === 1 ? '' : 's'}`;
+  }
+
+  return null;
+}
+
+function hasStructuredOutcomesData(item: LiveActivityItem | null): boolean {
+  if (!item) return false;
+  const metadata = metadataForItem(item);
+  if (!metadata) return false;
+  const outcomes = asMetadataRecord(metadata.outcomes);
+  const tests = asMetadataRecord(outcomes?.tests);
+  const updates = extractStructuredStatusUpdates(metadata);
+  const statusUpdatesApplied = countFromValue(
+    metadata.status_updates_applied ?? metadata.statusUpdatesApplied
+  );
+  const bufferedRaw = metadata.status_updates_buffered ?? metadata.statusUpdatesBuffered;
+  const hasBufferedSignal =
+    bufferedRaw === true ||
+    (typeof bufferedRaw === 'number' && bufferedRaw > 0) ||
+    (typeof bufferedRaw === 'string' && ['true', '1', 'yes'].includes(bufferedRaw.trim().toLowerCase()));
+  const hasOutcomeSignals = Boolean(
+    outcomes?.pr_url ||
+    outcomes?.pr_number ||
+    outcomes?.commit_sha ||
+    outcomes?.commit_url ||
+    tests ||
+    outcomes?.artifacts
+  );
+  return hasOutcomeSignals || updates.length > 0 || (statusUpdatesApplied ?? 0) > 0 || hasBufferedSignal;
+}
+
 function looksLikeFilesystemPath(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return false;
@@ -1739,17 +1857,51 @@ function metadataString(
   return null;
 }
 
+const UUID_INLINE_REGEX = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+const LONG_HEX_INLINE_REGEX = /\b[0-9a-f]{20,}\b/gi;
+
+function scrubOpaqueIdsFromContext(value: string): string {
+  let cleaned = value
+    .replace(UUID_INLINE_REGEX, '')
+    .replace(LONG_HEX_INLINE_REGEX, '')
+    .replace(/\[workstream\b[^\]]*\]/gi, '')
+    .replace(/\(\s*\)/g, '')
+    .replace(/\[\s*\]/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  cleaned = cleaned
+    .replace(/(?:\s*(?:>|\/)\s*){2,}/g, ' > ')
+    .replace(/^\s*(?:>|\/)\s*/g, '')
+    .replace(/\s*(?:>|\/)\s*$/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return cleaned;
+}
+
+function compactAfterIdScrub(value: string): string {
+  return value
+    .replace(/\bfor\s+slice\b/gi, '')
+    .replace(/\bfor\s+run\b/gi, '')
+    .replace(/\bwith\s+slice\b/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s*(?:-|:|>)\s*$/g, '')
+    .trim();
+}
+
 function readableContextLabel(
   value: string | null | undefined,
   idHint?: string | null
 ): string | null {
   if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
+  const trimmed = scrubOpaqueIdsFromContext(value.trim());
   if (!trimmed) return null;
   const normalizedId = typeof idHint === 'string' ? idHint.trim().toLowerCase() : '';
   if (normalizedId && trimmed.toLowerCase() === normalizedId) return null;
   if (isOpaqueId(trimmed)) return null;
-  return trimmed;
+  const humanized = humanizeText(trimmed).trim();
+  return humanized.length > 0 ? humanized : null;
 }
 
 function firstReadableContextLabel(
@@ -2604,6 +2756,8 @@ function renderArtifactValue(value: unknown): ReactNode {
   }
 
   if (value && typeof value === 'object') {
+    const narrative = renderArtifactNarrative(value);
+    if (narrative) return narrative;
     const entries = Object.entries(value as Record<string, unknown>);
     return (
       <dl className="space-y-1.5">
@@ -2628,6 +2782,279 @@ function renderArtifactValue(value: unknown): ReactNode {
   }
 
   return <p className="text-body text-secondary">No artifact payload.</p>;
+}
+
+type ArtifactNarrative = {
+  summary: string | null;
+  updatesApplied: string[];
+  artifactsCreated: Array<{
+    title: string;
+    type: string | null;
+    url: string | null;
+  }>;
+  nextUp: string[];
+};
+
+function artifactHref(url: string | null): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^file:\/\//i.test(trimmed)) return null;
+  if (!looksLikeFilesystemPath(trimmed)) return null;
+  return resolveFileEvidenceHref(trimmed);
+}
+
+function collectArtifactNarrative(value: unknown): ArtifactNarrative | null {
+  const root = asMetadataRecord(value);
+  if (!root) return null;
+
+  const result = asMetadataRecord(root.result);
+  const outcomes = asMetadataRecord(root.outcomes);
+  const sources = [result, outcomes, root].filter(
+    (entry): entry is Record<string, unknown> => Boolean(entry)
+  );
+
+  const firstUnknown = (keys: string[]): unknown => {
+    for (const source of sources) {
+      for (const key of keys) {
+        if (!(key in source)) continue;
+        const candidate = source[key];
+        if (candidate !== undefined && candidate !== null) return candidate;
+      }
+    }
+    return null;
+  };
+
+  const firstString = (keys: string[]): string | null => {
+    for (const source of sources) {
+      const candidate = metadataString(source, keys);
+      if (candidate) return candidate;
+    }
+    return null;
+  };
+
+  const summary = humanizeActivityBody(
+    firstString(['summary', 'user_summary', 'description', 'message'])
+  );
+
+  const updatesApplied: string[] = [];
+  const seenUpdates = new Set<string>();
+  const pushUpdate = (line: string | null) => {
+    if (!line) return;
+    const trimmed = line.trim();
+    if (!trimmed) return;
+    const normalized = trimmed.toLowerCase();
+    if (seenUpdates.has(normalized)) return;
+    seenUpdates.add(normalized);
+    updatesApplied.push(trimmed);
+  };
+
+  const parseEntityUpdates = (raw: unknown, label: 'Task' | 'Milestone') => {
+    if (!Array.isArray(raw)) return;
+    for (const entry of raw) {
+      const record = asMetadataRecord(entry);
+      if (!record) continue;
+      const id = metadataString(record, [`${label.toLowerCase()}_id`, `${label.toLowerCase()}Id`, 'id']);
+      const title =
+        metadataString(record, [`${label.toLowerCase()}_title`, `${label.toLowerCase()}Title`, 'title', 'name']) ??
+        (id && !isOpaqueId(id) ? id : null);
+      const status = metadataString(record, ['status', 'state']);
+      const reason = humanizeActivityBody(
+        metadataString(record, ['reason', 'summary', 'description', 'note'])
+      );
+      const subject = title ? readableContextLabel(title, id) ?? humanizeText(title) : label;
+      const statusLabel = status ? humanizeText(status) : null;
+      const parts = [subject];
+      if (statusLabel) parts.push(`→ ${statusLabel}`);
+      if (reason) parts.push(`· ${reason}`);
+      pushUpdate(parts.join(' '));
+    }
+  };
+
+  for (const source of sources) {
+    parseEntityUpdates(source.task_updates ?? source.taskUpdates, 'Task');
+    parseEntityUpdates(source.milestone_updates ?? source.milestoneUpdates, 'Milestone');
+  }
+
+  const statusUpdatesApplied = countFromValue(
+    firstUnknown(['status_updates_applied', 'statusUpdatesApplied'])
+  );
+  if (statusUpdatesApplied !== null && statusUpdatesApplied > 0) {
+    pushUpdate(
+      `${statusUpdatesApplied} status update${statusUpdatesApplied === 1 ? '' : 's'} applied`
+    );
+  }
+
+  const statusBufferedRaw = firstUnknown(['status_updates_buffered', 'statusUpdatesBuffered']);
+  const statusBufferedCount = countFromValue(statusBufferedRaw);
+  const statusBufferedBool = statusBufferedRaw === true;
+  if (statusBufferedBool || (statusBufferedCount !== null && statusBufferedCount > 0)) {
+    pushUpdate('Status updates buffered for sync');
+  }
+
+  const nextUp: string[] = [];
+  const seenNext = new Set<string>();
+  const pushNext = (candidate: string | null | undefined) => {
+    const label = humanizeActivityBody(candidate);
+    if (!label) return;
+    const normalized = label.toLowerCase();
+    if (seenNext.has(normalized)) return;
+    seenNext.add(normalized);
+    nextUp.push(label);
+  };
+
+  pushNext(firstString(['next_step', 'nextStep']));
+  for (const source of sources) {
+    const raw = source.next_actions ?? source.nextActions;
+    if (!Array.isArray(raw)) continue;
+    for (const entry of raw) {
+      if (typeof entry === 'string') pushNext(entry);
+    }
+  }
+
+  const artifactsCreated: ArtifactNarrative['artifactsCreated'] = [];
+  const seenArtifacts = new Set<string>();
+  const pushArtifact = (title: string, type: string | null, url: string | null) => {
+    const normalized = `${title.toLowerCase()}|${(type ?? '').toLowerCase()}|${url ?? ''}`;
+    if (seenArtifacts.has(normalized)) return;
+    seenArtifacts.add(normalized);
+    artifactsCreated.push({ title, type, url });
+  };
+
+  const parseArtifacts = (raw: unknown) => {
+    const list = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    for (const candidate of list) {
+      const record = asMetadataRecord(candidate);
+      if (!record) {
+        if (typeof candidate === 'string' && candidate.trim().length > 0) {
+          const humanized = humanizeActivityBody(candidate) ?? humanizeText(candidate);
+          if (humanized) pushArtifact(humanized, null, null);
+        }
+        continue;
+      }
+      const type = metadataString(record, ['artifact_type', 'artifactType', 'type']);
+      const rawUrl = metadataString(record, ['url', 'source_pointer', 'sourcePointer', 'path']);
+      const title =
+        metadataString(record, ['name', 'title', 'artifact_title', 'artifactTitle']) ??
+        (rawUrl ? humanizePath(rawUrl) : humanizeArtifactType(type));
+      pushArtifact(humanizeText(title), type, rawUrl);
+    }
+  };
+
+  for (const source of sources) {
+    parseArtifacts(source.artifacts ?? source.artifact);
+  }
+
+  const singleArtifactType = firstString(['artifact_type', 'artifactType']);
+  const singleArtifactUrl = firstString(['url', 'artifact_url', 'artifactUrl']);
+  if (artifactsCreated.length === 0 && (singleArtifactType || singleArtifactUrl)) {
+    const title = singleArtifactUrl ? humanizePath(singleArtifactUrl) : humanizeArtifactType(singleArtifactType);
+    pushArtifact(humanizeText(title), singleArtifactType, singleArtifactUrl);
+  }
+
+  if (!summary && updatesApplied.length === 0 && artifactsCreated.length === 0 && nextUp.length === 0) {
+    return null;
+  }
+
+  return {
+    summary,
+    updatesApplied,
+    artifactsCreated,
+    nextUp,
+  };
+}
+
+function renderArtifactNarrative(value: unknown): ReactNode | null {
+  const narrative = collectArtifactNarrative(value);
+  if (!narrative) return null;
+
+  return (
+    <div className="space-y-3">
+      {narrative.summary && (
+        <section className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+          <p className="text-micro font-semibold uppercase tracking-[0.08em] text-cyan-100/75">
+            What Changed
+          </p>
+          <p className="mt-1 text-body leading-relaxed text-primary">{narrative.summary}</p>
+        </section>
+      )}
+
+      {narrative.updatesApplied.length > 0 && (
+        <section className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+          <p className="text-micro font-semibold uppercase tracking-[0.08em] text-cyan-100/75">
+            Updates Applied
+          </p>
+          <ul className="mt-1.5 space-y-1.5">
+            {narrative.updatesApplied.slice(0, 6).map((line) => (
+              <li key={line} className="flex items-start gap-2 text-caption text-primary">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-cyan-300/70" />
+                <span className="leading-relaxed">{line}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {narrative.artifactsCreated.length > 0 && (
+        <section className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+          <p className="text-micro font-semibold uppercase tracking-[0.08em] text-cyan-100/75">
+            Artifacts Created
+          </p>
+          <div className="mt-1.5 space-y-1.5">
+            {narrative.artifactsCreated.slice(0, 5).map((entry) => {
+              const href = artifactHref(entry.url);
+              return (
+                <div
+                  key={`${entry.title}|${entry.url ?? ''}`}
+                  className="rounded-md border border-white/[0.07] bg-black/20 px-2.5 py-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-caption font-medium leading-relaxed text-primary">{entry.title}</p>
+                    {entry.type && (
+                      <span className="rounded-full border border-cyan-300/30 bg-cyan-300/[0.10] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] text-cyan-100/80">
+                        {humanizeArtifactType(entry.type)}
+                      </span>
+                    )}
+                  </div>
+                  {entry.url && (
+                    href ? (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 inline-flex items-center gap-1 text-caption text-cyan-200/85 transition-colors hover:text-cyan-100"
+                      >
+                        <span className="truncate">{humanizePath(entry.url)}</span>
+                      </a>
+                    ) : (
+                      <p className="mt-1 truncate text-micro text-secondary">{humanizePath(entry.url)}</p>
+                    )
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
+      {narrative.nextUp.length > 0 && (
+        <section className="rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+          <p className="text-micro font-semibold uppercase tracking-[0.08em] text-cyan-100/75">
+            Next Up
+          </p>
+          <ul className="mt-1.5 space-y-1.5">
+            {narrative.nextUp.slice(0, 4).map((line) => (
+              <li key={line} className="flex items-start gap-2 text-caption text-primary">
+                <span className="mt-1 h-1.5 w-1.5 rounded-full bg-cyan-300/70" />
+                <span className="leading-relaxed">{line}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+    </div>
+  );
 }
 
 function humanizeActivityBody(text: string | null | undefined): string | null {
@@ -2688,6 +3115,13 @@ function narrativeActivityTitle(item: LiveActivityItem): string | null {
     case 'autopilot_slice_dispatched':
     case 'autopilot_slice_started':
       return `Working on ${taskTitle ?? 'queued task'}`;
+    case 'autopilot_slice_status_updates_buffered': {
+      const updates = extractStructuredStatusUpdates(metadata);
+      if (updates.length > 0) {
+        return `Applying ${updates.length} status update${updates.length === 1 ? '' : 's'}`;
+      }
+      return 'Applying status updates';
+    }
     case 'autopilot_slice_result':
     case 'autopilot_slice_finished': {
       if (parsedStatus === 'completed' || parsedStatus === 'success') {
@@ -2755,7 +3189,8 @@ function narrativeActivityTitle(item: LiveActivityItem): string | null {
 function modalSectionsForEvent(
   eventName: string,
   hasArtifact: boolean,
-  hasOutcome: boolean
+  hasOutcome: boolean,
+  hasStructuredOutcomes: boolean
 ): Set<string> {
   const sections = new Set(['header']);
 
@@ -2770,6 +3205,9 @@ function modalSectionsForEvent(
   ) {
     sections.add('summary');
     sections.add('evidence');
+    sections.add('structured_outcomes');
+  }
+  if (hasStructuredOutcomes || eventName.includes('status_updates')) {
     sections.add('structured_outcomes');
   }
 
@@ -2810,7 +3248,7 @@ function cleanSystemTitle(item: LiveActivityItem): { title: string; isSystem: bo
 
   const raw = item.title ?? '';
   if (!isSystemNoise(raw)) {
-    const humanized = humanizeText(raw);
+    const humanized = compactAfterIdScrub(humanizeText(scrubOpaqueIdsFromContext(raw)));
     if (humanized && humanized !== 'Untitled session') {
       return { title: humanized, isSystem: false };
     }
@@ -4142,7 +4580,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     return modalSectionsForEvent(
       eventName,
       !!activeArtifact || !!extractArtifactId(activeDecorated.item),
-      !!activeOutcome
+      !!activeOutcome,
+      hasStructuredOutcomesData(activeDecorated.item)
     );
   }, [activeDecorated, activeArtifact, activeOutcome, devMode]);
   const activeResultItems = useMemo(() => {
@@ -4264,6 +4703,40 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       ),
     [activeDecorated]
   );
+
+  const activeMilestoneBreakdown = useMemo((): MilestoneBreakdownEntry[] => {
+    if (!activeDecorated) return [];
+    const runId = resolveRunId(activeDecorated.item);
+    // From slice run scopeProgress milestones
+    if (runId) {
+      const sliceRun = sliceRuns.find(
+        (s) => s.runId === runId || s.sliceRunId === runId
+      );
+      if (sliceRun?.scopeProgress?.milestones) {
+        return sliceRun.scopeProgress.milestones.map((ms) => ({
+          id: ms.id,
+          title: ms.title,
+          tasks: [],
+          totalTasks: ms.total,
+          doneTasks: ms.done,
+        }));
+      }
+    }
+    // From next up queue item
+    const workstreamId = metadataString(
+      metadataForItem(activeDecorated.item),
+      ['workstream_id', 'workstreamId']
+    );
+    if (workstreamId && nextUpQueue) {
+      const queueMatch = nextUpQueue.find(
+        (q) => q.workstreamId === workstreamId
+      );
+      if ((queueMatch as any)?.milestoneBreakdown) {
+        return (queueMatch as any).milestoneBreakdown;
+      }
+    }
+    return [];
+  }, [activeDecorated, sliceRuns, nextUpQueue]);
   const activeResolvedMetadataJson = useMemo(
     () => metadataToJson(activeMetadata),
     [activeMetadata]
@@ -4696,8 +5169,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const isRecent = sortOrder === 'newest' && index < 2;
     const runId = decorated.runId;
     const syncSummary = syncReplaySummary(item);
+    const updatesSummary = summarizeStatusUpdatesForCard(item);
     const { title: displayTitle } = cleanSystemTitle(item);
-    const displaySummary = syncSummary ?? humanizeActivityBody(item.summary);
+    const displaySummary = syncSummary ?? updatesSummary ?? humanizeActivityBody(item.summary);
     const displayDesc = humanizeActivityBody(item.description);
     const headline = summarizeDetailHeadline(item, displaySummary ?? displayDesc ?? null);
     const metadata = metadataForItem(item);
@@ -4728,11 +5202,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       },
     ]);
     const breadcrumb = [initiativeName, workstreamName].filter(Boolean).join(' > ');
+    const eventContextLabel = readableContextLabel(
+      metadataString(metadata, ['event', 'event_name', 'eventName']),
+      null
+    );
     // Enrich context with queue position when autopilot is active
     const queueInfo = workstreamId ? queueByWorkstream.get(workstreamId) : undefined;
     const isActiveInQueue = autopilotState?.state === 'running' && workstreamId === autopilotState?.activeWorkstreamId;
     const queueSuffix = queueInfo ? ` — #${queueInfo.rank} in queue` : '';
-    const contextLabel = (breadcrumb || initiativeName || workstreamName || humanizeText(item.type))
+    const contextLabel = (breadcrumb || initiativeName || workstreamName || eventContextLabel || labelForType(item.type))
       + (isActiveInQueue ? queueSuffix : '');
     const primaryTag = userStateLabel(decorated.userState);
     const timeLabel = new Date(item.timestamp).toLocaleTimeString([], {
@@ -5975,21 +6453,70 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     {(() => {
                       if (!activeVisibleSections.has('structured_outcomes')) return null;
                       const metadata = metadataForItem(activeDecorated.item);
-                      const outcomes = metadata?.outcomes as Record<string, unknown> | undefined;
-                      const taskUpdates = metadata?.task_updates as Array<{ title?: string; status?: string }> | undefined;
-                      if (!outcomes && (!taskUpdates || taskUpdates.length === 0)) return null;
-                      const prUrl = outcomes?.pr_url as string | undefined;
+                      const outcomes = asMetadataRecord(metadata?.outcomes);
+                      const statusUpdates = extractStructuredStatusUpdates(metadata);
+                      const statusUpdatesApplied = countFromValue(
+                        metadata?.status_updates_applied ??
+                        metadata?.statusUpdatesApplied ??
+                        asMetadataRecord(metadata?.result)?.status_updates_applied ??
+                        asMetadataRecord(metadata?.result)?.statusUpdatesApplied
+                      );
+                      const eventName = metadataString(metadata, ['event', 'event_name', 'eventName'])?.toLowerCase() ?? '';
+                      const statusBufferedRaw = metadata?.status_updates_buffered ?? metadata?.statusUpdatesBuffered;
+                      const statusBuffered =
+                        eventName.includes('status_updates_buffered') ||
+                        statusBufferedRaw === true ||
+                        (typeof statusBufferedRaw === 'number' && statusBufferedRaw > 0) ||
+                        (typeof statusBufferedRaw === 'string' && ['true', '1', 'yes'].includes(statusBufferedRaw.trim().toLowerCase()));
+                      const prUrl = metadataString(outcomes, ['pr_url', 'prUrl', 'url']);
                       const prNumber = outcomes?.pr_number as string | number | undefined;
-                      const commitSha = outcomes?.commit_sha as string | undefined;
-                      const commitUrl = outcomes?.commit_url as string | undefined;
-                      const tests = outcomes?.tests as { passed?: number; failed?: number; skipped?: number } | undefined;
-                      const hasAny = prUrl || commitSha || tests || (taskUpdates && taskUpdates.length > 0);
+                      const commitSha = metadataString(outcomes, ['commit_sha', 'commitSha']);
+                      const commitUrl = metadataString(outcomes, ['commit_url', 'commitUrl']);
+                      const tests = asMetadataRecord(outcomes?.tests) as { passed?: number; failed?: number; skipped?: number } | null;
+                      const hasAny =
+                        prUrl ||
+                        commitSha ||
+                        tests ||
+                        statusUpdates.length > 0 ||
+                        (statusUpdatesApplied ?? 0) > 0 ||
+                        statusBuffered;
                       if (!hasAny) return null;
                       return (
                         <div className="space-y-2">
                           <p className="text-micro font-semibold uppercase tracking-wider text-muted">
-                            Outcomes
+                            Updates & outcomes
                           </p>
+                          {(statusUpdates.length > 0 || (statusUpdatesApplied ?? 0) > 0 || statusBuffered) && (
+                            <div className="rounded-xl border border-[#14B8A6]/20 bg-[#14B8A6]/[0.06] px-3.5 py-2.5">
+                              <div className="flex items-center gap-3">
+                                <span className="h-2 w-2 flex-shrink-0 rounded-full bg-[#14B8A6]" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-micro font-semibold uppercase tracking-wider text-[#7ce0d3]">
+                                    {statusBuffered ? 'Updates being applied' : 'Updates applied'}
+                                  </p>
+                                  <p className="mt-0.5 text-body text-primary">
+                                    {statusUpdates.length > 0
+                                      ? `${statusUpdates.length} scoped update${statusUpdates.length === 1 ? '' : 's'}`
+                                      : (statusUpdatesApplied ?? 0) > 0
+                                        ? `${statusUpdatesApplied} status update${statusUpdatesApplied === 1 ? '' : 's'}`
+                                        : 'Status updates recorded'}
+                                    {statusBuffered ? ' · queued for sync' : ''}
+                                  </p>
+                                </div>
+                              </div>
+                              {statusUpdates.length > 0 && (
+                                <ul className="mt-2 space-y-1.5 pl-5">
+                                  {statusUpdates.slice(0, 6).map((update, i) => (
+                                    <li key={`${update.scope}-${update.label}-${i}`} className="text-caption text-secondary">
+                                      <span className="text-primary">{update.scope}: {update.label}</span>
+                                      {update.status ? ` → ${update.status}` : ''}
+                                      {update.reason ? ` · ${update.reason}` : ''}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
                           {prUrl && (
                             <a
                               href={prUrl}
@@ -6032,26 +6559,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                   {(tests.skipped ?? 0) > 0 && <span className="text-muted"> · {tests.skipped} skipped</span>}
                                 </p>
                               </div>
-                            </div>
-                          )}
-                          {taskUpdates && taskUpdates.length > 0 && (
-                            <div className="rounded-xl border border-[#14B8A6]/15 bg-[#14B8A6]/[0.04] px-3.5 py-2.5">
-                              <div className="flex items-center gap-3">
-                                <span className="h-2 w-2 flex-shrink-0 rounded-full bg-[#14B8A6]" />
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-micro font-semibold uppercase tracking-wider text-[#14B8A6]/70">Task Updates</p>
-                                  <p className="mt-0.5 text-body text-primary">{taskUpdates.length} task{taskUpdates.length !== 1 ? 's' : ''} updated</p>
-                                </div>
-                              </div>
-                              {taskUpdates.length <= 5 && (
-                                <ul className="mt-2 space-y-1 pl-5">
-                                  {taskUpdates.map((tu, i) => (
-                                    <li key={i} className="text-caption text-secondary">
-                                      {tu.title ? `"${tu.title}"` : 'Task'}{tu.status ? ` \u2192 ${humanizeText(tu.status)}` : ''}
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
                             </div>
                           )}
                         </div>
@@ -6205,19 +6712,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           </div>
                         )}
 
-                        {/* Session status — compact inline */}
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="px-1 text-micro font-semibold uppercase tracking-wider text-muted">
-                              Session
-                            </p>
-                            <span className="rounded-full border border-lime/30 bg-lime/[0.08] px-2 py-0.5 text-micro font-semibold text-lime/85">
-                              {humanizeStopReason(activeAutopilotContext.event) ?? humanizeText(activeAutopilotContext.event)}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Lifecycle trail — horizontal stepper */}
                         {(() => {
                           if (!activeVisibleSections.has('session')) return null;
                           const lcMeta = metadataForItem(activeDecorated.item);
@@ -6235,16 +6729,20 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                             needs_attention: 'Running',
                             failed: 'Running',
                           };
-                          const currentStep = statusToStep[parsedStatus ?? ''] ?? statusToStep[activeAutopilotContext.event ?? ''] ?? null;
-                          if (!currentStep) return null;
-                          const currentIndex = steps.indexOf(currentStep);
+                          const currentStep =
+                            statusToStep[parsedStatus ?? ''] ??
+                            statusToStep[activeAutopilotContext.event ?? ''] ??
+                            null;
+                          const currentIndex = currentStep ? steps.indexOf(currentStep) : -1;
                           const isTerminal = parsedStatus === 'completed' || parsedStatus === 'success';
                           const activeRunId = resolveRunId(activeDecorated.item);
                           const timing = activeRunId ? sliceTimingByRunId.get(activeRunId) : null;
                           const startMs = timing?.startedAt ? new Date(timing.startedAt).getTime() : null;
                           // elapsedTick forces re-render every second for live elapsed counter
                           void elapsedTick;
-                          const endMs = timing?.completedAt ? new Date(timing.completedAt).getTime() : (isTerminal ? null : Date.now());
+                          const endMs = timing?.completedAt
+                            ? new Date(timing.completedAt).getTime()
+                            : (isTerminal ? null : Date.now());
                           let elapsedLabel: string | null = null;
                           if (startMs && endMs) {
                             const elapsed = endMs - startMs;
@@ -6258,69 +6756,92 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               : `${Math.floor(elapsed / 60_000)}m ${Math.round((elapsed % 60_000) / 1000)}s`;
                           }
                           return (
-                            <div className="flex items-center gap-1 px-1">
-                              {steps.map((step, i) => {
-                                const isDone = i < currentIndex || (i === currentIndex && isTerminal);
-                                const isCurrent = i === currentIndex && !isTerminal;
-                                return (
-                                  <div key={step} className="flex items-center gap-1">
-                                    {i > 0 && (
-                                      <div
-                                        className="h-[1.5px] w-4"
-                                        style={{ backgroundColor: isDone || isCurrent ? colors.lime : 'rgba(255,255,255,0.12)' }}
-                                      />
-                                    )}
-                                    <div className="flex flex-col items-center gap-0.5">
-                                      <span
-                                        className={cn("h-2 w-2 rounded-full", isCurrent && "animate-pulse")}
-                                        style={{
-                                          backgroundColor: isDone
-                                            ? colors.lime
-                                            : isCurrent
-                                              ? colors.lime
-                                              : 'rgba(255,255,255,0.15)',
-                                        }}
-                                      />
-                                      <span className={cn("text-[9px] tracking-wider", isDone || isCurrent ? "text-primary" : "text-muted/50")}>
-                                        {step}
-                                        {isDone && i === steps.length - 1 && ' \u2713'}
+                            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5">
+                              <div className="flex flex-wrap items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">
+                                    Execution Flow
+                                  </p>
+                                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                                    <span className="rounded-full border border-lime/30 bg-lime/[0.08] px-2 py-0.5 text-micro font-semibold text-lime/85">
+                                      {humanizeStopReason(activeAutopilotContext.event) ?? humanizeText(activeAutopilotContext.event)}
+                                    </span>
+                                    {elapsedLabel && (
+                                      <span className="rounded-full border border-white/[0.12] bg-black/20 px-2 py-0.5 text-micro text-secondary">
+                                        {elapsedLabel} elapsed
                                       </span>
-                                    </div>
+                                    )}
                                   </div>
-                                );
-                              })}
-                              {elapsedLabel && <span className="ml-2 text-micro text-muted">{elapsedLabel}</span>}
+                                </div>
+                                {activeAutopilotProgress && (
+                                  <p className="text-body font-semibold tabular-nums" style={{ color: activeAutopilotProgressColor }}>
+                                    {activeAutopilotProgressIsTerminalStop
+                                      ? activeOutcome?.label ?? 'Stopped'
+                                      : `${activeAutopilotProgress.pct}%`}
+                                  </p>
+                                )}
+                              </div>
+
+                              {currentIndex >= 0 && (
+                                <div className="mt-3 flex items-center gap-1">
+                                  {steps.map((step, i) => {
+                                    const isDone = i < currentIndex || (i === currentIndex && isTerminal);
+                                    const isCurrent = i === currentIndex && !isTerminal;
+                                    return (
+                                      <div key={step} className="flex items-center gap-1">
+                                        {i > 0 && (
+                                          <div
+                                            className="h-[1.5px] w-4 sm:w-5"
+                                            style={{
+                                              backgroundColor:
+                                                isDone || isCurrent ? colors.lime : 'rgba(255,255,255,0.14)',
+                                            }}
+                                          />
+                                        )}
+                                        <div className="flex flex-col items-center gap-1">
+                                          <span
+                                            className={cn('h-2 w-2 rounded-full transition-transform duration-200', isCurrent && 'animate-pulse scale-110')}
+                                            style={{
+                                              backgroundColor: isDone || isCurrent ? colors.lime : 'rgba(255,255,255,0.18)',
+                                            }}
+                                          />
+                                          <span
+                                            className={cn(
+                                              'text-[10px] leading-none tracking-[0.05em]',
+                                              isDone || isCurrent ? 'text-primary' : 'text-muted/60'
+                                            )}
+                                          >
+                                            {step}
+                                            {isDone && i === steps.length - 1 && ' \u2713'}
+                                          </span>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {activeAutopilotProgress && (
+                                <div className="mt-3 border-t border-white/[0.06] pt-3">
+                                  <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.10]">
+                                    <div
+                                      className="h-full rounded-full transition-[width] duration-300"
+                                      style={{
+                                        width: `${Math.max(4, activeAutopilotProgress.pct)}%`,
+                                        backgroundColor: activeAutopilotProgressColor,
+                                      }}
+                                    />
+                                  </div>
+                                  <p className="mt-1 text-micro text-muted">
+                                    {activeAutopilotProgressIsTerminalStop
+                                      ? activeOutcome?.summary ?? activeAutopilotProgress.label
+                                      : activeAutopilotProgress.label}
+                                  </p>
+                                </div>
+                              )}
                             </div>
                           );
                         })()}
-
-                        {/* Progress bar — inline, no card wrapper */}
-                        {activeAutopilotProgress && (
-                          <div>
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="px-1 text-micro font-semibold uppercase tracking-wider text-muted">
-                                {activeAutopilotProgressIsTerminalStop ? 'Terminal state' : 'Progress'}
-                              </p>
-                              <p className="text-body font-semibold tabular-nums" style={{ color: activeAutopilotProgressColor }}>
-                                {activeAutopilotProgressIsTerminalStop
-                                  ? activeOutcome?.label ?? 'Stopped'
-                                  : `${activeAutopilotProgress.pct}%`}
-                              </p>
-                            </div>
-                            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/[0.10]">
-                              <div
-                                className="h-full rounded-full transition-[width] duration-300"
-                                style={{
-                                  width: `${Math.max(4, activeAutopilotProgress.pct)}%`,
-                                  backgroundColor: activeAutopilotProgressColor,
-                                }}
-                              />
-                            </div>
-                            <p className="mt-1 text-micro text-muted">
-                              {activeAutopilotProgress.label}
-                            </p>
-                          </div>
-                        )}
 
                         {/* People — simplified single-line attribution */}
                         <div>
@@ -6443,6 +6964,16 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                 </div>
                               </div>
                             )}
+                          </div>
+                        )}
+
+                        {/* Milestone scope breakdown */}
+                        {activeMilestoneBreakdown.length > 0 && (
+                          <div>
+                            <p className="mb-2 text-micro font-semibold uppercase tracking-[0.08em] text-muted">
+                              Milestones
+                            </p>
+                            <ScopeGroupedView nodes={buildScopeFromMilestoneBreakdown(activeMilestoneBreakdown)} compact />
                           </div>
                         )}
 

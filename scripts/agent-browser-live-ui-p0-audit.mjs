@@ -128,8 +128,12 @@ function collectInitiativeIds(rows, keys) {
 
 function hasPositiveDecisionBadge(values) {
   for (const entry of values) {
-    const match = String(entry || "").match(/decisions?\s*(\d+)/i);
-    if (match && Number(match[1]) > 0) return true;
+    const text = String(entry || "");
+    const wordFirst = text.match(/decisions?\s*[:\-]?\s*(\d+)/i);
+    if (wordFirst && Number(wordFirst[1]) > 0) return true;
+
+    const numberFirst = text.match(/(\d+)\s*\+?\s*decisions?/i);
+    if (numberFirst && Number(numberFirst[1]) > 0) return true;
   }
   return false;
 }
@@ -283,8 +287,21 @@ async function run() {
       await nextUpTab.click({ timeout: 4_000 }).catch(() => {});
       await page.waitForTimeout(400);
     }
-    const nextUpActionButtons = page.getByRole("button", { name: /^(Start|Pause|Resume)$/i });
-    report.ui.nextUpActionVisible = (await nextUpActionButtons.count().catch(() => 0)) > 0;
+    const nextUpActionButtons = page.getByRole("button", { name: /^(Start|Pause|Resume|Running)$/i });
+    report.ui.nextUpActionVisible = false;
+    if (report.api.nextUpItems > 0) {
+      const startedAtMs = Date.now();
+      while (Date.now() - startedAtMs < 8_000) {
+        const count = await nextUpActionButtons.count().catch(() => 0);
+        if (count > 0) {
+          report.ui.nextUpActionVisible = true;
+          break;
+        }
+        await page.waitForTimeout(350);
+      }
+    } else {
+      report.ui.nextUpActionVisible = (await nextUpActionButtons.count().catch(() => 0)) > 0;
+    }
     if (!report.ui.nextUpActionVisible && report.api.nextUpItems > 0) {
       const missionControlTab = page.getByRole("button", { name: /Mission Control/i }).first();
       if (await missionControlTab.count()) {

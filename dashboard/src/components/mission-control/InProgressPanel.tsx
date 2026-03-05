@@ -206,6 +206,8 @@ export function selectInProgressRows({
 
   const runningSliceRows: InProgressRow[] = [];
   for (const slice of sliceRuns) {
+    const sliceKind = (slice.sliceKind ?? '').trim().toLowerCase();
+    if (sliceKind && sliceKind !== 'work_slice') continue;
     if (!SLICE_RUNNING_STATUSES.has(slice.status)) continue;
     const runId = (slice.runId ?? slice.sliceRunId ?? '').trim();
     if (!runId) continue;
@@ -213,6 +215,8 @@ export function selectInProgressRows({
     const workstreamIds = normalizeLineageIds(slice.workstreamIds, slice.workstreamId);
     const primaryInitiativeId = initiativeIds[0] ?? null;
     const primaryWorkstreamId = workstreamIds[0] ?? null;
+    // In-progress should represent dispatchable IWMT slices only.
+    if (!primaryInitiativeId || !primaryWorkstreamId) continue;
     const scopeKeys: string[] = [];
     for (const iId of initiativeIds) {
       for (const wId of workstreamIds) {

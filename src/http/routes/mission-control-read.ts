@@ -52,6 +52,7 @@ type NextUpQueueItem = {
   sliceTaskIds?: string[];
   sliceTaskCount?: number | null;
   sliceMilestoneId?: string | null;
+  milestoneBreakdown?: MilestoneBreakdownEntry[];
   isPinned?: boolean;
   pinnedRank?: number | null;
   compositeScore?: number;
@@ -116,9 +117,19 @@ type GraphTaskNode = {
   updatedAt: string | null;
 };
 
+type MilestoneBreakdownTask = { id: string; title: string; status: string };
+type MilestoneBreakdownEntry = {
+  id: string;
+  title: string;
+  tasks: MilestoneBreakdownTask[];
+  totalTasks: number;
+  doneTasks: number;
+};
+
 type InitiativeGraphIndex = {
   tasksById: Map<string, GraphTaskNode>;
   milestoneTitleById: Map<string, string>;
+  milestonesByWorkstream: Map<string, Array<{ id: string; title: string; taskIds: string[] }>>;
 };
 
 type RegisterMissionControlReadRoutesDeps<TRes> = {
@@ -1053,6 +1064,7 @@ async function loadInitiativeGraphIndex(
   const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
   const tasksById = new Map<string, GraphTaskNode>();
   const milestoneTitleById = new Map<string, string>();
+  const milestoneWorkstream = new Map<string, string>();
 
   for (const nodeEntry of nodes) {
     const node = asRecord(nodeEntry);
@@ -1062,6 +1074,8 @@ async function loadInitiativeGraphIndex(
     if (!id || !type) continue;
     if (type === "milestone") {
       milestoneTitleById.set(id, asString(node.title) ?? id);
+      const wsId = asString(node.workstreamId) ?? asString(node.parentId);
+      if (wsId) milestoneWorkstream.set(id, wsId);
       continue;
     }
     if (type !== "task") continue;
@@ -1077,10 +1091,63 @@ async function loadInitiativeGraphIndex(
     });
   }
 
+  // Build milestonesByWorkstream from milestones + their child tasks
+  const milestonesByWorkstream = new Map<string, Array<{ id: string; title: string; taskIds: string[] }>>();
+  for (const [msId, wsId] of milestoneWorkstream) {
+    const taskIds: string[] = [];
+    for (const task of tasksById.values()) {
+      if (task.milestoneId === msId) taskIds.push(task.id);
+    }
+    const entry = { id: msId, title: milestoneTitleById.get(msId) ?? msId, taskIds };
+    const existing = milestonesByWorkstream.get(wsId) ?? [];
+    existing.push(entry);
+    milestonesByWorkstream.set(wsId, existing);
+  }
+
   return {
     tasksById,
     milestoneTitleById,
+    milestonesByWorkstream,
   };
+}
+
+async function enrichWithMilestoneBreakdown(
+  items: NextUpQueueItem[],
+  deps: RegisterMissionControlReadRoutesDeps<any>
+): Promise<NextUpQueueItem[]> {
+  if (items.length === 0) return items;
+  const graphByInitiative = new Map<string, InitiativeGraphIndex>();
+  const uniqueInitiatives = dedupeStrings(items.map((i) => i.initiativeId));
+  for (const id of uniqueInitiatives) {
+    try {
+      graphByInitiative.set(id, await loadInitiativeGraphIndex(deps, id));
+    } catch {
+      // graph unavailable — skip enrichment for this initiative
+    }
+  }
+  if (graphByInitiative.size === 0) return items;
+  for (const item of items) {
+    const graph = graphByInitiative.get(item.initiativeId);
+    if (!graph) continue;
+    const milestones = graph.milestonesByWorkstream.get(item.workstreamId) ?? [];
+    if (milestones.length === 0) continue;
+    item.milestoneBreakdown = milestones.map((ms) => {
+      const tasks: MilestoneBreakdownTask[] = ms.taskIds.map((tid) => {
+        const task = graph.tasksById.get(tid);
+        return { id: tid, title: task?.title ?? "Untitled", status: task?.status ?? "pending" };
+      });
+      return {
+        id: ms.id,
+        title: ms.title,
+        tasks,
+        totalTasks: tasks.length,
+        doneTasks: tasks.filter(
+          (t) => t.status === "done" || t.status === "completed"
+        ).length,
+      };
+    });
+  }
+  return items;
 }
 
 export function registerMissionControlReadRoutes<TReq, TRes>(
@@ -1497,11 +1564,14 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             if (isCanonicalAllScopeMismatch(canonicalSlicesRecord, useAllScope)) {
               throw new Error("canonical slices all-workspaces scope mismatch");
             }
-            const bridgedItems = applyQueueNoiseControls(
-              mapCanonicalSlicesToQueueItems(canonicalSlicesRecord.items).filter((item) =>
-                includeCompleted ? true : item.queueState !== "completed"
+            const bridgedItems = await enrichWithMilestoneBreakdown(
+              applyQueueNoiseControls(
+                mapCanonicalSlicesToQueueItems(canonicalSlicesRecord.items).filter((item) =>
+                  includeCompleted ? true : item.queueState !== "completed"
+                ),
+                { noiseThreshold, dedupWindowMs }
               ),
-              { noiseThreshold, dedupWindowMs }
+              deps
             );
             if (bridgedItems.length > 0) {
               const paged = applySliceSearchAndPagination({
@@ -1546,11 +1616,14 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             initiativeId,
             projectId,
           });
-          const items = applyQueueNoiseControls(
-            normalizeQueueItems(queue.items ?? []).filter((item) =>
-              includeCompleted ? true : item.queueState !== "completed"
+          const items = await enrichWithMilestoneBreakdown(
+            applyQueueNoiseControls(
+              normalizeQueueItems(queue.items ?? []).filter((item) =>
+                includeCompleted ? true : item.queueState !== "completed"
+              ),
+              { noiseThreshold, dedupWindowMs }
             ),
-            { noiseThreshold, dedupWindowMs }
+            deps
           );
           const paged = applySliceSearchAndPagination({
             items,
@@ -1588,11 +1661,14 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
         initiativeId,
         projectId,
       });
-      const items = applyQueueNoiseControls(
-        normalizeQueueItems(queue.items ?? []).filter((item) =>
-          includeCompleted ? true : item.queueState !== "completed"
+      const items = await enrichWithMilestoneBreakdown(
+        applyQueueNoiseControls(
+          normalizeQueueItems(queue.items ?? []).filter((item) =>
+            includeCompleted ? true : item.queueState !== "completed"
+          ),
+          { noiseThreshold, dedupWindowMs }
         ),
-        { noiseThreshold, dedupWindowMs }
+        deps
       );
       const paged = applySliceSearchAndPagination({
         items,

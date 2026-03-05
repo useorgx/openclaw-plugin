@@ -231,6 +231,7 @@ export interface SliceRunDecisionOption {
 export interface SliceRunProjection {
   id: string;
   sliceRunId: string;
+  sliceKind?: SliceKind;
   runId: string | null;
   initiativeId: string | null;
   initiativeIds?: string[];
@@ -891,6 +892,20 @@ export interface MissionControlSlicesResponse {
   pagination?: MissionControlSlicesPagination;
 }
 
+export interface MilestoneBreakdownTask {
+  id: string;
+  title: string;
+  status: string;
+}
+
+export interface MilestoneBreakdownEntry {
+  id: string;
+  title: string;
+  tasks: MilestoneBreakdownTask[];
+  totalTasks: number;
+  doneTasks: number;
+}
+
 export type NextUpRunnerSource = 'assigned' | 'inferred' | 'fallback';
 export type NextUpQueueState = 'queued' | 'running' | 'blocked' | 'idle' | 'completed';
 export type NextUpPlaybackState =
@@ -949,6 +964,7 @@ export interface NextUpQueueItem {
   sliceTaskIds?: string[];
   sliceTaskCount?: number | null;
   sliceMilestoneId?: string | null;
+  milestoneBreakdown?: MilestoneBreakdownEntry[];
   executionPolicy?: NextUpExecutionPolicy | null;
   autoContinue: {
     status: AutoContinueStatus;

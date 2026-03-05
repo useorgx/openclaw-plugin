@@ -6,7 +6,7 @@ import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { Pill } from '@/components/shared/Pill';
 import { EntityCommentsPanel } from '@/components/comments/EntityCommentsPanel';
-import { ScopeProgressCard, buildScopeFromSliceRun } from '@/components/shared/ScopeProgressCard';
+import { ScopeProgressCard, buildScopeFromSliceRun, buildScopeFromMilestoneBreakdown, ScopeGroupedView } from '@/components/shared/ScopeProgressCard';
 import { ArtifactGallery } from './ArtifactGallery';
 import { MetricRow } from '@/components/shared/MetricRow';
 import { formatRelativeTime } from '@/lib/time';
@@ -201,6 +201,7 @@ function extractData(target: SliceDetailTarget) {
           ? Math.max(0, Math.floor(item.sliceTaskCount))
           : item.sliceTaskIds?.length ?? null,
       autoContinue: item.autoContinue,
+      milestoneBreakdown: item.milestoneBreakdown ?? null,
       sliceRun: linkedSliceRun,
       sessionId: null as string | null,
       runId: linkedSliceRun?.runId ?? null,
@@ -233,6 +234,7 @@ function extractData(target: SliceDetailTarget) {
             )
           : sliceRun?.taskIds?.length ?? null,
       autoContinue: null as NextUpQueueItem['autoContinue'] | null,
+      milestoneBreakdown: null as NextUpQueueItem['milestoneBreakdown'] | null,
       sliceRun: sliceRun,
       sessionId: row.session?.id ?? null,
       runId: row.runId,
@@ -270,6 +272,7 @@ function extractData(target: SliceDetailTarget) {
           )
         : sliceRun.taskIds?.length ?? null,
     autoContinue: null as NextUpQueueItem['autoContinue'] | null,
+    milestoneBreakdown: null as NextUpQueueItem['milestoneBreakdown'] | null,
     sliceRun: sliceRun,
     sessionId: null as string | null,
     runId: sliceRun.runId,
@@ -466,6 +469,23 @@ export function SliceDetailModal({
   const hasTerminal = terminalTarget !== null;
 
   const scopeNodes = useMemo(() => {
+    if (sr?.scopeProgress) {
+      return buildScopeFromSliceRun({
+        initiativeId: d.initiativeId,
+        initiativeTitle: d.initiativeTitle,
+        workstreamId: d.workstreamId,
+        workstreamTitle: d.workstreamTitle,
+        taskIds: sr?.taskIds,
+        milestoneIds: sr?.milestoneIds,
+        scopeProgress: sr.scopeProgress,
+        status: sr?.status ?? d.queueState,
+        agentName: d.agentName,
+        agentId: d.agentId,
+      });
+    }
+    if (d.milestoneBreakdown && d.milestoneBreakdown.length > 0) {
+      return buildScopeFromMilestoneBreakdown(d.milestoneBreakdown);
+    }
     return buildScopeFromSliceRun({
       initiativeId: d.initiativeId,
       initiativeTitle: d.initiativeTitle,
@@ -473,12 +493,12 @@ export function SliceDetailModal({
       workstreamTitle: d.workstreamTitle,
       taskIds: sr?.taskIds,
       milestoneIds: sr?.milestoneIds,
-      scopeProgress: sr?.scopeProgress ?? null,
+      scopeProgress: null,
       status: sr?.status ?? d.queueState,
       agentName: d.agentName,
       agentId: d.agentId,
     });
-  }, [d.initiativeId, d.initiativeTitle, d.workstreamId, d.workstreamTitle, sr, d.queueState, d.agentName, d.agentId]);
+  }, [d.initiativeId, d.initiativeTitle, d.workstreamId, d.workstreamTitle, sr, d.queueState, d.agentName, d.agentId, d.milestoneBreakdown]);
 
   const isNeedsReview = target.source === 'needs_input' && sr?.status === 'needs_review';
 
@@ -1004,10 +1024,7 @@ export function SliceDetailModal({
                   className="space-y-2"
                 >
                   <p className="section-kicker">{workSnapshotHeading(d.queueState, isNeedsReview)}</p>
-                  <ScopeProgressCard
-                    nodes={scopeNodes}
-                    activeId={d.workstreamId}
-                  />
+                  <ScopeGroupedView nodes={scopeNodes} />
                   <div className="flex items-center gap-2">
                     {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
                       <span

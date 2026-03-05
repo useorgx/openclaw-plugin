@@ -1346,6 +1346,14 @@ function normalizeSliceRuns(input: SliceRunProjection[] | null | undefined): Sli
   };
   for (const item of input) {
     if (!item || typeof item !== 'object') continue;
+    const sliceKind =
+      (typeof (item as { sliceKind?: unknown }).sliceKind === 'string'
+        ? (item as { sliceKind?: string }).sliceKind
+        : typeof (item as { slice_kind?: unknown }).slice_kind === 'string'
+          ? (item as { slice_kind?: string }).slice_kind
+          : null);
+    const normalizedSliceKind = sliceKind?.trim().toLowerCase() ?? null;
+    if (normalizedSliceKind && normalizedSliceKind !== 'work_slice') continue;
     const sliceRunId =
       (typeof item.sliceRunId === 'string' && item.sliceRunId.trim().length > 0
         ? item.sliceRunId.trim()
@@ -1372,6 +1380,7 @@ function normalizeSliceRuns(input: SliceRunProjection[] | null | undefined): Sli
       ...item,
       id: sliceRunId,
       sliceRunId,
+      sliceKind: normalizedSliceKind === 'work_slice' ? 'work_slice' : undefined,
       initiativeId,
       initiativeIds,
       workstreamId,
@@ -1524,6 +1533,7 @@ function sliceRunsFromWorkSliceProjections(
     mapped.push({
       id: projection.sliceRunId,
       sliceRunId: projection.sliceRunId,
+      sliceKind: 'work_slice',
       runId: projection.runId,
       initiativeId,
       initiativeIds: projection.lineage.initiativeIds,
@@ -2159,8 +2169,10 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           return;
         }
         const message = err instanceof Error ? err.message : 'Unknown error';
-        const isAuthBlocked =
-          Boolean(err && typeof err === 'object' && 'code' in err && (err as any).code === 'ORGX_AUTH');
+        const isAuthBlocked = (() => {
+          if (err == null || typeof err !== 'object' || !('code' in err)) return false;
+          return (err as { code?: unknown }).code === 'ORGX_AUTH';
+        })();
 
         if (isAuthBlocked) {
           authBlockedRef.current = true;

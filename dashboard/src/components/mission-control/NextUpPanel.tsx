@@ -2,7 +2,7 @@ import { AnimatePresence, motion, Reorder, useDragControls, useReducedMotion } f
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatRelativeTime } from '@/lib/time';
 import { cn } from '@/lib/utils';
-import { colors, missionControlMotion } from '@/lib/tokens';
+import { colors, missionControlMotion, stateTones } from '@/lib/tokens';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
@@ -15,6 +15,7 @@ import { QueueState, queueTone, queueLabel, queueStateRank, queueHighlight, queu
 import { useNextUpQueue, type NextUpQueueItem, type UseNextUpQueueResult, type ZoomLevel, type InitiativeGroupItem, type MilestoneGroupItem } from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { EmptyState } from '@/components/shared/EmptyState';
+import { SegmentedProgressBar } from '@/components/shared/ScopeProgressCard';
 import type { NextUpQueueBulkAction } from '@/types';
 
 type UseNextUpQueueActionsResult = ReturnType<typeof useNextUpQueueActions>;
@@ -1235,7 +1236,7 @@ export function NextUpPanel({
                           ? 'Needs attention'
                           : queueDisplayMode === QueueState.RUNNING
                             ? 'Running now'
-                            : 'Queue'}
+                            : 'Next Up'}
                   </p>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 {selectedCount > 0 ? (
@@ -1635,6 +1636,28 @@ export function NextUpPanel({
                       {runnerSourceBadge ? (
                         <p className="mt-0.5 text-micro text-muted">Runner {runnerSourceBadge}</p>
                       ) : null}
+                      {/* Milestone progress strip */}
+                      {item.milestoneBreakdown && item.milestoneBreakdown.length > 0 && (
+                        <div className="mt-1.5 space-y-1">
+                          <SegmentedProgressBar milestones={item.milestoneBreakdown} />
+                          <p className="text-micro text-secondary">
+                            {item.milestoneBreakdown.length} milestone{item.milestoneBreakdown.length !== 1 ? 's' : ''}
+                            {' · '}
+                            {item.milestoneBreakdown.reduce((s, m) => s + m.doneTasks, 0)}/
+                            {item.milestoneBreakdown.reduce((s, m) => s + m.totalTasks, 0)} tasks done
+                          </p>
+                        </div>
+                      )}
+                      {/* Completed counts strip */}
+                      {item.queueState === QueueState.COMPLETED && item.milestoneBreakdown && item.milestoneBreakdown.length > 0 && (
+                        <div
+                          className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-micro"
+                          style={{ color: stateTones.done.text }}
+                        >
+                          <span>✓ {item.milestoneBreakdown.length} milestones</span>
+                          <span>✓ {item.milestoneBreakdown.reduce((s, m) => s + m.totalTasks, 0)} tasks</span>
+                        </div>
+                      )}
                       {/* Scoring tier + estimate */}
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         {(() => {
@@ -1671,7 +1694,9 @@ export function NextUpPanel({
                         className="h-full rounded-full"
                         style={{
                           width: `${Math.max(item.queueState === QueueState.COMPLETED ? 100 : item.queueState === QueueState.RUNNING ? 50 : 15, 4)}%`,
-                          background: `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
+                          background: item.queueState === QueueState.COMPLETED
+                            ? colors.teal
+                            : `linear-gradient(90deg, ${colors.lime}, ${colors.teal})`,
                           opacity: 0.6,
                         }}
                       />
@@ -2119,6 +2144,24 @@ function NextUpReorderRow({
             <span className="text-secondary">{queueTaskFallback(item)}</span>
           )}
         </div>
+
+        {/* Milestone breakdown (expanded card) */}
+        {item.milestoneBreakdown && item.milestoneBreakdown.length > 0 && (
+          <div className="mt-2 rounded-lg border border-white/[0.07] bg-black/[0.18] px-2.5 py-2">
+            <SegmentedProgressBar milestones={item.milestoneBreakdown} />
+            <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
+              {item.milestoneBreakdown.slice(0, 4).map((ms) => (
+                <span key={ms.id} className="text-micro text-secondary">
+                  {ms.doneTasks === ms.totalTasks && ms.totalTasks > 0 ? '✓' : '○'} {ms.title}
+                  <span className="ml-1 text-muted">{ms.doneTasks}/{ms.totalTasks}</span>
+                </span>
+              ))}
+              {item.milestoneBreakdown.length > 4 && (
+                <span className="text-micro text-muted">+{item.milestoneBreakdown.length - 4}</span>
+              )}
+            </div>
+          </div>
+        )}
 
         {blockReason && (
           <div className="mt-1.5 rounded-lg border border-red-400/24 bg-red-500/[0.08] px-2.5 py-1 text-micro text-red-100/85">
