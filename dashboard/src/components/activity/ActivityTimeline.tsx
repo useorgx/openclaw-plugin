@@ -1737,12 +1737,12 @@ function summarizeStatusUpdatesForCard(item: LiveActivityItem): string | null {
   if (isBuffered) {
     if (updates.length > 0) {
       const first = updates[0];
-      return `Queued ${updates.length} update${updates.length === 1 ? '' : 's'}: ${first.label}${first.status ? ` → ${first.status}` : ''}`;
+      return `Updates being applied: ${updates.length} queued update${updates.length === 1 ? '' : 's'} · ${first.label}${first.status ? ` → ${first.status}` : ''}`;
     }
     if (statusUpdatesApplied !== null && statusUpdatesApplied > 0) {
-      return `Queued ${statusUpdatesApplied} status update${statusUpdatesApplied === 1 ? '' : 's'} for sync`;
+      return `Updates being applied: ${statusUpdatesApplied} status update${statusUpdatesApplied === 1 ? '' : 's'} queued for sync`;
     }
-    return 'Queued status updates for sync';
+    return 'Updates being applied: status updates queued for sync';
   }
 
   if (statusUpdatesApplied !== null && statusUpdatesApplied > 0) {
@@ -6473,20 +6473,25 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       const commitSha = metadataString(outcomes, ['commit_sha', 'commitSha']);
                       const commitUrl = metadataString(outcomes, ['commit_url', 'commitUrl']);
                       const tests = asMetadataRecord(outcomes?.tests) as { passed?: number; failed?: number; skipped?: number } | null;
+                      const showStatusUpdatesPanel =
+                        statusUpdates.length > 0 ||
+                        (statusUpdatesApplied ?? 0) > 0 ||
+                        statusBuffered;
+                      const showUpdatesInOutcomes =
+                        showStatusUpdatesPanel &&
+                        (!activeArtifact || eventName.includes('status_updates'));
                       const hasAny =
                         prUrl ||
                         commitSha ||
                         tests ||
-                        statusUpdates.length > 0 ||
-                        (statusUpdatesApplied ?? 0) > 0 ||
-                        statusBuffered;
+                        showUpdatesInOutcomes;
                       if (!hasAny) return null;
                       return (
                         <div className="space-y-2">
                           <p className="text-micro font-semibold uppercase tracking-wider text-muted">
-                            Updates & outcomes
+                            {showUpdatesInOutcomes ? 'Updates & outcomes' : 'Outcomes'}
                           </p>
-                          {(statusUpdates.length > 0 || (statusUpdatesApplied ?? 0) > 0 || statusBuffered) && (
+                          {showUpdatesInOutcomes && (
                             <div className="rounded-xl border border-[#14B8A6]/20 bg-[#14B8A6]/[0.06] px-3.5 py-2.5">
                               <div className="flex items-center gap-3">
                                 <span className="h-2 w-2 flex-shrink-0 rounded-full bg-[#14B8A6]" />
