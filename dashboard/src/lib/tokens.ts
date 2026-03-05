@@ -188,12 +188,44 @@ export const agentRoles: Record<string, string> = {
   Nova: 'Research',
 };
 
+// Map real backend agent/domain identifiers to domain keys
+const DOMAIN_ALIAS_MAP: Record<string, { domain: string; color: string }> = {
+  engineering: { domain: 'Engineering', color: '#BFFF00' },
+  product: { domain: 'Product', color: '#A78BFA' },
+  design: { domain: 'Design', color: '#FF00D4' },
+  marketing: { domain: 'Marketing', color: '#F5B700' },
+  sales: { domain: 'Sales', color: '#0AD4C4' },
+  operations: { domain: 'Operations', color: '#14B8A6' },
+  orchestration: { domain: 'Orchestrator', color: '#FF6B88' },
+  orchestrator: { domain: 'Orchestrator', color: '#FF6B88' },
+};
+
+function resolveDomainFromName(name: string): { domain: string; color: string } | null {
+  // Direct persona match (Eli, Dana, etc.)
+  if (agentRoles[name]) return { domain: agentRoles[name], color: agentColors[name] ?? 'rgba(255,255,255,0.4)' };
+
+  // Normalize: "engineering-agent" → "engineering", "orgx-engineering" → "engineering"
+  const lower = name.toLowerCase().replace(/[_\s-]+/g, '-');
+  for (const [key, value] of Object.entries(DOMAIN_ALIAS_MAP)) {
+    if (lower === key || lower === `${key}-agent` || lower === `orgx-${key}` || lower === `orgx-${key}-agent`) {
+      return value;
+    }
+  }
+
+  // Partial match: if the name contains a domain keyword
+  for (const [key, value] of Object.entries(DOMAIN_ALIAS_MAP)) {
+    if (lower.includes(key)) return value;
+  }
+
+  return null;
+}
+
 export function getAgentColor(name: string): string {
-  return agentColors[name] ?? 'rgba(255, 255, 255, 0.4)';
+  return agentColors[name] ?? resolveDomainFromName(name)?.color ?? 'rgba(255, 255, 255, 0.4)';
 }
 
 export function getAgentRole(name: string): string | null {
-  return agentRoles[name] ?? null;
+  return agentRoles[name] ?? resolveDomainFromName(name)?.domain ?? null;
 }
 
 export function getInitials(name: string): string {
