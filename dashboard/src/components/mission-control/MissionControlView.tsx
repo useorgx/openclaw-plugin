@@ -882,8 +882,31 @@ function MissionControlInner({
     );
   }, [fallbackNextActionInitiative, initiatives, nextActionQueueItem]);
   const railFocusItem = nowWorkingItem ?? nextQueuedItem ?? nextActionQueueItem ?? null;
+  const queueAutopilotItem = useMemo(
+    () =>
+      nextActionQueue.items.find(
+        (item) =>
+          item.autoContinue?.status === 'running' ||
+          item.autoContinue?.status === 'stopping'
+      ) ??
+      nextActionQueue.items.find(
+        (item) =>
+          item.autoContinue?.stopReason === 'blocked' ||
+          item.autoContinue?.stopReason === 'error'
+      ) ??
+      null,
+    [nextActionQueue.items]
+  );
   const autopilotInitiativeId =
-    railFocusItem?.initiativeId ?? nextActionInitiative?.id ?? null;
+    queueAutopilotItem?.initiativeId ?? railFocusItem?.initiativeId ?? nextActionInitiative?.id ?? null;
+  const autopilotInitiative = useMemo(() => {
+    if (!autopilotInitiativeId) return nextActionInitiative ?? null;
+    return (
+      initiatives.find((initiative) => initiative.id === autopilotInitiativeId) ??
+      nextActionInitiative ??
+      null
+    );
+  }, [autopilotInitiativeId, initiatives, nextActionInitiative]);
 
   const setInitiativeSelected = useCallback(
     (initiativeId: string, selected: boolean, shiftKey: boolean) => {
@@ -1799,16 +1822,16 @@ function MissionControlInner({
                   />
                   <div
                     className="hidden min-w-[220px] max-w-[320px] items-center gap-2 rounded-lg border border-strong bg-white/[0.03] px-2.5 py-1.5 xl:flex"
-                    title={nextActionInitiative?.name ?? undefined}
+                    title={autopilotInitiative?.name ?? undefined}
                   >
                     <span className="text-micro font-semibold uppercase tracking-[0.08em] text-white/44">
                       Autopilot
                     </span>
                     <div className="min-w-0 flex-1 text-right">
                       <div className="truncate text-micro text-white/72">{autopilotStateLabel}</div>
-                      {nextActionInitiative && (
+                      {autopilotInitiative && (
                         <div className="truncate text-micro text-white/44">
-                          {nextActionInitiative.name}
+                          {autopilotInitiative.name}
                         </div>
                       )}
                     </div>
@@ -1839,7 +1862,7 @@ function MissionControlInner({
                       void action()
                         .then(() => {
                           setAutopilotUpgradeGate(null);
-                          const initiativeLabel = nextActionInitiative?.name ?? 'selected initiative';
+                          const initiativeLabel = autopilotInitiative?.name ?? 'selected initiative';
                           setNextActionNotice({
                             tone: 'success',
                             message: stopRequested
@@ -1875,7 +1898,7 @@ function MissionControlInner({
                           ? 'Upgrade to enable auto-continue for BYOK agents'
                           : autopilot.isRunning
                             ? 'Stop Autopilot'
-                            : `Start Autopilot${nextActionInitiative ? ` for ${nextActionInitiative.name}` : ''}`
+                            : `Start Autopilot${autopilotInitiative ? ` for ${autopilotInitiative.name}` : ''}`
                     }
                     data-state={
                       autopilot.isRunning || autopilotNeedsUpgrade ? 'active' : 'idle'
@@ -1975,7 +1998,7 @@ function MissionControlInner({
                           captureTelemetry('live_install_cta_click', {
                             surface: 'mission_control',
                             embedMode: true,
-                            initiativeId: nextActionInitiative?.id ?? null,
+                            initiativeId: autopilotInitiative?.id ?? null,
                           });
                         } catch {
                           // ignore tracking failures

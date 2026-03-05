@@ -374,6 +374,7 @@ export function humanizeWarning(raw: string): string {
 export function formatTokens(used: number | null, budget: number | null): string | null {
   if (used == null && budget == null) return null;
   if (used === 0 && budget) return null; // hide when no usage
+  if (used === 0 && !budget) return null; // hide 0 with no budget
   const u = used ?? 0;
   const b = budget ?? 0;
   const fmtNum = (n: number) =>
@@ -384,6 +385,21 @@ export function formatTokens(used: number | null, budget: number | null): string
         : `${n}`;
   if (b > 0) return `${fmtNum(u)} / ${fmtNum(b)} (${Math.round((u / b) * 100)}%)`;
   return fmtNum(u);
+}
+
+/**
+ * Derive a meaningful fallback title from event metadata when the description
+ * is empty, instead of falling back to the generic "Untitled session".
+ */
+export function deriveActivityFallbackTitle(meta: Record<string, unknown> | undefined): string {
+  const eventName = (meta?.event_name ?? meta?.event ?? '') as string;
+  if (eventName) {
+    const humanized = humanizeText(eventName);
+    if (humanized && humanized !== 'Untitled session') return humanized;
+  }
+  const taskTitle = (meta?.task_title ?? meta?.workstream_title ?? meta?.initiative_title ?? '') as string;
+  if (taskTitle.trim()) return taskTitle.trim();
+  return 'Activity event';
 }
 
 // -----------------------------------------------------------------------------

@@ -226,3 +226,12 @@ Ranking scale:
   - `docs/product/chat-telemetry-kpis.md`
 - Cross-repo schema contract reference:
   - `../orgx/orgx/docs/product/chat-orgx-schema-mapping.md`
+
+## 11) Architecture Governance (New)
+
+- ADR:
+  - `docs/adr/adr-0002-orchestrator-single-authority-control-plane.json`
+- Full architecture blueprint:
+  - `docs/product/orgx-fsd-orchestrator-architecture-v1.md`
+- Verification and cutover matrix:
+  - `docs/product/orgx-fsd-orchestrator-verification-matrix-v1.md`

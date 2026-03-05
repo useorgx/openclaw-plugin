@@ -828,6 +828,7 @@ export interface RunnerAgentRef {
 export interface MissionControlSliceItem {
   sliceId: string;
   level: MissionControlSliceLevel;
+  sliceKind?: 'work_slice' | 'runtime_reporting' | 'system_maintenance' | (string & {}) | null;
   title: string;
   initiativeId: string | null;
   initiativeTitle?: string | null;
@@ -943,6 +944,7 @@ export interface NextUpQueueItem {
   roiPerToken?: number;
   expectedTokens?: number;
   expectedValueUsd?: number;
+  updatedAt?: string | null;
   sliceScope?: 'task' | 'milestone' | 'workstream' | null;
   sliceTaskIds?: string[];
   sliceTaskCount?: number | null;
