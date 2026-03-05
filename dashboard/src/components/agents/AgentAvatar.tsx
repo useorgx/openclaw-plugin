@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { getAgentColor, getInitials } from '@/lib/tokens';
+import { UserFractalAvatar } from '@/components/settings/UserFractalAvatar';
 
 interface AgentAvatarProps {
   name: string;
@@ -14,6 +15,15 @@ const sizeMap = {
   md: 'w-10 h-10 text-body',
   lg: 'w-16 h-16 text-title',
 };
+const sizePxMap = {
+  xs: 24,
+  sm: 32,
+  md: 40,
+  lg: 64,
+} as const;
+
+const USER_NAME_KEY = 'orgx.user.display-name';
+const USER_SEED_SUFFIX_KEY = 'orgx.user.avatar-seed-suffix';
 
 const baseUrl = '/orgx/live/';
 const withBaseUrl = (path: string) => `${baseUrl.replace(/\/+$/, '/')}${path}`;
@@ -66,6 +76,30 @@ function resolveAgentAvatar(...hints: Array<string | null | undefined>): string 
   return null;
 }
 
+function normalizeIdentity(value: string | null | undefined): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function isUserIdentity(value: string | null | undefined): boolean {
+  const normalized = normalizeIdentity(value);
+  if (!normalized) return false;
+  if (normalized === 'you' || normalized === 'main' || normalized === 'me') return true;
+  if (normalized === 'user' || normalized === 'usr') return true;
+  if (normalized.startsWith('user_') || normalized.startsWith('usr_')) return true;
+  return false;
+}
+
+function readUserAvatarSeed(): string {
+  if (typeof window === 'undefined') return 'orgx-user';
+  try {
+    const displayName = (window.localStorage.getItem(USER_NAME_KEY) ?? '').trim();
+    const seedSuffix = window.localStorage.getItem(USER_SEED_SUFFIX_KEY) ?? '';
+    return `${displayName || 'orgx-user'}${seedSuffix}`;
+  } catch {
+    return 'orgx-user';
+  }
+}
+
 export function AgentAvatar({
   name,
   size = 'xs',
@@ -74,12 +108,20 @@ export function AgentAvatar({
 }: AgentAvatarProps) {
   const color = getAgentColor(name);
   const [failedToLoad, setFailedToLoad] = useState(false);
+  const showUserAvatar = useMemo(
+    () => isUserIdentity(name) || isUserIdentity(hint),
+    [hint, name]
+  );
+  const userAvatarSeed = useMemo(
+    () => (showUserAvatar ? readUserAvatarSeed() : null),
+    [showUserAvatar]
+  );
   const avatarSrc = useMemo(() => {
     if (src && src.trim()) return src;
     return resolveAgentAvatar(name, hint);
   }, [hint, name, src]);
 
-  const showImage = Boolean(avatarSrc && !failedToLoad);
+  const showImage = Boolean(!showUserAvatar && avatarSrc && !failedToLoad);
 
   return (
     <div
@@ -91,7 +133,14 @@ export function AgentAvatar({
         border: `1px solid ${color}30`,
       }}
     >
-      {showImage ? (
+      {showUserAvatar && userAvatarSeed ? (
+        <UserFractalAvatar
+          seed={userAvatarSeed}
+          size={sizePxMap[size]}
+          animate={false}
+          className="h-full w-full"
+        />
+      ) : showImage ? (
         <img
           src={avatarSrc ?? undefined}
           alt={name}

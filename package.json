@@ -54,6 +54,7 @@
     "verify:conduit-mcp": "node ./scripts/verify-conduit-mcp.mjs",
     "verify:repo-hygiene": "node ./scripts/verify-repo-hygiene.mjs",
     "dev:main": "node ./scripts/dev-main-sync.mjs",
+    "dev:live": "node ./scripts/live-dev-serve.mjs",
     "e2e:auto-continue": "node ./scripts/e2e-auto-continue.mjs",
     "e2e:agent-suite": "npm run build:core && node ./scripts/e2e-agent-suite-kickoff-3x.mjs",
     "demo:record": "node ./scripts/record-demo.mjs",

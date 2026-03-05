@@ -1405,11 +1405,14 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
           throw new Error("canonical next-up all-workspaces scope mismatch");
         }
 
-        const canonicalItems = applyQueueNoiseControls(
-          normalizeQueueItems(canonicalRecord.items).filter((item) =>
-            includeCompleted ? true : item.queueState !== "completed"
+        const canonicalItems = await enrichWithMilestoneBreakdown(
+          applyQueueNoiseControls(
+            normalizeQueueItems(canonicalRecord.items).filter((item) =>
+              includeCompleted ? true : item.queueState !== "completed"
+            ),
+            { noiseThreshold, dedupWindowMs }
           ),
-          { noiseThreshold, dedupWindowMs }
+          deps
         );
         const canonicalTotal =
           Math.max(

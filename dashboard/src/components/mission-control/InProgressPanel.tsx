@@ -637,13 +637,16 @@ export const InProgressPanel = memo(function InProgressPanel({
             {groupedRows.groups.map((initGroup) => (
               <div key={initGroup.initiativeId}>
                 {/* Initiative heading */}
-                <h3 className="text-[15px] font-semibold text-white/90 mb-2">
-                  {sanitizeDisplayText(
-                    initGroup.initiativeTitle && !isOpaqueId(initGroup.initiativeTitle)
-                      ? initGroup.initiativeTitle
-                      : compactOpaqueLabel(initGroup.initiativeId, 'Initiative')
-                  )}
-                </h3>
+                <div className="mb-2 flex items-center gap-1.5">
+                  <EntityIcon type="initiative" size={13} className="opacity-90" />
+                  <h3 className="text-[15px] font-semibold text-white/90">
+                    {sanitizeDisplayText(
+                      initGroup.initiativeTitle && !isOpaqueId(initGroup.initiativeTitle)
+                        ? initGroup.initiativeTitle
+                        : compactOpaqueLabel(initGroup.initiativeId, 'Initiative')
+                    )}
+                  </h3>
+                </div>
 
                 {/* Workstream subsections */}
                 {initGroup.workstreams.map((wsGroup) => {
@@ -671,20 +674,15 @@ export const InProgressPanel = memo(function InProgressPanel({
                       : firstRow?.progress != null
                         ? coerceProgress(firstRow.progress)
                         : null;
-                  const workstreamHeading = sanitizeDisplayText(
-                    firstRow?.workstreamTitle && !isOpaqueId(firstRow.workstreamTitle)
-                      ? firstRow.workstreamTitle
-                      : compactOpaqueLabel(wsGroup.workstreamId, 'Workstream')
-                  );
-
                   return (
                     <div
                       key={wsGroup.workstreamId}
                       className="pl-4 border-l border-white/[0.08] mb-3"
                     >
-                      {/* Workstream header with agent persona */}
-                      <div className="flex items-start gap-2 mb-2">
+                      {/* Workstream context row */}
+                      <div className="mb-2 flex items-start gap-2">
                         <div className="min-w-0 flex flex-1 items-center gap-1.5">
+                          <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-80" />
                           {agentPersona && (
                             <div
                               className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
@@ -696,20 +694,17 @@ export const InProgressPanel = memo(function InProgressPanel({
                               {agentPersona.name.charAt(0).toUpperCase()}
                             </div>
                           )}
-                          <div className="min-w-0">
-                            <p className="truncate text-[13px] font-semibold text-white/88" title={workstreamHeading}>
-                              {workstreamHeading}
+                          {agentPersona ? (
+                            <p
+                              className="truncate text-[11px] font-medium"
+                              style={{ color: agentPersona.color }}
+                              title={agentPersona.displayLabel}
+                            >
+                              {agentPersona.displayLabel}
                             </p>
-                            {agentPersona ? (
-                              <p
-                                className="truncate text-[11px] font-medium"
-                                style={{ color: agentPersona.color }}
-                                title={agentPersona.displayLabel}
-                              >
-                                {agentPersona.displayLabel}
-                              </p>
-                            ) : null}
-                          </div>
+                          ) : (
+                            <span className="text-[11px] text-white/45">Workstream</span>
+                          )}
                         </div>
 
                         {/* Task position + mini progress bar */}
@@ -730,8 +725,7 @@ export const InProgressPanel = memo(function InProgressPanel({
                           </div>
                         )}
 
-                        {/* Workstream headers intentionally omit relative time to avoid duplicate cadence signals.
-                            The active row card carries the canonical "last updated" stamp. */}
+                        {/* Header intentionally omits workstream title to avoid duplicate copy with the card title. */}
                       </div>
 
                       {/* Active rows */}
@@ -921,6 +915,14 @@ function InProgressRowCard({
       ? sliceRunByScope.get(`${row.initiativeId}:${row.workstreamId}`) ?? null
       : null) ??
     (row.runId ? sliceRunByScope.get(`run:${row.runId}`) ?? null : null);
+  const rowEntityType =
+    row.scope === 'task'
+      ? 'task'
+      : row.scope === 'milestone'
+        ? 'milestone'
+        : row.scope === 'workstream' || row.source === 'slice'
+          ? 'workstream'
+          : 'session';
 
   // Resolve agent persona for the row card
   const persona = resolveAgentPersona(row.session?.agentId, row.session?.agentName);
@@ -966,7 +968,7 @@ function InProgressRowCard({
             </p>
           ) : null}
           <div className="flex min-w-0 items-start gap-1.5">
-            <EntityIcon type="session" size={12} className="mt-[3px] flex-shrink-0 opacity-80" />
+            <EntityIcon type={rowEntityType} size={12} className="mt-[3px] flex-shrink-0 opacity-80" />
             <p className="min-w-0 line-clamp-2 text-body font-semibold leading-snug text-white" title={rowTitleDisplay}>
               {rowTitleDisplay}
             </p>
