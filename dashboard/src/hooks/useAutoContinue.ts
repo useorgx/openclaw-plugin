@@ -112,7 +112,24 @@ export function useAutoContinue({
     });
   };
 
-  const startMutation = useMutation<AutoContinueStatusResponse, Error, AutoContinueStartInput | void>({
+  const startMutation = useMutation<AutoContinueStatusResponse, Error, AutoContinueStartInput | void, { previous: AutoContinueStatusResponse | undefined }>({
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: statusQueryKey });
+      const previous = queryClient.getQueryData<AutoContinueStatusResponse>(statusQueryKey);
+      queryClient.setQueryData<AutoContinueStatusResponse>(statusQueryKey, (old) => {
+        if (!old || !old.run) return old;
+        return {
+          ...old,
+          run: { ...old.run, status: 'running' as const, startedAt: new Date().toISOString() },
+        };
+      });
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(statusQueryKey, context.previous);
+      }
+    },
     mutationFn: async (input) => {
       if (demoMode) {
         const status = statusQuery.data ?? null;
@@ -185,7 +202,24 @@ export function useAutoContinue({
     },
   });
 
-  const stopMutation = useMutation<AutoContinueStatusResponse, Error, void>({
+  const stopMutation = useMutation<AutoContinueStatusResponse, Error, void, { previous: AutoContinueStatusResponse | undefined }>({
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: statusQueryKey });
+      const previous = queryClient.getQueryData<AutoContinueStatusResponse>(statusQueryKey);
+      queryClient.setQueryData<AutoContinueStatusResponse>(statusQueryKey, (old) => {
+        if (!old || !old.run) return old;
+        return {
+          ...old,
+          run: { ...old.run, status: 'stopping' as const },
+        };
+      });
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(statusQueryKey, context.previous);
+      }
+    },
     mutationFn: async () => {
       if (demoMode) {
         const status = statusQuery.data ?? null;

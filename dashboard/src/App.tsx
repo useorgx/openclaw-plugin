@@ -327,13 +327,30 @@ function compareSessionPriority(a: SessionTreeNode, b: SessionTreeNode): number 
   );
 }
 
-function selectStartableQueueItem(items: NextUpQueueItem[]): NextUpQueueItem | null {
+function selectStartableQueueItem(
+  items: NextUpQueueItem[],
+  preferredInitiativeId: string | null = null
+): NextUpQueueItem | null {
   if (!Array.isArray(items) || items.length === 0) return null;
-  return (
-    items.find((item) => item.queueState !== 'blocked' && item.queueState !== 'running') ??
-    items.find((item) => item.queueState !== 'blocked') ??
-    null
-  );
+  const pick = (pool: NextUpQueueItem[]) =>
+    pool.find((item) => item.queueState !== 'blocked' && item.queueState !== 'running') ??
+    pool.find((item) => item.queueState !== 'blocked') ??
+    null;
+
+  if (preferredInitiativeId && preferredInitiativeId.trim().length > 0) {
+    const scoped = items.filter((item) => item.initiativeId === preferredInitiativeId);
+    const preferred = pick(scoped);
+    if (preferred) return preferred;
+  }
+
+  return pick(items);
+}
+
+function autoContinueUpdatedEpoch(item: NextUpQueueItem): number {
+  const iso = item.autoContinue?.updatedAt ?? item.updatedAt ?? null;
+  if (!iso) return 0;
+  const parsed = Date.parse(iso);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function toAgentStatus(value: string): Agent['status'] {
@@ -831,6 +848,14 @@ function DashboardShell({
     showOpsNotice('Changes requested — feedback posted.');
   }, [showOpsNotice]);
 
+  const handleResolveDecision = useCallback(
+    async (decisionId: string, choice: string, note?: string) => {
+      await approveDecision(decisionId, { optionId: choice, ...(note ? { note } : {}) });
+      showOpsNotice('Decision resolved.');
+    },
+    [approveDecision, showOpsNotice]
+  );
+
   const sharedNextUpQueue = useNextUpQueue({
     projectId: selectedWorkspaceId,
     limit: 40,
@@ -878,33 +903,82 @@ function DashboardShell({
   }, [triageDetailIndex, triageDiagnosticsItems]);
 
   const activityNextUpQueue = sharedNextUpQueue;
-  const activityAutopilotRun = useMemo(
-    () =>
-      sharedNextUpQueue.items.find(
+  const activityAutopilotContext = useMemo<{
+    item: NextUpQueueItem;
+    state: 'running' | 'stopping' | 'blocked';
+  } | null>(() => {
+    const candidates = sharedNextUpQueue.items.filter((item) => item.autoContinue);
+    if (candidates.length === 0) return null;
+    const byRecency = [...candidates].sort(
+      (left, right) => autoContinueUpdatedEpoch(right) - autoContinueUpdatedEpoch(left)
+    );
+    const active =
+      byRecency.find(
         (item) =>
-          item.autoIntentEnabled === true &&
-          (item.autoRuntimeState === 'running' || item.autoRuntimeState === 'stopping')
-      ) ?? null,
-    [sharedNextUpQueue.items]
-  );
-  const activityAutopilotActive = Boolean(activityAutopilotRun);
+          item.autoContinue?.status === 'running' ||
+          item.autoContinue?.status === 'stopping'
+      ) ?? null;
+    if (active) {
+      return {
+        item: active,
+        state:
+          active.autoContinue?.status === 'stopping'
+            ? ('stopping' as const)
+            : ('running' as const),
+      };
+    }
+    const blocked =
+      byRecency.find(
+        (item) =>
+          item.autoContinue?.stopReason === 'blocked' ||
+          item.autoContinue?.stopReason === 'error'
+      ) ?? null;
+    if (blocked) {
+      return {
+        item: blocked,
+        state: 'blocked' as const,
+      };
+    }
+    return null;
+  }, [sharedNextUpQueue.items]);
+  const activityAutopilotRun = activityAutopilotContext?.item ?? null;
+  const activityAutopilotState: 'idle' | 'running' | 'stopping' | 'blocked' =
+    activityAutopilotContext?.state ?? 'idle';
+  const activityAutopilotActive =
+    activityAutopilotState === 'running' || activityAutopilotState === 'stopping';
+  const activityAutopilotButtonState =
+    activityAutopilotState === 'blocked'
+      ? 'blocked'
+      : activityAutopilotActive
+        ? 'active'
+        : 'idle';
+  const activityAutopilotBadgeLabel =
+    activityAutopilotState === 'blocked'
+      ? 'Hold'
+      : activityAutopilotActive
+        ? 'On'
+        : 'Off';
+  const activityAutopilotButtonTitle =
+    activityAutopilotState === 'blocked'
+      ? 'Resolve blockers, then resume autopilot'
+      : activityAutopilotActive
+        ? 'Stop autopilot'
+        : 'Start autopilot';
+  const activityAutopilotTone =
+    activityAutopilotState === 'blocked' ? 'amber' : 'teal';
 
   const agentPanelAutopilotState = useMemo(() => {
     if (!activityAutopilotRun) return null;
-    const runtimeState = activityAutopilotRun.autoRuntimeState;
-    const state: 'idle' | 'running' | 'blocked' | 'stopping' =
-      runtimeState === 'running'
-        ? 'running'
-        : runtimeState === 'stopping'
-          ? 'stopping'
-          : 'idle';
     return {
-      state,
-      reason: activityAutopilotRun.blockReason ?? null,
+      state: activityAutopilotState,
+      reason:
+        activityAutopilotRun.autoContinue?.stopReason ??
+        activityAutopilotRun.blockReason ??
+        null,
       activeRunId: activityAutopilotRun.autoContinue?.activeRunId ?? null,
       activeWorkstreamTitle: activityAutopilotRun.workstreamTitle ?? null,
     };
-  }, [activityAutopilotRun]);
+  }, [activityAutopilotRun, activityAutopilotState]);
 
   // Allow "In Progress" tab even when count is 0 — show empty state instead of force-redirect
 
@@ -1115,11 +1189,14 @@ function DashboardShell({
       if (!trimmed) return;
       const session =
         sessionNodesInScope.find((node) => node.runId === trimmed || node.id === trimmed) ?? null;
-      if (!session) return;
+      if (!session) {
+        showOpsNotice('Session not found — it may have ended or not started yet.');
+        return;
+      }
       handleSelectSession(session.id);
       showOpsNotice(`Focused session: ${session.title}`);
     },
-    [sessionNodesInScope, handleSelectSession]
+    [sessionNodesInScope, handleSelectSession, showOpsNotice]
   );
 
   const openActivityItemFromSessionDetail = useCallback(
@@ -1848,43 +1925,51 @@ function DashboardShell({
     await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
   }, [refetch, sharedNextUpQueue, switchDashboardView]);
 
-  const startAutopilotFromActivity = useCallback(async () => {
-    const candidate = selectStartableQueueItem(sharedNextUpQueue.items);
-    if (!candidate) {
-      showOpsNotice('No startable initiative is ready for Autopilot yet.');
-      switchDashboardView('mission-control');
-      return;
-    }
+  const startAutopilotFromActivity = useCallback(
+    async (preferredInitiativeId: string | null = null) => {
+      const candidate = selectStartableQueueItem(
+        sharedNextUpQueue.items,
+        preferredInitiativeId
+      );
+      if (!candidate) {
+        showOpsNotice('No startable initiative is ready for Autopilot yet.');
+        switchDashboardView('mission-control');
+        return;
+      }
 
-    await sharedNextUpActions.move({
-      initiativeId: candidate.initiativeId,
-      workstreamId: candidate.workstreamId,
-      placement: 'top',
-    });
-    await sharedNextUpQueue.startWorkstreamAutoContinue({
-      initiativeId: candidate.initiativeId,
-      workstreamId: candidate.workstreamId,
-      agentId: candidate.runnerAgentId,
-      scope: 'initiative',
-    });
+      await sharedNextUpActions.move({
+        initiativeId: candidate.initiativeId,
+        workstreamId: candidate.workstreamId,
+        placement: 'top',
+      });
+      await sharedNextUpQueue.startWorkstreamAutoContinue({
+        initiativeId: candidate.initiativeId,
+        workstreamId: candidate.workstreamId,
+        agentId: candidate.runnerAgentId,
+        scope: 'initiative',
+      });
 
-    setActivityFilterSessionId(null);
-    // Don't preemptively set workstream filter — wait for matching events to arrive
-    // so the feed doesn't appear empty while autopilot initializes
-    setActivityFilterWorkstreamId(null);
-    setActivityFilterWorkstreamLabel(null);
-    setAgentFilter(null);
-    showOpsNotice(
-      `Autopilot started for ${candidate.initiativeTitle}; queued from ${candidate.workstreamTitle}.`
-    );
-    await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
-  }, [refetch, sharedNextUpActions, sharedNextUpQueue, switchDashboardView]);
+      // Preserve existing activity filters so the feed doesn't flash empty
+      // while autopilot initializes. Only clear session filter since the
+      // user is starting a new run, not viewing a prior session.
+      setActivityFilterSessionId(null);
+      showOpsNotice(
+        `Autopilot started for ${candidate.initiativeTitle}; queued from ${candidate.workstreamTitle}.`
+      );
+      await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
+    },
+    [refetch, sharedNextUpActions, sharedNextUpQueue, switchDashboardView]
+  );
 
   const toggleSidebarAutopilot = useCallback(async () => {
     setSidebarAutopilotBusy(true);
     try {
-      if (!activityAutopilotRun) {
-        await startAutopilotFromActivity();
+      if (!activityAutopilotRun || !activityAutopilotActive) {
+        const preferredInitiativeId =
+          activityAutopilotState === 'blocked'
+            ? activityAutopilotRun?.initiativeId ?? null
+            : null;
+        await startAutopilotFromActivity(preferredInitiativeId);
         return;
       }
       await sharedNextUpQueue.stopInitiativeAutoContinue({
@@ -1897,7 +1982,9 @@ function DashboardShell({
       setSidebarAutopilotBusy(false);
     }
   }, [
+    activityAutopilotActive,
     activityAutopilotRun,
+    activityAutopilotState,
     refetch,
     sharedNextUpQueue,
     startAutopilotFromActivity,
@@ -2950,6 +3037,7 @@ function DashboardShell({
               onClearAgentFilter={clearAgentFilter}
               onFocusRunId={focusActivityRunId}
               onOpenDecision={openDecisionsFromActivity}
+              onResolveDecision={handleResolveDecision}
               requestedActivityItemId={requestedActivityItemId}
               onActivityItemRequestHandled={() => setRequestedActivityItemId(null)}
               onPlayNextUp={playNextUpFromActivity}
@@ -3034,10 +3122,10 @@ function DashboardShell({
                     }}
                     disabled={sidebarAutopilotBusy}
                     className="control-pill inline-flex h-8 items-center gap-1.5 px-2.5 text-caption font-semibold disabled:opacity-45"
-                    data-tone="teal"
-                    data-state={activityAutopilotActive ? 'active' : 'idle'}
-                    title={activityAutopilotActive ? 'Stop autopilot' : 'Start autopilot'}
-                    aria-label={activityAutopilotActive ? 'Stop autopilot' : 'Start autopilot'}
+                    data-tone={activityAutopilotTone}
+                    data-state={activityAutopilotButtonState}
+                    title={activityAutopilotButtonTitle}
+                    aria-label={activityAutopilotButtonTitle}
                   >
                     <svg
                       viewBox="0 0 20 20"
@@ -3057,12 +3145,14 @@ function DashboardShell({
                     <span
                       className={cn(
                         'rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
-                        activityAutopilotActive
+                        activityAutopilotState === 'blocked'
+                          ? 'bg-amber-400/18 text-amber-100'
+                          : activityAutopilotActive
                           ? 'bg-[#BFFF00]/18 text-[#E3FFAE]'
                           : 'bg-white/[0.08] text-secondary'
                       )}
                     >
-                      {activityAutopilotActive ? 'On' : 'Off'}
+                      {activityAutopilotBadgeLabel}
                     </span>
                   </button>
                 </div>

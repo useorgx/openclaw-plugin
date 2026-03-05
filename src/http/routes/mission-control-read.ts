@@ -123,6 +123,7 @@ type InitiativeGraphIndex = {
 
 type RegisterMissionControlReadRoutesDeps<TRes> = {
   autoContinueRuns: Map<string, AutoContinueRunRecord>;
+  restoreAutoContinueRun?: (initiativeId: string) => Promise<AutoContinueRunRecord | null>;
   defaultAutoContinueTokenBudget: () => number | null;
   defaultAutoContinueMaxParallelSlices?: () => number;
   autoContinueTickMs: number;
@@ -890,6 +891,11 @@ function mapCanonicalSlicesToQueueItems(input: unknown[]): NextUpQueueItem[] {
   for (const entry of input) {
     const record = asRecord(entry);
     if (!record) continue;
+    const sliceKind =
+      (asString(record.sliceKind) ?? asString(record.slice_kind) ?? "")
+        .trim()
+        .toLowerCase();
+    if (sliceKind && sliceKind !== "work_slice") continue;
     const initiativeId = asString(record.initiativeId) ?? asString(record.initiative_id);
     const workstreamId = asString(record.workstreamId) ?? asString(record.workstream_id);
     if (!initiativeId || !workstreamId) continue;
@@ -1137,7 +1143,10 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
       return;
     }
 
-    const run = deps.autoContinueRuns.get(id) ?? null;
+    let run: AutoContinueRunRecord | null = deps.autoContinueRuns.get(id) ?? null;
+    if (!run && deps.restoreAutoContinueRun) {
+      run = await deps.restoreAutoContinueRun(id) ?? null;
+    }
     deps.sendJson(res, 200, {
       ok: true,
       initiativeId: id,

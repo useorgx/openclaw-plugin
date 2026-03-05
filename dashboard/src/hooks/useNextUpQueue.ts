@@ -466,6 +466,11 @@ function toWorkstreamFallbackLabel(workstreamId: string | null): string {
 }
 
 function mapSliceToQueueItem(item: MissionControlSliceItem): NextUpQueueItem | null {
+  const sliceKind = (item.sliceKind ?? '').trim().toLowerCase();
+  if (sliceKind && sliceKind !== 'work_slice') {
+    return null;
+  }
+
   const lineageInitiativeIds =
     item.lineage?.initiativeIds?.filter(
       (value): value is string => typeof value === 'string' && value.trim().length > 0

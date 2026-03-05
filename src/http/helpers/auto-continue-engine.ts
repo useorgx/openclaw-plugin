@@ -1088,6 +1088,112 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
   };
 
   const autoContinueRuns = new Map<string, AutoContinueRun>();
+
+  /**
+   * Rehydrate an AutoContinueRun from persisted initiative metadata.
+   * Called when the in-memory Map is empty (e.g. after server restart) to
+   * restore the last-known autopilot state so the dashboard toggle stays
+   * accurate.
+   */
+  async function restoreAutoContinueRun(
+    initiativeId: string
+  ): Promise<AutoContinueRun | null> {
+    // Already in memory — nothing to restore.
+    if (autoContinueRuns.has(initiativeId)) {
+      return autoContinueRuns.get(initiativeId) ?? null;
+    }
+    try {
+      const entity = await fetchInitiativeEntity(initiativeId);
+      if (!entity) return null;
+      const meta =
+        entity && typeof entity === "object"
+          ? ((entity as Record<string, unknown>).metadata as Record<string, unknown> | undefined) ?? {}
+          : {};
+      const enabled = meta.auto_continue_enabled;
+      const status = meta.auto_continue_status as string | undefined;
+      if (!enabled || !status) return null;
+
+      // Reconstruct lane objects from persisted array.
+      const rawLanes = Array.isArray(meta.auto_continue_lane_states)
+        ? (meta.auto_continue_lane_states as Array<Record<string, unknown>>)
+        : [];
+      const laneByWorkstreamId: Record<string, AutoContinueLane> = {};
+      for (const raw of rawLanes) {
+        const wsId = String(raw.workstream_id ?? "").trim();
+        if (!wsId) continue;
+        laneByWorkstreamId[wsId] = {
+          workstreamId: wsId,
+          state: (raw.state as AutoContinueLaneState) ?? LaneState.IDLE,
+          activeRunId: (raw.active_run_id as string) ?? null,
+          activeTaskIds: Array.isArray(raw.active_task_ids) ? (raw.active_task_ids as string[]) : [],
+          blockedReason: (raw.blocked_reason as string) ?? null,
+          waitingOnWorkstreamIds: Array.isArray(raw.waiting_on_workstream_ids)
+            ? (raw.waiting_on_workstream_ids as string[])
+            : [],
+          retryAt: (raw.retry_at as string) ?? null,
+          updatedAt: (raw.updated_at as string) ?? new Date().toISOString(),
+        };
+      }
+
+      const now = new Date().toISOString();
+      const run: AutoContinueRun = {
+        initiativeId,
+        agentId: "",
+        agentName: null,
+        includeVerification: Boolean(meta.auto_continue_include_verification),
+        allowedWorkstreamIds: Array.isArray(meta.auto_continue_workstream_filter)
+          ? (meta.auto_continue_workstream_filter as string[])
+          : null,
+        stopAfterSlice: false,
+        ignoreSpawnGuardRateLimit: Boolean(meta.auto_continue_ignore_spawn_guard_rate_limit),
+        maxParallelSlices: normalizeMaxParallelSlices(
+          meta.auto_continue_max_parallel,
+          AUTO_CONTINUE_MAX_PARALLEL_DEFAULT
+        ),
+        parallelMode: normalizeParallelMode(meta.auto_continue_parallel_mode),
+        scope: "task" as SliceScope,
+        tokenBudget: normalizeTokenBudget(
+          meta.auto_continue_token_budget,
+          defaultAutoContinueTokenBudget()
+        ),
+        tokensUsed: typeof meta.auto_continue_tokens_used === "number" ? meta.auto_continue_tokens_used : 0,
+        status: status as AutoContinueStatus,
+        stopReason: (meta.auto_continue_stop_reason as AutoContinueStopReason) ?? null,
+        stopRequested: false,
+        startedAt: (meta.auto_continue_started_at as string) ?? now,
+        stoppedAt: (meta.auto_continue_stopped_at as string | null) ?? null,
+        updatedAt: (meta.auto_continue_updated_at as string) ?? now,
+        lastError: (meta.auto_continue_last_error as string) ?? null,
+        lastTaskId: (meta.auto_continue_last_task_id as string) ?? null,
+        lastRunId: (meta.auto_continue_last_run_id as string) ?? null,
+        activeSliceRunIds: Array.isArray(meta.auto_continue_active_run_ids)
+          ? (meta.auto_continue_active_run_ids as string[])
+          : [],
+        activeTaskIds: Array.isArray(meta.auto_continue_active_task_ids)
+          ? (meta.auto_continue_active_task_ids as string[])
+          : [],
+        laneByWorkstreamId,
+        blockedWorkstreamIds: Array.isArray(meta.auto_continue_blocked_workstream_ids)
+          ? (meta.auto_continue_blocked_workstream_ids as string[])
+          : [],
+        activeTaskId: (meta.auto_continue_active_task_id as string) ?? null,
+        activeRunId: (meta.auto_continue_active_run_id as string) ?? null,
+        activeTaskTokenEstimate:
+          typeof meta.auto_continue_active_task_token_estimate === "number"
+            ? meta.auto_continue_active_task_token_estimate
+            : null,
+      };
+      ensureRunInternals(run);
+      syncLegacyRunPointers(run);
+
+      // Insert into in-memory map so subsequent lookups are fast.
+      autoContinueRuns.set(initiativeId, run);
+      return run;
+    } catch {
+      return null;
+    }
+  }
+
   const localInitiativeStatusOverrides = new Map<
     string,
     { status: string; updatedAt: string }
@@ -5366,6 +5472,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     getAutoContinueLaneForWorkstream,
     scheduleAutoFixForWorkstream,
     startAutoContinueRun,
+    restoreAutoContinueRun,
     skipCurrentWorkstream,
     getCanonicalAutopilotState,
     // Session store (for resume support)

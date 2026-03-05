@@ -2351,6 +2351,7 @@ export function createHttpHandler(
     getAutoContinueLaneForWorkstream,
     scheduleAutoFixForWorkstream,
     startAutoContinueRun,
+    restoreAutoContinueRun,
     skipCurrentWorkstream,
     getCanonicalAutopilotState,
   } = createAutoContinueEngine({
@@ -3775,6 +3776,7 @@ export function createHttpHandler(
   });
   registerMissionControlReadRoutes(apiRouter, {
     autoContinueRuns,
+    restoreAutoContinueRun,
     defaultAutoContinueTokenBudget,
     defaultAutoContinueMaxParallelSlices,
     autoContinueTickMs: AUTO_CONTINUE_TICK_MS,

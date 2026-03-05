@@ -5,7 +5,7 @@ import DatePicker from 'react-datepicker';
 import { cn } from '@/lib/utils';
 import { colors, getAgentColor, getAgentRole } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
-import { humanizeText, humanizeModel, humanizeActorName, humanizeWarning, formatTokens, humanizeStopReason, humanizePath, humanizeId, isOpaqueId } from '@/lib/humanize';
+import { humanizeText, humanizeModel, humanizeActorName, humanizeWarning, formatTokens, humanizeStopReason, humanizePath, humanizeId, isOpaqueId, deriveActivityFallbackTitle } from '@/lib/humanize';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { projectRunStatus, type CanonicalRunProjection } from '@/lib/runStatusModel';
 import type {
@@ -65,6 +65,7 @@ interface ActivityTimelineProps {
   onClearAgentFilter?: () => void;
   onFocusRunId?: (runId: string) => void;
   onOpenDecision?: (decisionId?: string | null) => void;
+  onResolveDecision?: (decisionId: string, choice: string, note?: string) => Promise<void>;
   requestedActivityItemId?: string | null;
   onActivityItemRequestHandled?: (itemId: string) => void;
   onPlayNextUp?: () => Promise<void> | void;
@@ -2809,7 +2810,15 @@ function cleanSystemTitle(item: LiveActivityItem): { title: string; isSystem: bo
 
   const raw = item.title ?? '';
   if (!isSystemNoise(raw)) {
-    return { title: humanizeText(raw) || humanizeText(labelForType(item.type)), isSystem: false };
+    const humanized = humanizeText(raw);
+    if (humanized && humanized !== 'Untitled session') {
+      return { title: humanized, isSystem: false };
+    }
+    // Derive a meaningful title from metadata instead of "Untitled session"
+    const meta = item.metadata as Record<string, unknown> | undefined;
+    const fallback = deriveActivityFallbackTitle(meta);
+    if (fallback !== 'Activity event') return { title: fallback, isSystem: false };
+    return { title: humanizeText(labelForType(item.type)), isSystem: false };
   }
 
   if (/Exec failed|SIGKILL|SIGTERM|Error: /i.test(raw)) {
@@ -3059,6 +3068,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   onClearAgentFilter,
   onFocusRunId,
   onOpenDecision,
+  onResolveDecision,
   requestedActivityItemId = null,
   onActivityItemRequestHandled,
   onPlayNextUp,
@@ -3111,6 +3121,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [headlineEndpointUnsupported, setHeadlineEndpointUnsupported] = useState(false);
   const [emptyActionPending, setEmptyActionPending] = useState<'play' | 'autopilot' | 'pause' | null>(null);
   const [emptyActionError, setEmptyActionError] = useState<string | null>(null);
+  // Live elapsed-time counter — ticks every second while modal shows a running item
+  const [elapsedTick, setElapsedTick] = useState(0);
+
   const [autoFixPending, setAutoFixPending] = useState(false);
   const [autoFixNotice, setAutoFixNotice] = useState<string | null>(null);
   const [awayVisible, setAwayVisible] = useState(false);
@@ -3697,11 +3710,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         const itemMeta = metadataForItem(decorated.item);
         const eventName = metadataString(itemMeta, ['event', 'event_name', 'eventName']);
         const isAutopilotEvent = eventName?.startsWith('autopilot_') || eventName?.startsWith('auto_continue_');
+        const isAutopilotStopEvent = eventName === 'auto_continue_stopped' ||
+          eventName === 'autopilot_transition' ||
+          eventName === 'auto_continue_completed';
         const workstreamId = extractWorkstreamId(decorated.item);
         const clusterKey = syncReplayKey
           ? `${decorated.item.type}::sync::${syncReplayKey}`
           : isAutopilotEvent && workstreamId
-            ? `autopilot::${workstreamId}::${Math.floor(decorated.timestampEpoch / 300_000)}`
+            ? `autopilot::${workstreamId}::${isAutopilotStopEvent ? 'stop' : Math.floor(decorated.timestampEpoch / 300_000)}`
             : `${decorated.item.type}::${normalizedClusterTitle}`;
         const existing = clusterMap.get(clusterKey);
         if (existing) {
@@ -3952,6 +3968,22 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   }, [activeItemId, filtered]);
 
   const activeDecorated = activeIndex >= 0 ? filtered[activeIndex] : null;
+
+  // Tick elapsed counter every second while modal shows a non-terminal item
+  const activeIsRunning = useMemo(() => {
+    if (!activeDecorated) return false;
+    const meta = metadataForItem(activeDecorated.item);
+    const status = metadataString(meta, ['parsed_status', 'status']);
+    return !!status && status !== 'completed' && status !== 'success';
+  }, [activeDecorated]);
+  useEffect(() => {
+    if (!activeIsRunning) return;
+    const id = setInterval(() => setElapsedTick((t) => t + 1), 1_000);
+    return () => clearInterval(id);
+  }, [activeIsRunning]);
+  // Reset tick when active item changes
+  useEffect(() => { setElapsedTick(0); }, [activeDecorated?.item.id]);
+
   const narrativeBySliceRunId = useMemo(() => {
     const map = new Map<string, SliceTimelineNarrativeProjectionV2>();
     for (const narrative of timelineNarrative) {
@@ -4181,6 +4213,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     activeOutcome,
     onOpenDecision,
   ]);
+  const activeSliceDecisionOptions = useMemo(() => {
+    if (!activeDecorated) return [];
+    const runId = resolveRunId(activeDecorated.item);
+    if (!runId) return [];
+    const match = sliceRuns.find(
+      (s) => s.runId === runId || s.sliceRunId === runId
+    );
+    return match?.decisionOptions ?? [];
+  }, [activeDecorated, sliceRuns]);
   const activeAutopilotProgressColor = useMemo(() => {
     if (!activeAutopilotProgress) return colors.teal;
     if (activeAutopilotProgress.tone === 'positive') return colors.lime;
@@ -6201,6 +6242,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           const activeRunId = resolveRunId(activeDecorated.item);
                           const timing = activeRunId ? sliceTimingByRunId.get(activeRunId) : null;
                           const startMs = timing?.startedAt ? new Date(timing.startedAt).getTime() : null;
+                          // elapsedTick forces re-render every second for live elapsed counter
+                          void elapsedTick;
                           const endMs = timing?.completedAt ? new Date(timing.completedAt).getTime() : (isTerminal ? null : Date.now());
                           let elapsedLabel: string | null = null;
                           if (startMs && endMs) {
@@ -6565,12 +6608,17 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       const blocker = evMeta?.blocker as { description?: string; waiting_on?: string } | undefined;
                       const decisionsNeeded = evMeta?.decisions_needed as Array<{ title?: string; id?: string }> | undefined;
                       const outcomes = evMeta?.outcomes as Record<string, unknown> | undefined;
-                      const taskUpdates = evMeta?.task_updates as Array<unknown> | undefined;
+                      const taskUpdates = (evMeta?.task_updates as Array<{ title?: string; status?: string }> | undefined)
+                        ?.filter(t => t.title?.trim().toLowerCase() !== blocker?.description?.trim().toLowerCase());
+                      // Suppress blocker card when its text matches the outcome summary
+                      const blockerMatchesOutcome = blocker?.description && activeOutcome?.summary &&
+                        blocker.description.trim().toLowerCase() === activeOutcome.summary.trim().toLowerCase();
+                      const showBlocker = !!blocker && !blockerMatchesOutcome;
                       const hasStructuredOutcomes = !!(
                         outcomes?.pr_url || outcomes?.commit_sha || outcomes?.tests ||
                         (taskUpdates && taskUpdates.length > 0)
                       );
-                      const hasStructuredEvidence = !!(blocker || (decisionsNeeded && decisionsNeeded.length > 0));
+                      const hasStructuredEvidence = !!(showBlocker || (decisionsNeeded && decisionsNeeded.length > 0));
                       const hasAnyStructured = hasStructuredOutcomes || hasStructuredEvidence;
                       const hasStructured = hasStructuredEvidence;
                       const hasFiles = activeFileEvidenceUnique.length > 0;
@@ -6581,7 +6629,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                             Evidence
                           </p>
                           <div className="space-y-2">
-                            {blocker && (
+                            {showBlocker && (
                               <div className="rounded-xl border border-red-400/20 bg-red-500/[0.06] px-3.5 py-2.5">
                                 <div className="flex items-center gap-3">
                                   <span className="h-2 w-2 flex-shrink-0 rounded-full bg-red-400" />
@@ -6593,17 +6641,27 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                     )}
                                   </div>
                                 </div>
-                                {canOpenDecisionFromDetail && (
-                                  <div className="mt-2 flex gap-2">
+                                {canOpenDecisionFromDetail && activeDecisionIds.length > 0 && (
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {activeSliceDecisionOptions.map((opt) => (
+                                      <button
+                                        key={opt.id}
+                                        type="button"
+                                        onClick={() => void onResolveDecision?.(activeDecisionIds[0], opt.id)}
+                                        className="rounded-full border border-lime/30 bg-lime/[0.10] px-3 py-1 text-caption font-semibold text-lime transition hover:bg-lime/[0.16]"
+                                      >
+                                        {opt.label}
+                                      </button>
+                                    ))}
                                     <button
                                       type="button"
                                       onClick={() => {
                                         onOpenDecision?.(activeDecisionIds[0] ?? null);
                                         closeDetail();
                                       }}
-                                      className="rounded-full border border-amber-300/30 bg-amber-400/[0.10] px-3 py-1 text-caption font-semibold text-amber-100 transition hover:bg-amber-400/[0.16]"
+                                      className="rounded-full border border-strong bg-white/[0.04] px-3 py-1 text-caption text-secondary transition hover:bg-white/[0.1]"
                                     >
-                                      Resolve decision
+                                      Review in detail
                                     </button>
                                   </div>
                                 )}
