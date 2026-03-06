@@ -4,12 +4,17 @@ import {
 } from "node:fs";
 
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "./paths.js";
-import { backupCorruptFileSync, writeJsonFileAtomicSync } from "./fs-utils.js";
+import { backupCorruptFileSync } from "./fs-utils.js";
 import {
   clearStoreFileSync,
   ensureStoreDirSync,
   parseJsonSafe,
 } from "./stores/json-store.js";
+import {
+  getStateDb,
+  readStateMeta,
+  writeStateMeta,
+} from "./stores/sqlite-state.js";
 
 export type AgentRunStatus = "running" | "stopped";
 
@@ -34,7 +39,25 @@ type PersistedAgentRuns = {
   runs: Record<string, AgentRunRecord>;
 };
 
+type AgentRunRow = {
+  run_id: string;
+  agent_id: string;
+  pid: number | null;
+  message: string | null;
+  provider: string | null;
+  model: string | null;
+  initiative_id: string | null;
+  initiative_title: string | null;
+  workstream_id: string | null;
+  task_id: string | null;
+  started_at: string;
+  stopped_at: string | null;
+  status: string;
+  updated_at: string;
+};
+
 const MAX_RUNS = 240;
+const AGENT_RUN_IMPORT_META_KEY = "agent_runs_imported_v1";
 
 function runDir(): string {
   return getOrgxPluginConfigDir();
@@ -87,7 +110,7 @@ function normalizeRecord(input: AgentRunRecord): AgentRunRecord {
   };
 }
 
-export function readAgentRuns(): PersistedAgentRuns {
+function legacyReadAgentRuns(): PersistedAgentRuns {
   const file = runFile();
   try {
     if (!existsSync(file)) {
@@ -132,12 +155,203 @@ export function readAgentRuns(): PersistedAgentRuns {
   }
 }
 
+function rowToRecord(row: AgentRunRow): AgentRunRecord {
+  return normalizeRecord({
+    runId: row.run_id,
+    agentId: row.agent_id,
+    pid: typeof row.pid === "number" ? row.pid : null,
+    message: row.message,
+    provider: row.provider,
+    model: row.model,
+    initiativeId: row.initiative_id,
+    initiativeTitle: row.initiative_title,
+    workstreamId: row.workstream_id,
+    taskId: row.task_id,
+    startedAt: row.started_at,
+    stoppedAt: row.stopped_at,
+    status: row.status === "stopped" ? "stopped" : "running",
+  });
+}
+
+function writeAgentRunRecord(record: AgentRunRecord): void {
+  const normalized = normalizeRecord(record);
+  getStateDb()
+    .prepare<
+      [
+        string,
+        string,
+        number | null,
+        string | null,
+        string | null,
+        string | null,
+        string | null,
+        string | null,
+        string | null,
+        string | null,
+        string,
+        string | null,
+        string,
+        string
+      ]
+    >(
+      `INSERT INTO agent_runs (
+         run_id,
+         agent_id,
+         pid,
+         message,
+         provider,
+         model,
+         initiative_id,
+         initiative_title,
+         workstream_id,
+         task_id,
+         started_at,
+         stopped_at,
+         status,
+         updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(run_id) DO UPDATE SET
+         agent_id = excluded.agent_id,
+         pid = excluded.pid,
+         message = excluded.message,
+         provider = excluded.provider,
+         model = excluded.model,
+         initiative_id = excluded.initiative_id,
+         initiative_title = excluded.initiative_title,
+         workstream_id = excluded.workstream_id,
+         task_id = excluded.task_id,
+         started_at = excluded.started_at,
+         stopped_at = excluded.stopped_at,
+         status = excluded.status,
+         updated_at = excluded.updated_at`
+    )
+    .run(
+      normalized.runId,
+      normalized.agentId,
+      normalized.pid,
+      normalized.message,
+      normalized.provider,
+      normalized.model,
+      normalized.initiativeId,
+      normalized.initiativeTitle,
+      normalized.workstreamId,
+      normalized.taskId,
+      normalized.startedAt,
+      normalized.stoppedAt,
+      normalized.status,
+      new Date().toISOString()
+    );
+}
+
+function pruneAgentRuns(): void {
+  getStateDb()
+    .prepare<[number]>(
+      `DELETE FROM agent_runs
+       WHERE run_id NOT IN (
+         SELECT run_id
+         FROM agent_runs
+         ORDER BY started_at DESC, updated_at DESC
+         LIMIT ?
+       )`
+    )
+    .run(MAX_RUNS);
+}
+
+function ensureAgentRunStoreMigrated(): void {
+  const migrated = readStateMeta<boolean>(AGENT_RUN_IMPORT_META_KEY);
+  if (migrated) return;
+
+  const countRow = getStateDb()
+    .prepare<[], { count: number }>("SELECT COUNT(*) AS count FROM agent_runs")
+    .get();
+  if ((countRow?.count ?? 0) > 0) {
+    writeStateMeta(AGENT_RUN_IMPORT_META_KEY, true);
+    return;
+  }
+
+  const legacy = legacyReadAgentRuns();
+  const records = Object.values(legacy.runs)
+    .map((record) => normalizeRecord(record))
+    .filter((record) => Boolean(record.runId) && Boolean(record.agentId));
+  const transaction = getStateDb().transaction((items: AgentRunRecord[]) => {
+    for (const item of items) {
+      writeAgentRunRecord(item);
+    }
+    pruneAgentRuns();
+    writeStateMeta(AGENT_RUN_IMPORT_META_KEY, true);
+  });
+  transaction(records);
+}
+
+function readAgentRunRows(limit = MAX_RUNS): AgentRunRow[] {
+  ensureAgentRunStoreMigrated();
+  return getStateDb()
+    .prepare<[number], AgentRunRow>(
+      `SELECT
+         run_id,
+         agent_id,
+         pid,
+         message,
+         provider,
+         model,
+         initiative_id,
+         initiative_title,
+         workstream_id,
+         task_id,
+         started_at,
+         stopped_at,
+         status,
+         updated_at
+       FROM agent_runs
+       ORDER BY started_at DESC, updated_at DESC
+       LIMIT ?`
+    )
+    .all(Math.max(1, limit));
+}
+
+export function readAgentRuns(): PersistedAgentRuns {
+  const rows = readAgentRunRows();
+  const runs: Record<string, AgentRunRecord> = {};
+  let updatedAt = new Date(0).toISOString();
+  for (const row of rows) {
+    const record = rowToRecord(row);
+    runs[record.runId] = record;
+    if (Date.parse(row.updated_at) > Date.parse(updatedAt)) {
+      updatedAt = row.updated_at;
+    }
+  }
+  return {
+    updatedAt: rows.length > 0 ? updatedAt : new Date().toISOString(),
+    runs,
+  };
+}
+
 export function getAgentRun(runId: string): AgentRunRecord | null {
   const id = runId.trim();
   if (!id) return null;
-  const store = readAgentRuns();
-  const record = store.runs[id];
-  return record ? normalizeRecord(record) : null;
+  ensureAgentRunStoreMigrated();
+  const row = getStateDb()
+    .prepare<[string], AgentRunRow>(
+      `SELECT
+         run_id,
+         agent_id,
+         pid,
+         message,
+         provider,
+         model,
+         initiative_id,
+         initiative_title,
+         workstream_id,
+         task_id,
+         started_at,
+         stopped_at,
+         status,
+         updated_at
+       FROM agent_runs
+       WHERE run_id = ?`
+    )
+    .get(id);
+  return row ? rowToRecord(row) : null;
 }
 
 export function upsertAgentRun(input: Omit<AgentRunRecord, "startedAt" | "stoppedAt" | "status"> & {
@@ -152,15 +366,14 @@ export function upsertAgentRun(input: Omit<AgentRunRecord, "startedAt" | "stoppe
   }
 
   ensureRunDir();
-  const next = readAgentRuns();
-
-  const existing = next.runs[runId];
+  ensureAgentRunStoreMigrated();
+  const existing = getAgentRun(runId);
   const startedAt =
     typeof input.startedAt === "string" && input.startedAt.trim().length > 0
       ? input.startedAt
       : existing?.startedAt ?? new Date().toISOString();
 
-  next.runs[runId] = normalizeRecord({
+  const record = normalizeRecord({
     runId,
     agentId,
     pid: input.pid ?? null,
@@ -175,31 +388,19 @@ export function upsertAgentRun(input: Omit<AgentRunRecord, "startedAt" | "stoppe
     stoppedAt: input.stoppedAt ?? existing?.stoppedAt ?? null,
     status: input.status ?? existing?.status ?? "running",
   });
-  next.updatedAt = new Date().toISOString();
 
-  const records = Object.values(next.runs);
-  if (records.length > MAX_RUNS) {
-    records.sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
-    const keep = new Set(records.slice(0, MAX_RUNS).map((r) => r.runId));
-    for (const key of Object.keys(next.runs)) {
-      if (!keep.has(key)) {
-        delete next.runs[key];
-      }
-    }
-  }
-
-  const file = runFile();
-  writeJsonFileAtomicSync(file, next, 0o600);
-
-  return next;
+  const transaction = getStateDb().transaction((item: AgentRunRecord) => {
+    writeAgentRunRecord(item);
+    pruneAgentRuns();
+  });
+  transaction(record);
+  return readAgentRuns();
 }
 
 export function markAgentRunStopped(runId: string): AgentRunRecord | null {
   const id = runId.trim();
   if (!id) return null;
-
-  const store = readAgentRuns();
-  const existing = store.runs[id];
+  const existing = getAgentRun(id);
   if (!existing) return null;
 
   const next = upsertAgentRun({
@@ -210,10 +411,10 @@ export function markAgentRunStopped(runId: string): AgentRunRecord | null {
     message: existing.message ?? null,
     provider: existing.provider ?? null,
     model: existing.model ?? null,
-    initiativeId: (existing as AgentRunRecord).initiativeId ?? null,
-    initiativeTitle: (existing as AgentRunRecord).initiativeTitle ?? null,
-    workstreamId: (existing as AgentRunRecord).workstreamId ?? null,
-    taskId: (existing as AgentRunRecord).taskId ?? null,
+    initiativeId: existing.initiativeId ?? null,
+    initiativeTitle: existing.initiativeTitle ?? null,
+    workstreamId: existing.workstreamId ?? null,
+    taskId: existing.taskId ?? null,
     stoppedAt: new Date().toISOString(),
     status: "stopped",
   });
@@ -223,5 +424,6 @@ export function markAgentRunStopped(runId: string): AgentRunRecord | null {
 }
 
 export function clearAgentRuns(): void {
+  getStateDb().prepare("DELETE FROM agent_runs").run();
   clearStoreFileSync(runFile());
 }

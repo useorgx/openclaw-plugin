@@ -7,7 +7,6 @@
 import { join } from "node:path";
 import {
   readFile,
-  writeFile,
   mkdir,
   chmod,
   rename,
@@ -20,6 +19,11 @@ import type { LiveActivityItem } from "./types.js";
 import { classifyOutboxReplaySkip } from "./event-sanitization.js";
 
 import { getOrgxOutboxDir } from "./paths.js";
+import {
+  getStateDb,
+  readStateMeta,
+  writeStateMeta,
+} from "./stores/sqlite-state.js";
 
 function outboxDir(): string {
   return getOrgxOutboxDir();
@@ -53,13 +57,10 @@ async function hardenPath(path: string, mode: number): Promise<void> {
 
 export interface OutboxEvent {
   id: string;
-  // Stored as JSON for offline replay. Keep stable and additive.
   type: "progress" | "decision" | "artifact" | "changeset" | "retro" | "outcome";
   timestamp: string;
   payload: Record<string, unknown>;
-  /** Converted to a LiveActivityItem for dashboard display. */
   activityItem: LiveActivityItem;
-  /** Internal replay diagnostics for bounded retry/dead-letter handling. */
   replayFailures?: number;
   lastReplayError?: string | null;
   lastReplayAt?: string | null;
@@ -72,11 +73,24 @@ export interface OutboxSummary {
   newestEventAt: string | null;
 }
 
+type OutboxRow = {
+  queue_id: string;
+  event_id: string;
+  event_type: OutboxEvent["type"];
+  timestamp: string;
+  payload_json: string;
+  activity_item_json: string;
+  replay_failures: number | null;
+  last_replay_error: string | null;
+  last_replay_at: string | null;
+};
+
 /** Events older than 7 days are stale — sync will never recover them. */
 const OUTBOX_EVENT_TTL_MS = 7 * 24 * 60 * 60_000;
 /** Hard cap per session to prevent unbounded growth if sync repeatedly fails. */
 const OUTBOX_MAX_EVENTS_PER_SESSION = 500;
 const DEAD_LETTER_DIRNAME = "_dead-letter";
+const OUTBOX_IMPORT_META_KEY = "outbox_events_imported_v1";
 
 async function ensureDir(): Promise<void> {
   const dir = outboxDir();
@@ -101,7 +115,6 @@ function outboxPath(sessionId: string): string {
 }
 
 async function backupCorruptOutboxFile(targetPath: string): Promise<void> {
-  // Preserve the corrupted file for debugging, but move it out of the hot path.
   const suffix = `${Date.now()}-${randomUUID().slice(0, 8)}`;
   const backupPath = `${targetPath}.corrupt.${suffix}`;
   try {
@@ -110,39 +123,6 @@ async function backupCorruptOutboxFile(targetPath: string): Promise<void> {
   } catch {
     // best effort
   }
-}
-
-async function writeFileAtomic(
-  targetPath: string,
-  content: string,
-  mode: number
-): Promise<void> {
-  // Atomic write to avoid partial JSON files if we crash mid-write.
-  const tmpPath = `${targetPath}.tmp.${process.pid}.${randomUUID().slice(
-    0,
-    8
-  )}`;
-  await writeFile(tmpPath, content, { encoding: "utf8", mode });
-  await hardenPath(tmpPath, mode);
-  try {
-    await rename(tmpPath, targetPath);
-  } catch (err: unknown) {
-    // On Windows, rename can fail if the destination exists. Best-effort fallback:
-    // remove the destination and retry. This is not strictly atomic, but avoids
-    // leaving the outbox unreadable.
-    const code = err && typeof err === "object" ? (err as any).code : null;
-    if (code === "EEXIST" || code === "EPERM" || code === "EACCES") {
-      try {
-        await unlink(targetPath);
-      } catch {
-        // ignore
-      }
-      await rename(tmpPath, targetPath);
-    } else {
-      throw err;
-    }
-  }
-  await hardenPath(targetPath, mode);
 }
 
 async function appendOutboxDeadLetterRecord(
@@ -167,14 +147,47 @@ export async function appendOutboxDeadLetter(
   reason: string,
   error?: string | null
 ): Promise<void> {
+  let normalizedSessionId: string;
+  try {
+    normalizedSessionId = normalizeSessionId(sessionId);
+  } catch {
+    return;
+  }
   const droppedAt = new Date().toISOString();
-  await appendOutboxDeadLetterRecord(sessionId, {
+  await appendOutboxDeadLetterRecord(normalizedSessionId, {
     droppedAt,
-    queueId: normalizeSessionId(sessionId),
+    queueId: normalizedSessionId,
     reason,
     error: error ?? null,
     event,
   });
+}
+
+function normalizeOutboxEvent(input: OutboxEvent): OutboxEvent {
+  const timestamp =
+    typeof input.timestamp === "string" && Number.isFinite(Date.parse(input.timestamp))
+      ? new Date(Date.parse(input.timestamp)).toISOString()
+      : new Date().toISOString();
+  return {
+    id: input.id.trim(),
+    type: input.type,
+    timestamp,
+    payload:
+      input.payload && typeof input.payload === "object" && !Array.isArray(input.payload)
+        ? input.payload
+        : {},
+    activityItem: input.activityItem,
+    replayFailures:
+      typeof input.replayFailures === "number" && Number.isFinite(input.replayFailures)
+        ? Math.max(0, Math.floor(input.replayFailures))
+        : undefined,
+    lastReplayError:
+      typeof input.lastReplayError === "string" ? input.lastReplayError : input.lastReplayError ?? null,
+    lastReplayAt:
+      typeof input.lastReplayAt === "string" && Number.isFinite(Date.parse(input.lastReplayAt))
+        ? new Date(Date.parse(input.lastReplayAt)).toISOString()
+        : input.lastReplayAt ?? null,
+  };
 }
 
 /** Drop stale events and enforce per-session cap. Returns true if any were removed. */
@@ -184,51 +197,99 @@ function pruneOutboxEvents(events: OutboxEvent[]): { pruned: OutboxEvent[]; chan
     const epoch = Date.parse(e.timestamp);
     return Number.isFinite(epoch) && epoch >= cutoff;
   });
-  // Keep newest events if over cap.
-  const capped = fresh.length > OUTBOX_MAX_EVENTS_PER_SESSION
-    ? fresh.slice(fresh.length - OUTBOX_MAX_EVENTS_PER_SESSION)
-    : fresh;
+  const capped =
+    fresh.length > OUTBOX_MAX_EVENTS_PER_SESSION
+      ? fresh.slice(fresh.length - OUTBOX_MAX_EVENTS_PER_SESSION)
+      : fresh;
   return { pruned: capped, changed: capped.length !== events.length };
 }
 
-export async function readOutbox(sessionId: string): Promise<OutboxEvent[]> {
-  let targetPath: string;
-  try {
-    targetPath = outboxPath(sessionId);
-  } catch {
-    return [];
-  }
+function rowToEvent(row: OutboxRow): OutboxEvent | null {
+  const payload =
+    row.payload_json && typeof row.payload_json === "string"
+      ? JSON.parse(row.payload_json)
+      : {};
+  const activityItem =
+    row.activity_item_json && typeof row.activity_item_json === "string"
+      ? JSON.parse(row.activity_item_json)
+      : null;
+  if (!activityItem || typeof activityItem !== "object") return null;
+  return normalizeOutboxEvent({
+    id: row.event_id,
+    type: row.event_type,
+    timestamp: row.timestamp,
+    payload:
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : {},
+    activityItem: activityItem as LiveActivityItem,
+    replayFailures: typeof row.replay_failures === "number" ? row.replay_failures : undefined,
+    lastReplayError: row.last_replay_error,
+    lastReplayAt: row.last_replay_at,
+  });
+}
+
+function writeOutboxEvents(queueId: string, events: OutboxEvent[]): void {
+  const normalizedQueueId = normalizeSessionId(queueId);
+  const transaction = getStateDb().transaction((items: OutboxEvent[]) => {
+    getStateDb()
+      .prepare<[string]>("DELETE FROM outbox_events WHERE queue_id = ?")
+      .run(normalizedQueueId);
+    const insertStatement = getStateDb().prepare<
+      [
+        string,
+        string,
+        OutboxEvent["type"],
+        string,
+        string,
+        string,
+        number,
+        string | null,
+        string | null,
+        string
+      ]
+    >(
+      `INSERT INTO outbox_events (
+         event_id,
+         queue_id,
+         event_type,
+         timestamp,
+         payload_json,
+         activity_item_json,
+         replay_failures,
+         last_replay_error,
+         last_replay_at,
+         updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const nowIso = new Date().toISOString();
+    for (const event of items) {
+      const normalized = normalizeOutboxEvent(event);
+      insertStatement.run(
+        normalized.id,
+        normalizedQueueId,
+        normalized.type,
+        normalized.timestamp,
+        JSON.stringify(normalized.payload ?? {}),
+        JSON.stringify(normalized.activityItem),
+        normalized.replayFailures ?? 0,
+        normalized.lastReplayError ?? null,
+        normalized.lastReplayAt ?? null,
+        nowIso
+      );
+    }
+  });
+  transaction(events);
+}
+
+async function readLegacyOutboxFile(queueId: string): Promise<OutboxEvent[]> {
+  const targetPath = outboxPath(queueId);
   try {
     const raw = await readFile(targetPath, "utf8");
     try {
       const parsed = JSON.parse(raw) as unknown;
       const events = Array.isArray(parsed) ? (parsed as OutboxEvent[]) : [];
-      const { pruned, changed } = pruneOutboxEvents(events);
-      const filtered: OutboxEvent[] = [];
-      let filteredChanged = changed;
-      for (const event of pruned) {
-        const skipReason = classifyOutboxReplaySkip(event);
-        if (!skipReason) {
-          filtered.push(event);
-          continue;
-        }
-        filteredChanged = true;
-        await appendOutboxDeadLetter(
-          sessionId,
-          event,
-          `pruned_on_read:${skipReason}`,
-          null
-        );
-      }
-      // Write back if stale events were dropped.
-      if (filteredChanged) {
-        if (filtered.length === 0) {
-          try { await unlink(targetPath); } catch { /* ok */ }
-        } else {
-          await writeFileAtomic(targetPath, JSON.stringify(filtered), 0o600);
-        }
-      }
-      return filtered;
+      return events.map((event) => normalizeOutboxEvent(event));
     } catch {
       await backupCorruptOutboxFile(targetPath);
       return [];
@@ -236,6 +297,118 @@ export async function readOutbox(sessionId: string): Promise<OutboxEvent[]> {
   } catch {
     return [];
   }
+}
+
+async function ensureOutboxMigrated(): Promise<void> {
+  const migrated = readStateMeta<boolean>(OUTBOX_IMPORT_META_KEY);
+  if (migrated) return;
+
+  const countRow = getStateDb()
+    .prepare<[], { count: number }>("SELECT COUNT(*) AS count FROM outbox_events")
+    .get();
+  if ((countRow?.count ?? 0) > 0) {
+    writeStateMeta(OUTBOX_IMPORT_META_KEY, true);
+    return;
+  }
+
+  await ensureDir();
+  const files = await readdir(outboxDir()).catch(() => []);
+  const queueIds = files
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => file.slice(0, -5))
+    .filter(Boolean);
+  for (const queueId of queueIds) {
+    const events = await readLegacyOutboxFile(queueId);
+    if (events.length === 0) continue;
+    writeOutboxEvents(queueId, events);
+  }
+  writeStateMeta(OUTBOX_IMPORT_META_KEY, true);
+}
+
+function pruneQueueRows(queueId: string): void {
+  const normalizedQueueId = normalizeSessionId(queueId);
+  const cutoffIso = new Date(Date.now() - OUTBOX_EVENT_TTL_MS).toISOString();
+  getStateDb()
+    .prepare<[string, string]>(
+      `DELETE FROM outbox_events
+       WHERE queue_id = ?
+         AND timestamp < ?`
+    )
+    .run(normalizedQueueId, cutoffIso);
+  getStateDb()
+    .prepare<[string, string, number]>(
+      `DELETE FROM outbox_events
+       WHERE queue_id = ?
+         AND event_id NOT IN (
+           SELECT event_id
+           FROM outbox_events
+           WHERE queue_id = ?
+           ORDER BY timestamp DESC, updated_at DESC
+           LIMIT ?
+         )`
+    )
+    .run(normalizedQueueId, normalizedQueueId, OUTBOX_MAX_EVENTS_PER_SESSION);
+}
+
+export async function readOutbox(sessionId: string): Promise<OutboxEvent[]> {
+  let normalizedSessionId: string;
+  try {
+    normalizedSessionId = normalizeSessionId(sessionId);
+  } catch {
+    return [];
+  }
+
+  await ensureOutboxMigrated();
+  const rows = getStateDb()
+    .prepare<[string], OutboxRow>(
+      `SELECT
+         queue_id,
+         event_id,
+         event_type,
+         timestamp,
+         payload_json,
+         activity_item_json,
+         replay_failures,
+         last_replay_error,
+         last_replay_at
+       FROM outbox_events
+       WHERE queue_id = ?
+       ORDER BY timestamp ASC, event_id ASC`
+    )
+    .all(normalizedSessionId);
+
+  const events: OutboxEvent[] = [];
+  for (const row of rows) {
+    try {
+      const event = rowToEvent(row);
+      if (event) events.push(event);
+    } catch {
+      // skip malformed rows
+    }
+  }
+
+  const { pruned, changed } = pruneOutboxEvents(events);
+  const filtered: OutboxEvent[] = [];
+  let filteredChanged = changed;
+  for (const event of pruned) {
+    const skipReason = classifyOutboxReplaySkip(event);
+    if (!skipReason) {
+      filtered.push(event);
+      continue;
+    }
+    filteredChanged = true;
+    await appendOutboxDeadLetter(
+      normalizedSessionId,
+      event,
+      `pruned_on_read:${skipReason}`,
+      null
+    );
+  }
+
+  if (filteredChanged) {
+    await replaceOutbox(normalizedSessionId, filtered);
+  }
+  return filtered;
 }
 
 export async function appendToOutbox(
@@ -249,27 +422,71 @@ export async function appendToOutbox(
     return;
   }
 
-  const skipReason = classifyOutboxReplaySkip(event);
+  const normalizedEvent = normalizeOutboxEvent(event);
+  const skipReason = classifyOutboxReplaySkip(normalizedEvent);
   if (skipReason) {
     await appendOutboxDeadLetter(
       normalizedSessionId,
-      event,
+      normalizedEvent,
       `suppressed_on_append:${skipReason}`,
       null
     );
     return;
   }
 
-  await ensureDir();
-  const targetPath = outboxPath(normalizedSessionId);
-  const existing = await readOutbox(normalizedSessionId);
-  const idx = existing.findIndex((item) => item.id === event.id);
-  if (idx >= 0) {
-    existing[idx] = event;
-  } else {
-    existing.push(event);
-  }
-  await writeFileAtomic(targetPath, JSON.stringify(existing), 0o600);
+  await ensureOutboxMigrated();
+  const nowIso = new Date().toISOString();
+  getStateDb()
+    .prepare<
+      [
+        string,
+        string,
+        OutboxEvent["type"],
+        string,
+        string,
+        string,
+        number,
+        string | null,
+        string | null,
+        string
+      ]
+    >(
+      `INSERT INTO outbox_events (
+         event_id,
+         queue_id,
+         event_type,
+         timestamp,
+         payload_json,
+         activity_item_json,
+         replay_failures,
+         last_replay_error,
+         last_replay_at,
+         updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(event_id) DO UPDATE SET
+         queue_id = excluded.queue_id,
+         event_type = excluded.event_type,
+         timestamp = excluded.timestamp,
+         payload_json = excluded.payload_json,
+         activity_item_json = excluded.activity_item_json,
+         replay_failures = excluded.replay_failures,
+         last_replay_error = excluded.last_replay_error,
+         last_replay_at = excluded.last_replay_at,
+         updated_at = excluded.updated_at`
+    )
+    .run(
+      normalizedEvent.id,
+      normalizedSessionId,
+      normalizedEvent.type,
+      normalizedEvent.timestamp,
+      JSON.stringify(normalizedEvent.payload ?? {}),
+      JSON.stringify(normalizedEvent.activityItem),
+      normalizedEvent.replayFailures ?? 0,
+      normalizedEvent.lastReplayError ?? null,
+      normalizedEvent.lastReplayAt ?? null,
+      nowIso
+    );
+  pruneQueueRows(normalizedSessionId);
 }
 
 export async function replaceOutbox(
@@ -283,91 +500,88 @@ export async function replaceOutbox(
     return;
   }
 
-  await ensureDir();
-  const targetPath = outboxPath(normalizedSessionId);
+  await ensureOutboxMigrated();
   if (events.length === 0) {
+    getStateDb()
+      .prepare<[string]>("DELETE FROM outbox_events WHERE queue_id = ?")
+      .run(normalizedSessionId);
     try {
-      await unlink(targetPath);
-      return;
+      await unlink(outboxPath(normalizedSessionId));
     } catch {
       // File may not exist
-      return;
     }
+    return;
   }
-  await writeFileAtomic(targetPath, JSON.stringify(events), 0o600);
+
+  writeOutboxEvents(normalizedSessionId, events);
+  pruneQueueRows(normalizedSessionId);
 }
 
 export async function readAllOutboxItems(): Promise<LiveActivityItem[]> {
-  try {
-    await ensureDir();
-    const files = await readdir(outboxDir());
-    const items: LiveActivityItem[] = [];
-    for (const file of files) {
-      if (!file.endsWith(".json")) continue;
-      const sessionId = file.slice(0, -5);
-      try {
-        const events = await readOutbox(sessionId);
-        for (const evt of events) {
-          items.push(evt.activityItem);
-        }
-      } catch {
-        // skip malformed files
+  await ensureOutboxMigrated();
+  const rows = getStateDb()
+    .prepare<[number], { activity_item_json: string }>(
+      `SELECT activity_item_json
+       FROM outbox_events
+       ORDER BY timestamp DESC, event_id DESC
+       LIMIT ?`
+    )
+    .all(10_000);
+  const items: LiveActivityItem[] = [];
+  for (const row of rows) {
+    try {
+      const parsed = JSON.parse(row.activity_item_json) as LiveActivityItem;
+      if (parsed && typeof parsed === "object") {
+        items.push(parsed);
       }
+    } catch {
+      // skip malformed rows
     }
-    return items.sort(
-      (a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp)
-    );
-  } catch {
-    return [];
   }
+  return items;
 }
 
 export async function readOutboxSummary(): Promise<OutboxSummary> {
-  try {
-    await ensureDir();
-    const files = await readdir(outboxDir());
-    const pendingByQueue: Record<string, number> = {};
-    let pendingTotal = 0;
-    let oldestEpoch = Number.POSITIVE_INFINITY;
-    let newestEpoch = Number.NEGATIVE_INFINITY;
-
-    for (const file of files) {
-      if (!file.endsWith(".json")) continue;
-      const queueId = file.slice(0, -5);
-      try {
-        const events = await readOutbox(queueId);
-        const count = Array.isArray(events) ? events.length : 0;
-        pendingByQueue[queueId] = count;
-        pendingTotal += count;
-        for (const event of events) {
-          const epoch = Date.parse(event.timestamp);
-          if (!Number.isFinite(epoch)) continue;
-          oldestEpoch = Math.min(oldestEpoch, epoch);
-          newestEpoch = Math.max(newestEpoch, epoch);
-        }
-      } catch {
-        pendingByQueue[queueId] = pendingByQueue[queueId] ?? 0;
+  await ensureOutboxMigrated();
+  const rows = getStateDb()
+    .prepare<
+      [],
+      {
+        queue_id: string;
+        pending_count: number;
+        oldest_event_at: string | null;
+        newest_event_at: string | null;
       }
+    >(
+      `SELECT
+         queue_id,
+         COUNT(*) AS pending_count,
+         MIN(timestamp) AS oldest_event_at,
+         MAX(timestamp) AS newest_event_at
+       FROM outbox_events
+       GROUP BY queue_id`
+    )
+    .all();
+  const pendingByQueue: Record<string, number> = {};
+  let pendingTotal = 0;
+  let oldestEventAt: string | null = null;
+  let newestEventAt: string | null = null;
+  for (const row of rows) {
+    pendingByQueue[row.queue_id] = row.pending_count;
+    pendingTotal += row.pending_count;
+    if (row.oldest_event_at && (!oldestEventAt || row.oldest_event_at < oldestEventAt)) {
+      oldestEventAt = row.oldest_event_at;
     }
-
-    return {
-      pendingTotal,
-      pendingByQueue,
-      oldestEventAt: Number.isFinite(oldestEpoch)
-        ? new Date(oldestEpoch).toISOString()
-        : null,
-      newestEventAt: Number.isFinite(newestEpoch)
-        ? new Date(newestEpoch).toISOString()
-        : null,
-    };
-  } catch {
-    return {
-      pendingTotal: 0,
-      pendingByQueue: {},
-      oldestEventAt: null,
-      newestEventAt: null,
-    };
+    if (row.newest_event_at && (!newestEventAt || row.newest_event_at > newestEventAt)) {
+      newestEventAt = row.newest_event_at;
+    }
   }
+  return {
+    pendingTotal,
+    pendingByQueue,
+    oldestEventAt,
+    newestEventAt,
+  };
 }
 
 export async function clearOutbox(sessionId: string): Promise<void> {
@@ -377,6 +591,11 @@ export async function clearOutbox(sessionId: string): Promise<void> {
   } catch {
     return;
   }
+
+  await ensureOutboxMigrated();
+  getStateDb()
+    .prepare<[string]>("DELETE FROM outbox_events WHERE queue_id = ?")
+    .run(normalizedSessionId);
 
   try {
     await unlink(outboxPath(normalizedSessionId));

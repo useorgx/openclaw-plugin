@@ -229,7 +229,10 @@ interface HealthReport {
   sync: {
     serviceRunning: boolean;
     inFlight: boolean;
+    backgroundInFlight: boolean;
     lastSnapshotAt: string | null;
+    lastBackgroundSyncAt: string | null;
+    lastBackgroundSyncError: string | null;
   };
   outbox: {
     pendingTotal: number;
@@ -649,7 +652,11 @@ export default function register(api: PluginAPI): void {
 
   let syncTimer: ReturnType<typeof setTimeout> | null = null;
   let syncInFlight: Promise<void> | null = null;
+  let backgroundSyncInFlight: Promise<void> | null = null;
+  let backgroundSyncQueued = false;
   let syncServiceRunning = false;
+  let lastBackgroundSyncAt = 0;
+  let lastBackgroundSyncError: string | null = null;
   let localAgentMirrors: OrgSnapshot["agents"] = [];
   let outboxReplayState: {
     status: ReplayStatus;
@@ -794,7 +801,11 @@ export default function register(api: PluginAPI): void {
       sync: {
         serviceRunning: syncServiceRunning,
         inFlight: syncInFlight !== null,
+        backgroundInFlight: backgroundSyncInFlight !== null,
         lastSnapshotAt: lastSnapshotAt > 0 ? new Date(lastSnapshotAt).toISOString() : null,
+        lastBackgroundSyncAt:
+          lastBackgroundSyncAt > 0 ? new Date(lastBackgroundSyncAt).toISOString() : null,
+        lastBackgroundSyncError,
       },
       outbox: {
         pendingTotal: outbox.pendingTotal,
@@ -1185,6 +1196,166 @@ export default function register(api: PluginAPI): void {
     },
   });
 
+  async function syncSnapshotAndLocalTelemetry(): Promise<{ snapshotError: string | null }> {
+    let snapshotError: string | null = null;
+    try {
+      const snapshot = await client.getOrgSnapshot();
+      updateCachedSnapshot(snapshot);
+      localAgentMirrors = buildLocalAgentMirrorsFromSnapshot({
+        agents: snapshot.agents,
+      });
+    } catch (err: unknown) {
+      if (isAuthFailure(err)) {
+        throw err;
+      }
+      snapshotError = toErrorMessage(err);
+      api.log?.warn?.("[orgx] Snapshot sync failed (continuing)", {
+        error: snapshotError,
+      });
+    }
+
+    const localAgents = buildLocalSyncAgentsFromRuns({
+      ...readAgentRuns(),
+      mirrors: localAgentMirrors,
+    });
+    if (localAgents.length > 0) {
+      try {
+        await client.syncMemory({ agents: localAgents });
+      } catch (err: unknown) {
+        if (isAuthFailure(err)) {
+          throw err;
+        }
+        api.log?.warn?.("[orgx] Local agent telemetry sync failed (continuing)", {
+          error: toErrorMessage(err),
+          count: localAgents.length,
+        });
+      }
+    }
+
+    return { snapshotError };
+  }
+
+  async function refreshSkillPackCache(): Promise<void> {
+    try {
+      const refreshed = await refreshSkillPackState({
+        getSkillPack: (args) => client.getSkillPack(args),
+      });
+      if (refreshed.changed) {
+        void posthogCapture({
+          event: "openclaw_skill_pack_updated",
+          distinctId: config.installationId,
+          properties: {
+            plugin_version: config.pluginVersion,
+            skill_pack_name: refreshed.state.pack?.name ?? null,
+            skill_pack_version: refreshed.state.pack?.version ?? null,
+            skill_pack_checksum: refreshed.state.pack?.checksum ?? null,
+          },
+        }).catch(() => {
+          // best effort
+        });
+      }
+    } catch {
+      // best effort
+    }
+  }
+
+  function maybeAutoInstallAgentSuite(): void {
+    try {
+      if (config.autoInstallAgentSuiteOnConnect === false) {
+        return;
+      }
+      const state = readSkillPackState();
+      const updateAvailable = Boolean(
+        state.remote?.checksum &&
+          state.pack?.checksum &&
+          state.remote.checksum !== state.pack.checksum
+      );
+      const plan = computeOrgxAgentSuitePlan({
+        packVersion: config.pluginVersion || "0.0.0",
+        skillPack: state.overrides,
+        skillPackRemote: state.remote,
+        skillPackPolicy: state.policy,
+        skillPackUpdateAvailable: updateAvailable,
+      });
+      const hasConflicts = (plan.workspaceFiles ?? []).some((f) => f.action === "conflict");
+      const hasWork =
+        Boolean(plan.openclawConfigWouldUpdate) ||
+        (plan.workspaceFiles ?? []).some((f) => f.action !== "noop");
+
+      if (!hasWork || hasConflicts) {
+        return;
+      }
+
+      const applied = applyOrgxAgentSuitePlan({
+        plan,
+        dryRun: false,
+        skillPack: state.overrides,
+      });
+      void applied;
+      void posthogCapture({
+        event: "openclaw_agent_suite_auto_install",
+        distinctId: config.installationId,
+        properties: {
+          plugin_version: (config.pluginVersion ?? "").trim() || null,
+          skill_pack_source: plan.skillPack?.source ?? null,
+          skill_pack_checksum: plan.skillPack?.checksum ?? null,
+          skill_pack_version: plan.skillPack?.version ?? null,
+          openclaw_config_updated: Boolean(plan.openclawConfigWouldUpdate),
+        },
+      }).catch(() => {
+        // best effort
+      });
+    } catch (err: unknown) {
+      api.log?.debug?.("[orgx] Agent suite auto-provision skipped/failed (best effort)", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  async function runCriticalSyncPass(): Promise<void> {
+    const { snapshotError } = await syncSnapshotAndLocalTelemetry();
+    updateOnboardingState({
+      status: "connected",
+      hasApiKey: true,
+      connectionVerified: snapshotError === null,
+      lastError: snapshotError,
+      nextAction: "open_dashboard",
+    });
+    await flushOutboxQueues();
+  }
+
+  async function runBackgroundSyncPass(): Promise<void> {
+    await reconcileStoppedAgentRuns();
+    await refreshSkillPackCache();
+    maybeAutoInstallAgentSuite();
+  }
+
+  function scheduleBackgroundSyncPass(): void {
+    if (!config.apiKey) return;
+    if (backgroundSyncInFlight) {
+      backgroundSyncQueued = true;
+      return;
+    }
+
+    backgroundSyncInFlight = (async () => {
+      do {
+        backgroundSyncQueued = false;
+        try {
+          await runBackgroundSyncPass();
+          lastBackgroundSyncAt = Date.now();
+          lastBackgroundSyncError = null;
+        } catch (err: unknown) {
+          lastBackgroundSyncError = toErrorMessage(err);
+          api.log?.warn?.("[orgx] Background sync tasks failed (continuing)", {
+            error: lastBackgroundSyncError,
+          });
+        }
+      } while (backgroundSyncQueued && Boolean(config.apiKey));
+    })().finally(() => {
+      backgroundSyncInFlight = null;
+    });
+  }
+
   async function doSync(): Promise<void> {
     if (syncInFlight) {
       return syncInFlight;
@@ -1205,123 +1376,8 @@ export default function register(api: PluginAPI): void {
       }
 
       try {
-        await reconcileStoppedAgentRuns();
-        let snapshotError: string | null = null;
-        try {
-          const snapshot = await client.getOrgSnapshot();
-          updateCachedSnapshot(snapshot);
-          localAgentMirrors = buildLocalAgentMirrorsFromSnapshot({
-            agents: snapshot.agents,
-          });
-        } catch (err: unknown) {
-          if (isAuthFailure(err)) {
-            throw err;
-          }
-          snapshotError = toErrorMessage(err);
-          api.log?.warn?.("[orgx] Snapshot sync failed (continuing)", {
-            error: snapshotError,
-          });
-        }
-        const localAgents = buildLocalSyncAgentsFromRuns({
-          ...readAgentRuns(),
-          mirrors: localAgentMirrors,
-        });
-        if (localAgents.length > 0) {
-          try {
-            await client.syncMemory({ agents: localAgents });
-          } catch (err: unknown) {
-            if (isAuthFailure(err)) {
-              throw err;
-            }
-            api.log?.warn?.("[orgx] Local agent telemetry sync failed (continuing)", {
-              error: toErrorMessage(err),
-              count: localAgents.length,
-            });
-          }
-        }
-
-        // Best-effort: poll the canonical OrgX SkillPack so the dashboard/install path
-        // can apply it without blocking on an on-demand fetch.
-        try {
-          const refreshed = await refreshSkillPackState({
-            getSkillPack: (args) => client.getSkillPack(args),
-          });
-          if (refreshed.changed) {
-            void posthogCapture({
-              event: "openclaw_skill_pack_updated",
-              distinctId: config.installationId,
-              properties: {
-                plugin_version: config.pluginVersion,
-                skill_pack_name: refreshed.state.pack?.name ?? null,
-                skill_pack_version: refreshed.state.pack?.version ?? null,
-                skill_pack_checksum: refreshed.state.pack?.checksum ?? null,
-              },
-            }).catch(() => {
-              // best effort
-            });
-          }
-        } catch {
-          // best effort
-        }
-
-        // Best-effort: provision/update the OrgX agent suite after we've verified a working connection.
-        // This makes domain agents available immediately for launches without requiring a manual install.
-        try {
-          if (config.autoInstallAgentSuiteOnConnect !== false) {
-            const state = readSkillPackState();
-            const updateAvailable = Boolean(
-              state.remote?.checksum &&
-                state.pack?.checksum &&
-                state.remote.checksum !== state.pack.checksum
-            );
-            const plan = computeOrgxAgentSuitePlan({
-              packVersion: config.pluginVersion || "0.0.0",
-              skillPack: state.overrides,
-              skillPackRemote: state.remote,
-              skillPackPolicy: state.policy,
-              skillPackUpdateAvailable: updateAvailable,
-            });
-            const hasConflicts = (plan.workspaceFiles ?? []).some((f) => f.action === "conflict");
-            const hasWork =
-              Boolean(plan.openclawConfigWouldUpdate) ||
-              (plan.workspaceFiles ?? []).some((f) => f.action !== "noop");
-
-            if (hasWork && !hasConflicts) {
-              const applied = applyOrgxAgentSuitePlan({
-                plan,
-                dryRun: false,
-                skillPack: state.overrides,
-              });
-              void applied;
-              void posthogCapture({
-                event: "openclaw_agent_suite_auto_install",
-                distinctId: config.installationId,
-                properties: {
-                  plugin_version: (config.pluginVersion ?? "").trim() || null,
-                  skill_pack_source: plan.skillPack?.source ?? null,
-                  skill_pack_checksum: plan.skillPack?.checksum ?? null,
-                  skill_pack_version: plan.skillPack?.version ?? null,
-                  openclaw_config_updated: Boolean(plan.openclawConfigWouldUpdate),
-                },
-              }).catch(() => {
-                // best effort
-              });
-            }
-          }
-        } catch (err: unknown) {
-          api.log?.debug?.("[orgx] Agent suite auto-provision skipped/failed (best effort)", {
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-
-        updateOnboardingState({
-          status: "connected",
-          hasApiKey: true,
-          connectionVerified: snapshotError === null,
-          lastError: snapshotError,
-          nextAction: "open_dashboard",
-        });
-        await flushOutboxQueues();
+        await runCriticalSyncPass();
+        scheduleBackgroundSyncPass();
         api.log?.debug?.("[orgx] Sync OK");
       } catch (err: unknown) {
         const authFailure = isAuthFailure(err);
@@ -1368,6 +1424,7 @@ export default function register(api: PluginAPI): void {
       await doSync();
       scheduleNextSync();
     }, config.syncIntervalMs);
+    syncTimer.unref?.();
   }
 
   async function startPairing(input: {
@@ -1686,6 +1743,9 @@ export default function register(api: PluginAPI): void {
     client.setCredentials({ apiKey: "", userId: "" });
     cachedSnapshot = null;
     lastSnapshotAt = 0;
+    lastBackgroundSyncAt = 0;
+    lastBackgroundSyncError = null;
+    backgroundSyncQueued = false;
 
     return updateOnboardingState({
       status: "idle",

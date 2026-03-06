@@ -3,7 +3,7 @@
 import { readFileSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 
 function fail(message) {
   console.error(`[verify] failed: ${message}`);
@@ -33,16 +33,25 @@ function canonicalizeSkillId(value) {
     .replace(/^\$/, "")
     .toLowerCase();
 }
+const SKILL_ID_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 
 const SKILL_PARSE_STOPWORDS = new Set([
   "and",
+  "context",
+  "execution",
   "guidance",
+  "initiative",
   "or",
   "optional",
   "optionally",
+  "policy",
   "required",
+  "reporting",
+  "run",
+  "slice",
   "skill",
   "skills",
+  "workstream",
 ]);
 
 function parseRequiredSkills(value) {
@@ -65,16 +74,33 @@ function parseRequiredSkills(value) {
   const raw = String(value || "").trim();
   if (!raw) return [];
 
-  const explicitSkillTokens = raw.match(/\$[A-Za-z0-9][A-Za-z0-9_-]*/g) ?? [];
+  const multilineSegments = raw.split(/\r?\n/);
+  const relevantMultilineSegments =
+    multilineSegments.length > 1
+      ? multilineSegments.filter((segment) => {
+          const trimmed = segment.trim();
+          if (!trimmed) return false;
+          return (
+            trimmed.includes("$") ||
+            /^[-*•]\s*/.test(trimmed) ||
+            /^required skills?\s*:/i.test(trimmed) ||
+            /^skills?\s*:/i.test(trimmed)
+          );
+        })
+      : [];
+  const parseSource =
+    relevantMultilineSegments.length > 0 ? relevantMultilineSegments.join("\n") : raw;
+
+  const explicitSkillTokens = parseSource.match(/\$[A-Za-z0-9][A-Za-z0-9_-]*/g) ?? [];
   if (explicitSkillTokens.length > 0) {
     for (const token of explicitSkillTokens) {
       addSkill(unique, token);
     }
   }
 
-  if (raw.startsWith("[") && raw.endsWith("]")) {
+  if (parseSource.startsWith("[") && parseSource.endsWith("]")) {
     try {
-      const parsed = JSON.parse(raw);
+      const parsed = JSON.parse(parseSource);
       if (Array.isArray(parsed)) {
         for (const entry of parsed) {
           addSkill(unique, entry);
@@ -86,7 +112,7 @@ function parseRequiredSkills(value) {
     }
   }
 
-  for (const entry of raw.split(/[\s,;|]+/)) {
+  for (const entry of parseSource.split(/[\s,;|]+/)) {
     addSkill(unique, entry);
   }
   return [...unique];
@@ -110,6 +136,25 @@ function assertOptionalNonEmptyString(value, label) {
   }
 }
 
+function assertMatchesEnv(expected, value, fieldName, envName) {
+  if (!expected) return;
+  assert(
+    typeof value === "string" && value.trim().length > 0,
+    `${fieldName} is required when ${envName} is set`
+  );
+  assert(
+    value.trim() === expected,
+    `${fieldName} must match ${envName} (${expected})`
+  );
+}
+
+function matchOptionalContextFromEnv(value, fieldName, envNames) {
+  for (const envName of envNames) {
+    const expected = String(process.env[envName] || "").trim();
+    assertMatchesEnv(expected, value, fieldName, envName);
+  }
+}
+
 function assertStringArrayOrNull(value, label) {
   if (value == null) return;
   assert(Array.isArray(value), `${label} must be an array or null`);
@@ -121,25 +166,10 @@ function assertStringArrayOrNull(value, label) {
   }
 }
 
-function assertNonEmptyStringArrayValuesOrNull(value, label) {
-  if (value == null) return;
-  assert(Array.isArray(value), `${label} must be an array or null`);
-  for (const item of value) {
-    assert(
-      typeof item === "string" && item.trim().length > 0,
-      `${label} entries must be non-empty strings`
-    );
-  }
-}
-
 function assertNonEmptyStringArrayOrNull(value, label) {
-  if (value == null) return;
-  assert(Array.isArray(value), `${label} must be an array or null`);
-  for (const item of value) {
-    assert(
-      typeof item === "string" && item.trim().length > 0,
-      `${label} entries must be non-empty strings`
-    );
+  assertStringArrayOrNull(value, label);
+  if (value != null) {
+    assert(value.length > 0, `${label} must be a non-empty array or null`);
   }
 }
 
@@ -165,7 +195,8 @@ function extractSkillHeading(pathname) {
       startIndex = 1;
       let foundClosingFence = false;
       for (let index = 1; index < lines.length; index += 1) {
-        if (lines[index].trim() === "---") {
+        const fence = lines[index].trim();
+        if (fence === "---" || fence === "...") {
           startIndex = index + 1;
           foundClosingFence = true;
           break;
@@ -234,8 +265,10 @@ function main() {
     typeof output.workstream_id === "string" && output.workstream_id.trim().length > 0,
     "workstream_id is required"
   );
+  matchOptionalContextFromEnv(output.workstream_id, "workstream_id", ["ORGX_WORKSTREAM_ID"]);
   assertOptionalNonEmptyString(output.workstream_title, "workstream_title");
   assertOptionalNonEmptyString(output.slice_id, "slice_id");
+  matchOptionalContextFromEnv(output.slice_id, "slice_id", ["ORGX_SLICE_RUN_ID", "ORGX_SLICE_ID"]);
 
   assert(
     output.decisions_needed == null || Array.isArray(output.decisions_needed),
@@ -250,7 +283,7 @@ function main() {
     assertKnownFields(decision, ["question", "summary", "options", "urgency", "blocking"], "decision");
     assert(typeof decision.question === "string" && decision.question.trim().length > 0, "decision.question is required");
     assertOptionalNonEmptyString(decision.summary, "decision.summary");
-    assertNonEmptyStringArrayValuesOrNull(decision.options, "decision.options");
+    assertNonEmptyStringArrayOrNull(decision.options, "decision.options");
     assert(
       ["low", "medium", "high", "urgent", null].includes(decision.urgency ?? null),
       "decision.urgency must be low|medium|high|urgent|null"
@@ -363,9 +396,18 @@ function main() {
       !item.skill.trim().startsWith("$"),
       "skill_evidence.skill must be the bare skill id without a leading \"$\""
     );
+    const normalizedSkill = canonicalizeSkillId(item.skill);
+    assert(
+      SKILL_ID_PATTERN.test(normalizedSkill),
+      "skill_evidence.skill must match ^[a-z0-9][a-z0-9_-]*$ (lowercase letters, numbers, underscores, hyphens)"
+    );
     assert(
       typeof item.skill_file === "string" && item.skill_file.trim().length > 0,
       "skill_evidence.skill_file is required"
+    );
+    assert(
+      isAbsolute(item.skill_file),
+      "skill_evidence.skill_file must be an absolute path"
     );
     assert(
       typeof item.skill_sha256 === "string" && /^[a-f0-9]{64}$/.test(item.skill_sha256),
@@ -387,7 +429,6 @@ function main() {
       item.skill_heading.trim() === expectedHeading,
       `skill_evidence.skill_heading must match the first heading/non-empty line in ${skillFilePath}`
     );
-    const normalizedSkill = canonicalizeSkillId(item.skill);
     normalizedSkillCounts.set(normalizedSkill, (normalizedSkillCounts.get(normalizedSkill) || 0) + 1);
   }
 

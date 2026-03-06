@@ -685,6 +685,7 @@ test("createReporter routes mutations through injected OrgXClient", async () => 
 test("classifyTaskState buckets task lifecycle states", () => {
   assert.equal(classifyTaskState("done"), "done");
   assert.equal(classifyTaskState("completed"), "done");
+  assert.equal(classifyTaskState("canceled"), "done");
   assert.equal(classifyTaskState("blocked"), "blocked");
   assert.equal(classifyTaskState("at-risk"), "blocked");
   assert.equal(classifyTaskState("on hold"), "blocked");

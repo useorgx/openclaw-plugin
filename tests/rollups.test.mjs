@@ -7,6 +7,15 @@ async function importFreshModule() {
   return import(url.href);
 }
 
+test("classifyTaskState normalizes hyphen/space variants used by dispatch", async () => {
+  const mod = await importFreshModule();
+  assert.equal(mod.classifyTaskState("at-risk"), "blocked");
+  assert.equal(mod.classifyTaskState("on hold"), "blocked");
+  assert.equal(mod.classifyTaskState("in-progress"), "active");
+  assert.equal(mod.classifyTaskState("retry pending"), "active");
+  assert.equal(mod.classifyTaskState("pending-review"), "active");
+});
+
 test("computeMilestoneRollup matches expected status rules", async () => {
   const mod = await importFreshModule();
   const inProgress = mod.computeMilestoneRollup(["done", "in_progress", "todo"]);

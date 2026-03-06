@@ -32,7 +32,10 @@ export interface HealthReport {
   sync: {
     serviceRunning: boolean;
     inFlight: boolean;
+    backgroundInFlight: boolean;
     lastSnapshotAt: string | null;
+    lastBackgroundSyncAt: string | null;
+    lastBackgroundSyncError: string | null;
   };
   outbox: {
     pendingTotal: number;

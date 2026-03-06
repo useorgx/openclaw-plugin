@@ -1,0 +1,4282 @@
+{
+  "ok": true,
+  "generatedAt": "2026-03-05T14:16:22.719Z",
+  "total": 163,
+  "items": [
+    {
+      "initiativeId": "74768c87-564f-4fb3-aa9f-adce12b9d7c2",
+      "initiativeTitle": "MCP Plugin Discoverability — Own the Agent Orchestration Category in MCP Ecosystem",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "3acd218f-b467-4248-b896-7e5344bc7a76",
+      "workstreamTitle": "Directory Submissions & External References",
+      "workstreamStatus": "active",
+      "nextTaskId": "619b8643-1708-4f63-b369-3e92428a28b1",
+      "nextTaskTitle": "Publish tutorial + share",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": "2026-02-28T00:00:00.000Z",
+      "nextTaskMilestoneId": "872272a0-91d8-46ae-8364-20ec763957ed",
+      "runnerAgentId": "operations-agent",
+      "runnerAgentName": "Operations Agent",
+      "runnerAgents": [
+        {
+          "id": "operations-agent",
+          "name": "Operations Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "619b8643-1708-4f63-b369-3e92428a28b1"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "872272a0-91d8-46ae-8364-20ec763957ed",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "857ca940-4733-4574-abdb-715b979ba04e",
+          "title": "Directory submissions batch 1",
+          "tasks": [
+            {
+              "id": "ab8a0cb1-df7f-4da2-98e8-aa6e9e268002",
+              "title": "Directory submissions batch 1: Discovery",
+              "status": "blocked"
+            },
+            {
+              "id": "06a1a754-5b34-4eea-830d-811958b3f70e",
+              "title": "Directory submissions batch 1: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "1c5e38e3-5d10-4e90-8a23-adb78d289078",
+              "title": "Directory submissions batch 1: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "a3424417-2d17-43aa-90e9-8d695e96d7c0",
+              "title": "Create directory submission checklist + canonical copy block",
+              "status": "done"
+            },
+            {
+              "id": "0c7bfd7a-b339-48e0-b6c0-1da05f78df60",
+              "title": "Submit/update listings across MCP directories",
+              "status": "done"
+            },
+            {
+              "id": "7619a0dd-13d2-43ab-9a9a-763eabb52975",
+              "title": "Collect listing URLs + status in a tracking doc",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 3
+        },
+        {
+          "id": "872272a0-91d8-46ae-8364-20ec763957ed",
+          "title": "One external tutorial/reference",
+          "tasks": [
+            {
+              "id": "23b4eea9-c8bd-47af-b070-6bf49bb29a91",
+              "title": "One external tutorial/reference: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "0b30197b-6771-4e0e-9540-400c573dd7e7",
+              "title": "One external tutorial/reference: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "e97aefdb-ddc8-4266-9456-584369777787",
+              "title": "One external tutorial/reference: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "2c3140e9-674b-4253-8f2d-82f7047fdb28",
+              "title": "Draft tutorial: Connect OrgX MCP to ChatGPT/Claude/Cursor",
+              "status": "done"
+            },
+            {
+              "id": "619b8643-1708-4f63-b369-3e92428a28b1",
+              "title": "Publish tutorial + share",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "772d984a-88fc-4870-9321-328eeafd1a2d",
+      "initiativeTitle": "Agent Graceful Degradation — Partial Success, Not Binary Failure",
+      "initiativeStatus": "active",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "23d1c2ef-9593-413f-9385-bfcb837ccd66",
+      "workstreamTitle": "Graceful Failure Handling",
+      "workstreamStatus": "active",
+      "nextTaskId": "29bc225b-bf48-4772-9728-c9ba431dce7f",
+      "nextTaskTitle": "Add answerDelivered flag to responsesProcessor execution context",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "02a338ab-5b1f-4a15-885e-2a9ef8d3617d",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "29bc225b-bf48-4772-9728-c9ba431dce7f"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "02a338ab-5b1f-4a15-885e-2a9ef8d3617d",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "02a338ab-5b1f-4a15-885e-2a9ef8d3617d",
+          "title": "🌱 Seed: Answer-Delivered Guard",
+          "tasks": [
+            {
+              "id": "97f6a54c-acb2-4cf4-99d3-f185b55f1141",
+              "title": "🌱 Seed: Answer-Delivered Guard: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "89dbf531-38fb-4571-8024-ed0a0df6a21c",
+              "title": "🌱 Seed: Answer-Delivered Guard: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "32765dbe-eac1-47b0-802d-a51a1d1b610e",
+              "title": "🌱 Seed: Answer-Delivered Guard: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "30029d3a-f83d-4469-8f73-39de0e147edc",
+              "title": "Update consoleRunWorker to check agent_run_steps for delivered messages before marking failed",
+              "status": "in_progress"
+            },
+            {
+              "id": "29bc225b-bf48-4772-9728-c9ba431dce7f",
+              "title": "Add answerDelivered flag to responsesProcessor execution context",
+              "status": "in_progress"
+            },
+            {
+              "id": "0dfd7dda-0cb0-4010-a4d8-b24aa7572c96",
+              "title": "Add yellow warning badge to run timeline UI for completed_with_warnings",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 0
+        },
+        {
+          "id": "24e3f354-c9a6-4458-add7-da1a7c38084b",
+          "title": "🌸 Full Bloom: Per-Step Success Tracking",
+          "tasks": [
+            {
+              "id": "6029f210-4efb-47fc-b197-45b37eb76508",
+              "title": "🌸 Full Bloom: Per-Step Success Tracking: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "3e4d2b8b-d4ba-4be6-8844-b5856c4c6357",
+              "title": "🌸 Full Bloom: Per-Step Success Tracking: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "2835d60f-3b3d-4cc1-86f9-5b9e89a218ba",
+              "title": "Design step-level status schema (success | failed | skipped | retrying)",
+              "status": "todo"
+            },
+            {
+              "id": "0f2eb62c-8b6a-490d-b5ed-6ec3d6c8b8c2",
+              "title": "Build step-level progress UI showing green/red/amber per step",
+              "status": "todo"
+            },
+            {
+              "id": "3999a9e8-d35b-4c90-959b-ad7a7bdb0b1a",
+              "title": "Implement per-step retry with exponential backoff",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "9cb1ce04-03f0-4562-ab3a-ae839b8e8e33",
+      "initiativeTitle": "AI Product Evaluation Framework (Ankur Method)",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "8725a878-c093-4d1b-9511-707ee1829094",
+      "workstreamTitle": "Success Criteria & Metrics Definition",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "88f12ee2-2994-4440-ae98-5b265ac26738",
+      "nextTaskTitle": "Document success criteria for each of 7 OrgX agents (Nova, Dev Delivery, Mark Marketing, Sales Sage, Ops Orbit, Design Codex, Xandy)",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "59d8b9b8-2b95-48cf-a638-c61b7ed1fc39",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "88f12ee2-2994-4440-ae98-5b265ac26738"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "59d8b9b8-2b95-48cf-a638-c61b7ed1fc39",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "59d8b9b8-2b95-48cf-a638-c61b7ed1fc39",
+          "title": "Define Expected Behaviors Per Agent",
+          "tasks": [
+            {
+              "id": "57f8fb9b-9fc2-44fe-9766-5f0e32f5d295",
+              "title": "Define Expected Behaviors Per Agent: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "9562084e-0f35-4124-be18-37fb68e39477",
+              "title": "Define Expected Behaviors Per Agent: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "42d3fd9a-b74c-4277-bfbd-71b76165b1e4",
+              "title": "Define Expected Behaviors Per Agent: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "b6c6341f-0a57-47bc-8d24-6a0b76f4f189",
+              "title": "Create 'what good looks like' reference docs with 3 exemplary outputs per agent",
+              "status": "todo"
+            },
+            {
+              "id": "d1e703e7-cc6e-451d-ae03-2c944f723bbc",
+              "title": "Define expected output format, quality bar, and edge case handling per agent artifact type",
+              "status": "todo"
+            },
+            {
+              "id": "88f12ee2-2994-4440-ae98-5b265ac26738",
+              "title": "Document success criteria for each of 7 OrgX agents (Nova, Dev Delivery, Mark Marketing, Sales Sage, Ops Orbit, Design Codex, Xandy)",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 0
+        },
+        {
+          "id": "031dbfbf-380b-46df-b85b-de3f38e9af67",
+          "title": "Transform Criteria Into Measurable Metrics",
+          "tasks": [
+            {
+              "id": "21323a4c-36cd-4419-adca-1a876e1113ca",
+              "title": "Transform Criteria Into Measurable Metrics: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "298e6344-f6e8-48a0-b785-c9f83adae680",
+              "title": "Transform Criteria Into Measurable Metrics: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "b329a0ad-d6b9-4f9e-a83e-0f54ae7379bd",
+              "title": "Transform Criteria Into Measurable Metrics: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "af6fc8da-9083-4700-9f35-b015f113bd70",
+              "title": "Map each success criterion to a quantifiable metric (completeness score, accuracy rate, format compliance)",
+              "status": "todo"
+            },
+            {
+              "id": "e2ab0fcc-ee11-4bdd-8585-752dd6ae1a9b",
+              "title": "Define scoring rubrics: 1-5 scale per dimension with concrete examples at each level",
+              "status": "todo"
+            },
+            {
+              "id": "32e45aed-232f-4333-a050-70cdc0f6e496",
+              "title": "Establish baseline measurements by running current agents against rubrics",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "d35e5cbc-5ec7-44c9-84ee-ea2fe6344d92",
+      "initiativeTitle": "Configurable Agent Behavior System",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "b0640d83-66b9-4f25-a050-1afd92eddc29",
+      "workstreamTitle": "MCP Plugin Integration",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "6f398769-568d-4a6d-a23e-55974fdcf1c9",
+      "nextTaskTitle": "Implement config sync between plugin and platform — changes in either surface reflect immediately",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "adc77796-2f6b-4545-8e79-d3405e6f9d22",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "6f398769-568d-4a6d-a23e-55974fdcf1c9"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "adc77796-2f6b-4545-8e79-d3405e6f9d22",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "adc77796-2f6b-4545-8e79-d3405e6f9d22",
+          "title": "Plugin Config Read/Write",
+          "tasks": [
+            {
+              "id": "4fe7d19c-9ce4-4a43-ba48-12d5bf26e9cb",
+              "title": "Plugin Config Read/Write: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "e7ebb52a-0b9a-41bb-9f65-97a4afa83a3c",
+              "title": "Add MCP tools: get_agent_config, update_agent_config, list_agent_configs — with same schema validation as platform",
+              "status": "done"
+            },
+            {
+              "id": "6f398769-568d-4a6d-a23e-55974fdcf1c9",
+              "title": "Implement config sync between plugin and platform — changes in either surface reflect immediately",
+              "status": "in_progress"
+            },
+            {
+              "id": "4a130634-e862-4c04-b428-943b9184c136",
+              "title": "Add config context injection — when agent runs via plugin, behavior config is automatically loaded and applied",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 3
+        },
+        {
+          "id": "12b3b5ba-6e59-44d2-83a6-c85070237f65",
+          "title": "Plugin Settings Surface",
+          "tasks": [
+            {
+              "id": "30852d2e-9c49-47af-b89c-64a59054084c",
+              "title": "Plugin Settings Surface: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "e224a0d5-807e-479d-9306-5dbc588bce5f",
+              "title": "Plugin Settings Surface: Validation",
+              "status": "done"
+            },
+            {
+              "id": "8ce1e3e9-fa17-4a84-b989-27237102204d",
+              "title": "Build plugin settings widget — inline config editor when user says 'configure engineering agent'",
+              "status": "in_progress"
+            },
+            {
+              "id": "f58ab82d-bdc8-4055-b732-44ef8eca7617",
+              "title": "Add natural language config — 'make the engineering agent auto-merge PRs' parses to config update",
+              "status": "todo"
+            },
+            {
+              "id": "fde6e5ef-1b53-4234-9deb-4d9c2b4826e1",
+              "title": "Implement config templates via plugin — 'apply startup-speed preset to all agents'",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 3
+        }
+      ]
+    },
+    {
+      "initiativeId": "d35e5cbc-5ec7-44c9-84ee-ea2fe6344d92",
+      "initiativeTitle": "Configurable Agent Behavior System",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "853d6b1c-be7f-4bad-8dfa-eb3fe3d9c834",
+      "workstreamTitle": "Runtime Behavior Enforcement",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "59360663-8122-4c89-9335-c052a98c7b8a",
+      "nextTaskTitle": "Build rollback mechanism — one-click revert to previous config version if agent quality drops",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "85f5404c-8956-4dd0-b5cb-2aa1ca392992",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "59360663-8122-4c89-9335-c052a98c7b8a"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "85f5404c-8956-4dd0-b5cb-2aa1ca392992",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "386dd7ee-d709-4eb3-aecc-c0a96865f993",
+          "title": "Execution Pipeline Integration",
+          "tasks": [
+            {
+              "id": "67ff3a82-6695-485b-b4db-e6970e9e4f3b",
+              "title": "Execution Pipeline Integration: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "7012b0e0-20e4-4da8-8286-408d70313080",
+              "title": "Execution Pipeline Integration: Validation",
+              "status": "done"
+            },
+            {
+              "id": "901147e4-c715-4a20-8f42-cb895e308645",
+              "title": "Modify agent executor to load behavior config before each run — inject into agent context/system prompt",
+              "status": "done"
+            },
+            {
+              "id": "a692e77c-087a-48cf-8ebf-7a87ea781dda",
+              "title": "Implement approval gates — when config requires approval, pause execution and create decision entity",
+              "status": "done"
+            },
+            {
+              "id": "3aac2459-95e6-4f30-807b-91ae3d6c0b11",
+              "title": "Build automation level enforcement — auto/supervised/manual modes actually change execution flow",
+              "status": "done"
+            },
+            {
+              "id": "a6819bf4-77fa-4f40-bc7d-abfb86bf5dd1",
+              "title": "Wire artifact type config — Engineering agent outputs PR links, Marketing outputs content drafts, etc.",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 6
+        },
+        {
+          "id": "85f5404c-8956-4dd0-b5cb-2aa1ca392992",
+          "title": "Guardrails & Rollback",
+          "tasks": [
+            {
+              "id": "a805350d-2b5f-4318-b3cb-f19085072a41",
+              "title": "Guardrails & Rollback: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "a09ab37f-7ef3-45db-8df0-74640ef3b00e",
+              "title": "Implement config change validation — new configs must pass eval framework checks before activation (ties to Eval initiative)",
+              "status": "done"
+            },
+            {
+              "id": "fa01b4f8-ff51-4357-8f3b-9ea470677715",
+              "title": "Add config drift detection — alert if runtime behavior diverges from declared config",
+              "status": "in_progress"
+            },
+            {
+              "id": "59360663-8122-4c89-9335-c052a98c7b8a",
+              "title": "Build rollback mechanism — one-click revert to previous config version if agent quality drops",
+              "status": "in_progress"
+            },
+            {
+              "id": "b4122f57-0a6e-4388-a310-22adfbae0216",
+              "title": "Create config health dashboard — per-agent config status, last changed, eval pass rate with current config",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 3
+        }
+      ]
+    },
+    {
+      "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+      "initiativeTitle": "Content Engine: Dogfood the Larry Playbook",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "e1d3f6cc-bfb8-44d9-b623-fcd515d9d5ca",
+      "workstreamTitle": "Experimentation Data + Execution Platform",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "a550c6e8-4187-4ab8-928d-54195668a565",
+      "nextTaskTitle": "Implement deterministic cross-channel randomization service",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "2f8ace58-af11-4b5c-a48e-98019b79fa30",
+      "runnerAgentId": "operations-agent",
+      "runnerAgentName": "Operations",
+      "runnerAgents": [
+        {
+          "id": "operations-agent",
+          "name": "Operations"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "a550c6e8-4187-4ab8-928d-54195668a565"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "2f8ace58-af11-4b5c-a48e-98019b79fa30",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "835cb237-f096-4ae0-80ff-15c2601321f0",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "7370bd86-a822-4885-8d45-e699bbcfc5f2",
+              "title": "Implement cohort builder APIs with snapshotting",
+              "status": "todo"
+            },
+            {
+              "id": "feefb5f0-f2dd-4377-a2c2-0ffea0d63493",
+              "title": "Build cross-channel identity graph + dedupe service",
+              "status": "todo"
+            },
+            {
+              "id": "cd2a2c81-f0af-4158-9b75-27bfddcc586b",
+              "title": "Ship telemetry contract + data quality SLAs",
+              "status": "todo"
+            },
+            {
+              "id": "9d33238a-25c9-475d-83c2-8102dc874e5e",
+              "title": "Implement experiment audit trail + rollback controls",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 0
+        },
+        {
+          "id": "efc20494-9f6a-45e3-b3c6-a0ecf7668749",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "280fe5ac-58f9-4cd5-95d6-5f02e2a0459d",
+              "title": "Add integrity test suite for assignment and attribution",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        },
+        {
+          "id": "2f8ace58-af11-4b5c-a48e-98019b79fa30",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "a550c6e8-4187-4ab8-928d-54195668a565",
+              "title": "Implement deterministic cross-channel randomization service",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        },
+        {
+          "id": "827fccc6-5678-45a9-a491-e157d26f214e",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "39a293be-1166-4c56-95f1-fddd523e53e0",
+              "title": "Extend Red Dot schema for cohorts, experiments, variants, assignments, and deliveries",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 1
+        },
+        {
+          "id": "376fddf1-0b76-40bd-aecc-db09d70d0647",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "113f4c02-2d9e-4394-911c-3ccc018a90f4",
+              "title": "Build execution pipeline with idempotency, retries, and throttling",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        },
+        {
+          "id": "709b6439-50e4-483c-8292-e3d36c50da84",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "d6eaae82-e8fe-4bbc-afb2-1ddf80eef947",
+              "title": "Implement attribution windows and experiment readout API",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+      "initiativeTitle": "Content Engine: Dogfood the Larry Playbook",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "575e0d6d-4782-4133-9099-490a1e68eec1",
+      "workstreamTitle": "Hook Research & Content Strategy",
+      "workstreamStatus": "active",
+      "nextTaskId": "313916b3-50b0-4597-bf27-099017978c2f",
+      "nextTaskTitle": "Create hook brainstorm template with performance feedback loop",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "9c1e8dbc-d4b4-49ab-a779-309050519b46",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "313916b3-50b0-4597-bf27-099017978c2f"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "9c1e8dbc-d4b4-49ab-a779-309050519b46",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "f261dc2d-7efd-4a36-b56d-8ffdeb2578a0",
+          "title": "Platform & Competitor Analysis Complete",
+          "tasks": [
+            {
+              "id": "6eb70675-cfae-4263-81dc-f72f38a84632",
+              "title": "Platform & Competitor Analysis Complete: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "bc702211-46d9-4301-8eb5-e67de60ed5a6",
+              "title": "Platform & Competitor Analysis Complete: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "63226f4f-d1d7-4b11-9f21-4efe3e5957ee",
+              "title": "Audit LinkedIn carousel performance in B2B SaaS/dev tools",
+              "status": "done"
+            },
+            {
+              "id": "d1754d61-cfe0-49e9-ad80-a26a5a4f86cd",
+              "title": "Map OrgX hook formula: adapt '[Person] + [conflict] → AI → mind changed'",
+              "status": "done"
+            },
+            {
+              "id": "47f9de5f-1528-4811-a6ff-50d383eefbb6",
+              "title": "Audit top 10 dev tool TikTok accounts for slideshow/carousel patterns",
+              "status": "in_progress"
+            },
+            {
+              "id": "712787b7-0267-4b3d-bd72-9e4b3216b186",
+              "title": "Audit top 20 #buildinpublic accounts on X for hook patterns",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 2
+        },
+        {
+          "id": "9c1e8dbc-d4b4-49ab-a779-309050519b46",
+          "title": "Content Skill File v1 Complete",
+          "tasks": [
+            {
+              "id": "1cd71100-a211-4c1f-93d7-531e2b2b1dbb",
+              "title": "Content Skill File v1 Complete: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "eeeb34c9-5bcf-48b4-8b0b-87e64061b7ce",
+              "title": "Content Skill File v1 Complete: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "cc677ec3-6c99-42d1-ba57-263c4040d5bc",
+              "title": "Content Skill File v1 Complete: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "4164c66c-20f9-4c03-b4a6-96f004e50dc5",
+              "title": "Define content calendar cadence and posting schedule",
+              "status": "done"
+            },
+            {
+              "id": "a01d03ab-f3ca-48d7-9164-9eb11ff50e77",
+              "title": "Write master content skill file for Mark (marketing agent)",
+              "status": "in_progress"
+            },
+            {
+              "id": "313916b3-50b0-4597-bf27-099017978c2f",
+              "title": "Create hook brainstorm template with performance feedback loop",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+      "initiativeTitle": "Content Engine: Dogfood the Larry Playbook",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "a4948a7e-fe2a-47b1-b2f0-e4cce0b1602d",
+      "workstreamTitle": "Integration Showcase Content",
+      "workstreamStatus": "active",
+      "nextTaskId": "c2dfd53c-d4e8-490d-a77b-ab14a85d7046",
+      "nextTaskTitle": "Create 'Linear + OrgX' content series (3 pieces)",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "b67cfe48-edbf-43be-8aca-344ed7fa7f5d",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "c2dfd53c-d4e8-490d-a77b-ab14a85d7046"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "b67cfe48-edbf-43be-8aca-344ed7fa7f5d",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "b67cfe48-edbf-43be-8aca-344ed7fa7f5d",
+          "title": "Integration Demo Content Library Built",
+          "tasks": [
+            {
+              "id": "b7de4534-2b26-4542-85ef-d377f2c0c07e",
+              "title": "Integration Demo Content Library Built: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "39bd500c-9c0e-47aa-930d-444a838e43b0",
+              "title": "Integration Demo Content Library Built: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "0edb1245-5107-4578-ba18-a69245b281db",
+              "title": "Integration Demo Content Library Built: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "c2dfd53c-d4e8-490d-a77b-ab14a85d7046",
+              "title": "Create 'Linear + OrgX' content series (3 pieces)",
+              "status": "in_progress"
+            },
+            {
+              "id": "6ee3ba94-a58a-4193-a7d7-3ccfeb64d4ef",
+              "title": "Create 'Notion + OrgX' content series (3 pieces)",
+              "status": "done"
+            },
+            {
+              "id": "d41297a0-88f9-4c13-8856-d1034c473067",
+              "title": "Create 'Vercel + OrgX' content series (2 pieces)",
+              "status": "done"
+            },
+            {
+              "id": "3d40fc0b-6be0-4338-8211-ff1702f3dbee",
+              "title": "Create 'Full Stack Solo Founder' showcase (2 pieces)",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 7,
+          "doneTasks": 3
+        }
+      ]
+    },
+    {
+      "initiativeId": "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+      "initiativeTitle": "Content Engine: Dogfood the Larry Playbook",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "63e17a65-7dd4-4359-a353-dcfb60cec374",
+      "workstreamTitle": "Red Dot Internal UX Scale Hardening",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "4ba96e1e-38a2-4b3d-ad81-1f7647ae0195",
+      "nextTaskTitle": "Implement ranked/fuzzy search with facets in /red-dot/internal",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "f1e28e03-a597-4d6e-be87-96ac2dc4f600",
+      "runnerAgentId": "operations-agent",
+      "runnerAgentName": "Operations",
+      "runnerAgents": [
+        {
+          "id": "operations-agent",
+          "name": "Operations"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "4ba96e1e-38a2-4b3d-ad81-1f7647ae0195"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "f1e28e03-a597-4d6e-be87-96ac2dc4f600",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "95086b66-af0d-4e64-8a40-c9315990c1c8",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "55ee5ebf-3e23-4ac1-a866-f53b381d2672",
+              "title": "Replace modeled playbook matrix with live telemetry",
+              "status": "done"
+            },
+            {
+              "id": "3e6bca17-bbb4-4383-820b-41a512612682",
+              "title": "Add anomaly alerts + guided triage in Ops Health",
+              "status": "todo"
+            },
+            {
+              "id": "d6555094-2238-4f17-b21b-1dc2298c897d",
+              "title": "Delight #2: Counterfactual Lab (What-If Simulator)",
+              "status": "todo"
+            },
+            {
+              "id": "a49f5d08-97e8-45ef-8991-110d16deb115",
+              "title": "Delight #1: Outcome Theater (Narrative Replay)",
+              "status": "blocked"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 1
+        },
+        {
+          "id": "f1e28e03-a597-4d6e-be87-96ac2dc4f600",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "4ba96e1e-38a2-4b3d-ad81-1f7647ae0195",
+              "title": "Implement ranked/fuzzy search with facets in /red-dot/internal",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        },
+        {
+          "id": "207e4e5d-a641-4969-b1bc-1d380515fdec",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "7ab5754d-426c-454d-8889-665b907caa22",
+              "title": "Expand desktop/mobile E2E coverage for scale workflows",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        },
+        {
+          "id": "930b4cc7-6706-4658-beee-97ca0beaf0a8",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "38959337-eccc-4296-8e25-417f44ac7b00",
+              "title": "Propagate real workspace context end-to-end",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 1
+        },
+        {
+          "id": "f7c6a446-f104-4e79-a786-12f976843c45",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "eef10bc6-cfb5-40b9-9543-051e8b1824bc",
+              "title": "Add cursor pagination for signals, leads, and dispatch",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        },
+        {
+          "id": "9838324a-5f36-4e2a-ba64-47ba4b1ff233",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "86c5abd9-2198-453a-8e98-0f5abc417bc9",
+              "title": "Add cohort + experiment control surfaces to internal UX",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "855f11a2-3bff-44d8-80a0-eef58a45b790",
+      "initiativeTitle": "LAUNCH-01: Plugin E2E — Zero to First Value in 60 Seconds",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "c50fa847-0987-472c-83d6-6394bafd5739",
+      "workstreamTitle": "WS1: Plugin Package & Install Verification",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "44d38508-086c-44b7-9405-fd2b287f7a16",
+      "nextTaskTitle": "Test: openclaw plugins install @useorgx/orgx on fresh macOS instance",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "14b8dde3-0ce9-457e-9196-6a1f26c37f1f",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "44d38508-086c-44b7-9405-fd2b287f7a16"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "14b8dde3-0ce9-457e-9196-6a1f26c37f1f",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "14b8dde3-0ce9-457e-9196-6a1f26c37f1f",
+          "title": "M1: Clean Install on Fresh OpenClaw Instance",
+          "tasks": [
+            {
+              "id": "fd3c7032-1810-4b56-8be9-d6d7935d01fe",
+              "title": "M1: Clean Install on Fresh OpenClaw Instance: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "7524c939-1053-42e0-991b-5e2f503078d3",
+              "title": "M1: Clean Install on Fresh OpenClaw Instance: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "9e76fc2b-ed0b-44da-95d7-60a44f0c28d1",
+              "title": "Write install troubleshooting FAQ (top 5 failure modes)",
+              "status": "todo"
+            },
+            {
+              "id": "7e7de19e-efea-4e67-baf2-ecaa6160e2a8",
+              "title": "Verify configSchema + uiHints for API key setup renders in OpenClaw Control UI",
+              "status": "todo"
+            },
+            {
+              "id": "1e58c5a9-92ee-4511-bc4c-427e1b3bea5f",
+              "title": "Test: openclaw plugins install on fresh Linux/Docker instance",
+              "status": "todo"
+            },
+            {
+              "id": "e7fdd088-1c65-46d6-8f58-fa235be4b005",
+              "title": "Verify package.json has correct openclaw.extensions manifest field",
+              "status": "todo"
+            },
+            {
+              "id": "a8690b19-46e4-4aa3-9ef4-a777fe18a81f",
+              "title": "Test: openclaw gateway restart picks up plugin without errors",
+              "status": "todo"
+            },
+            {
+              "id": "44d38508-086c-44b7-9405-fd2b287f7a16",
+              "title": "Test: openclaw plugins install @useorgx/orgx on fresh macOS instance",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 8,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "99aceceb-d8b0-4c43-86ae-278fbd7d59ea",
+      "initiativeTitle": "MCP Stream Agent Reassignment Capability",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "fe7d7021-e37d-4f5a-9bef-476bc14234ae",
+      "workstreamTitle": "Reassign Existing Initiatives",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "6917f66e-d636-4e2d-b4e3-1b4d9cce3c49",
+      "nextTaskTitle": "Reassign AI Eval Framework v1 (b0796333) — Dataset Foundation→engineering, Eval Criteria & Threshold→engineering, Hierarchical Eval→product, Offline Pipeline→engineering, Online Eval & Feedback→operations",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "b2fe6bd7-ff62-48bf-9fc9-dc25472305dc",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "6917f66e-d636-4e2d-b4e3-1b4d9cce3c49"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "b2fe6bd7-ff62-48bf-9fc9-dc25472305dc",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "b2fe6bd7-ff62-48bf-9fc9-dc25472305dc",
+          "title": "Fix Agent Assignments on Active Initiatives",
+          "tasks": [
+            {
+              "id": "c5285688-b5ad-48b6-b7be-65d0d79bbafc",
+              "title": "Fix Agent Assignments on Active Initiatives: Implementation",
+              "status": "in_progress"
+            },
+            {
+              "id": "6917f66e-d636-4e2d-b4e3-1b4d9cce3c49",
+              "title": "Reassign AI Eval Framework v1 (b0796333) — Dataset Foundation→engineering, Eval Criteria & Threshold→engineering, Hierarchical Eval→product, Offline Pipeline→engineering, Online Eval & Feedback→operations",
+              "status": "in_progress"
+            },
+            {
+              "id": "bd639e4f-2460-490a-97cb-5c8f6b496bd9",
+              "title": "Reassign Configurable Agent Behavior (d35e5cbc) — Schema & Registry→engineering, Platform Settings UI→design, MCP Plugin Integration→engineering, Runtime Enforcement→engineering",
+              "status": "todo"
+            },
+            {
+              "id": "ae0fd903-3c04-4aca-a92f-d17419035221",
+              "title": "Verify all streams re-dispatched to correct agent pools and are running",
+              "status": "todo"
+            },
+            {
+              "id": "71964b43-a2bd-451d-a778-c54196ac7f70",
+              "title": "Reassign AI Eval Framework v2 Ankur (9cb1ce04) — Success Criteria & Metrics→product, Dataset Construction→engineering, Eval Criteria & Failure Analysis→engineering, Offline & Online Pipelines→engineering",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "7efdf0af-1120-4b2f-ae5a-10e057447930",
+      "initiativeTitle": "My first initiative",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "70726a12-0372-42a1-adf7-7243426227a8",
+      "workstreamTitle": "Pace",
+      "workstreamStatus": "active",
+      "nextTaskId": "20ed4698-a672-4890-8dc3-d63d49ae796b",
+      "nextTaskTitle": "Author Metric Tree",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "7fbe21c1-d3e0-4d55-91e1-bbbf8524e2d3",
+      "runnerAgentId": "product-agent",
+      "runnerAgentName": "Product Agent",
+      "runnerAgents": [
+        {
+          "id": "product-agent",
+          "name": "Product Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "20ed4698-a672-4890-8dc3-d63d49ae796b"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "7fbe21c1-d3e0-4d55-91e1-bbbf8524e2d3",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "896e2bc5-5afa-4cd2-9f20-babda2cf4984",
+          "title": "Lock the Narrative Stack",
+          "tasks": [
+            {
+              "id": "35011129-1e89-4987-80b8-853dfeb3c282",
+              "title": "Run Stakeholder Interviews",
+              "status": "in_progress"
+            },
+            {
+              "id": "18e837af-6132-49e4-8da4-9b59e3a32cf8",
+              "title": "Collect Customer Proof",
+              "status": "todo"
+            },
+            {
+              "id": "5330543d-7b00-470f-9b91-a2664fcc584d",
+              "title": "Review Narrative with Leadership",
+              "status": "todo"
+            },
+            {
+              "id": "90a19e76-cf3a-4e83-80d1-f9a577fa5535",
+              "title": "Lock the Narrative Stack: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "94106282-2047-46f1-b578-799eec9bfc4d",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            },
+            {
+              "id": "b566a64b-5bf2-4ddd-b512-18b45d89ee8f",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            },
+            {
+              "id": "e6ff2ec9-6a8c-4af1-873d-f53f0b43c8d9",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            },
+            {
+              "id": "8c808950-b2c5-49a5-be24-6495f5131f43",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            },
+            {
+              "id": "927093af-f29a-4122-b57a-6b7e77f4dcd4",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            },
+            {
+              "id": "0d9ae460-eab8-4370-b5b8-38ebd71021ae",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            },
+            {
+              "id": "16f17f3f-f784-44ff-815a-001687a84c51",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            },
+            {
+              "id": "540c1d98-b7a3-4e93-a403-a0f096ec6bce",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            },
+            {
+              "id": "5f414645-e624-4ed4-aa02-c854691ebcb8",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            },
+            {
+              "id": "bd638153-6ab5-4bc3-8c9d-863919bfd775",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            },
+            {
+              "id": "49e1b21c-7c3e-46ec-ae35-ef56fc0cd012",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            },
+            {
+              "id": "0d93f962-b11a-4c35-a24a-fcb4276d3ca7",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            },
+            {
+              "id": "173a442f-a084-4d7f-bf04-ec0302aeb6a7",
+              "title": "Sentinel: resolve decision",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 17,
+          "doneTasks": 0
+        },
+        {
+          "id": "7fbe21c1-d3e0-4d55-91e1-bbbf8524e2d3",
+          "title": "Define Success Metric Framework",
+          "tasks": [
+            {
+              "id": "20ed4698-a672-4890-8dc3-d63d49ae796b",
+              "title": "Author Metric Tree",
+              "status": "in_progress"
+            },
+            {
+              "id": "265692aa-7c5d-4a26-948a-c8e4b21e95cd",
+              "title": "Draft Dashboard Plan",
+              "status": "todo"
+            },
+            {
+              "id": "76faaefc-8d2e-492e-9e14-5f0474d8a30f",
+              "title": "Host Metrics Alignment Review",
+              "status": "todo"
+            },
+            {
+              "id": "f0fcf8e6-a2fe-4e84-8409-4d8984314a37",
+              "title": "Define Success Metric Framework: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "ab568e63-e732-4d4a-99ae-5c3715af016b",
+              "title": "Define Success Metric Framework: Implementation",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "06210308-6a9d-40b4-8ea7-e27fa0d4b38f",
+      "initiativeTitle": "Onboarding E2E Excellence - Visual Parity + Functional Reliability for OpenClaw Activation",
+      "initiativeStatus": "paused",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "160fc270-0483-424b-96ae-bad09b26ad46",
+      "workstreamTitle": "Step 1 - Arrival & Discovery Experience",
+      "workstreamStatus": "active",
+      "nextTaskId": "ac95670c-cbff-4243-86c6-acf0329c0020",
+      "nextTaskTitle": "Produce visual parity audit against mcp.useorgx.com and homepage",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "b856d2ec-5a04-4aa5-9033-b3673c665684",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "ac95670c-cbff-4243-86c6-acf0329c0020"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "b856d2ec-5a04-4aa5-9033-b3673c665684",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "b856d2ec-5a04-4aa5-9033-b3673c665684",
+          "title": "Redesign - Arrival & Discovery",
+          "tasks": [
+            {
+              "id": "19d3a36e-02e7-4900-8bab-ffaf8facae67",
+              "title": "Redesign - Arrival & Discovery: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "056d5096-8037-4466-b6dc-d01e20182d0c",
+              "title": "Redesign - Arrival & Discovery: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "ac95670c-cbff-4243-86c6-acf0329c0020",
+              "title": "Produce visual parity audit against mcp.useorgx.com and homepage",
+              "status": "in_progress"
+            },
+            {
+              "id": "ab710b52-2145-4ed1-b800-2addb3291499",
+              "title": "Approve redesigned screen specs for arrival/discovery",
+              "status": "done"
+            },
+            {
+              "id": "5c07f128-5ac4-41fd-b57a-623271f3a58f",
+              "title": "Recompose Arrival mobile layout for strict above-the-fold clarity",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 1
+        },
+        {
+          "id": "19fdb94f-b670-411e-a2f9-3e5002e39d00",
+          "title": "Implementation - Arrival & Discovery",
+          "tasks": [
+            {
+              "id": "fb3e0395-8ed3-4bc9-abfb-f76e479f7fe1",
+              "title": "Implementation - Arrival & Discovery: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "4a573586-dc01-478f-af2e-9ad56272680b",
+              "title": "Implement redesigned CeremonyScreen and DiscoveryScreen",
+              "status": "done"
+            },
+            {
+              "id": "3f9f6491-3251-41dc-a76b-9da1656a040c",
+              "title": "Implement polished transitions and interaction states",
+              "status": "todo"
+            },
+            {
+              "id": "adf0de33-7d4f-46cb-8443-d1f643a96fc2",
+              "title": "Remove Discovery ghost composer/overlay collision on mobile",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 2
+        },
+        {
+          "id": "085e2e2a-b13d-408a-898e-7ee7da727b7b",
+          "title": "Validation - Arrival & Discovery",
+          "tasks": [
+            {
+              "id": "1cbf1bbd-540b-4623-beb6-8f3cb2eabdc9",
+              "title": "Validation - Arrival & Discovery: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "ab224aa0-f4b4-46f0-9633-c6930e741469",
+              "title": "Validation - Arrival & Discovery: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "1bf90b2d-088e-4184-9012-8dcf4cdd679d",
+              "title": "Run visual QA + responsive snapshots for step 1",
+              "status": "done"
+            },
+            {
+              "id": "f3834a74-2224-44e3-b179-8d4317b724ec",
+              "title": "Run accessibility + interaction validation for step 1",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "db2671e4-635b-483f-9aa9-589a6c713bc3",
+      "initiativeTitle": "Pre-Launch Readiness: MVP Validation Sprint",
+      "initiativeStatus": "active",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "90c54f56-24e2-4eaf-8b66-1999b1f9dad9",
+      "workstreamTitle": "Launch Proof Assembly",
+      "workstreamStatus": "blocked",
+      "nextTaskId": "20b55dcc-ff24-4e5b-8e04-ad4660f3e5da",
+      "nextTaskTitle": "Save validation matrix template as table artifact + run quality evals",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "0100296a-b879-4c06-9a1d-4ddcdd949a3c",
+      "runnerAgentId": "product-agent",
+      "runnerAgentName": "Product Agent",
+      "runnerAgents": [
+        {
+          "id": "product-agent",
+          "name": "Product Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "20b55dcc-ff24-4e5b-8e04-ad4660f3e5da"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "0100296a-b879-4c06-9a1d-4ddcdd949a3c",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "5274c855-2ca2-42fc-8637-2e87e8ad5435",
+          "title": "Milestone 1 — Standards & Definitions",
+          "tasks": [
+            {
+              "id": "74c40978-50fa-431b-92c4-f5fffb1b213c",
+              "title": "Draft definitions: “blog-post ready” and “documented proof”",
+              "status": "done"
+            },
+            {
+              "id": "5dceb0dc-83c2-4d22-adc7-4b01220e1641",
+              "title": "Specify evidence capture standards (screenshots/videos/logs)",
+              "status": "done"
+            },
+            {
+              "id": "2527ec21-e6c8-4692-bdfa-94eeaad3d2b6",
+              "title": "Create final sign-off checklist for launch scope",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 3
+        },
+        {
+          "id": "f41a8d85-8e70-492c-aa4d-86ad0c4172b2",
+          "title": "1) Requirements & Definitions",
+          "tasks": [
+            {
+              "id": "c9ab2cc1-e27f-4294-8e23-599ac21ccec1",
+              "title": "Define 'blog-post ready' and 'documented proof'",
+              "status": "todo"
+            },
+            {
+              "id": "625e541c-db74-4284-b39b-834039e2dbb9",
+              "title": "Set Proof Pack scope and principles",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 0
+        },
+        {
+          "id": "fe8220db-e3a2-4461-af91-0a9598296f1e",
+          "title": "Milestone 2 — Validation Matrix Template",
+          "tasks": [
+            {
+              "id": "283c5f58-c969-492f-be32-6c65940280be",
+              "title": "Design validation matrix fields and statuses",
+              "status": "done"
+            },
+            {
+              "id": "df3c4df7-ba6c-415c-b69d-9c839ee4a0c9",
+              "title": "Produce copy-pasteable matrix template (CSV/Markdown table)",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 2
+        },
+        {
+          "id": "58404546-f44c-4652-aa44-7a834b4acb9d",
+          "title": "2) Templates & Standards Drafting",
+          "tasks": [
+            {
+              "id": "40811cf1-7d00-41d2-8fbc-d3ebae6802b9",
+              "title": "Draft evidence capture standards (screenshots/video/logs)",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        },
+        {
+          "id": "0100296a-b879-4c06-9a1d-4ddcdd949a3c",
+          "title": "Milestone 3 — Quality Check + Delivery",
+          "tasks": [
+            {
+              "id": "27e8a8e9-fc86-4a00-aac1-a8f1bdd6f356",
+              "title": "Assemble Proof Pack Standard document and save artifact",
+              "status": "done"
+            },
+            {
+              "id": "20b55dcc-ff24-4e5b-8e04-ad4660f3e5da",
+              "title": "Save validation matrix template as table artifact + run quality evals",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 1
+        },
+        {
+          "id": "6fe1918a-e99c-4cce-9854-eedfe5229b80",
+          "title": "3) QA, Packaging & Delivery",
+          "tasks": [],
+          "totalTasks": 0,
+          "doneTasks": 0
+        },
+        {
+          "id": "7f682813-3cdb-4432-ad2e-eb8d7cf523ed",
+          "title": "Proof Package Compilation",
+          "tasks": [],
+          "totalTasks": 0,
+          "doneTasks": 0
+        },
+        {
+          "id": "bf2c4207-0679-4414-a2e7-6fb522e6cf19",
+          "title": "Blog Post Draft Prep",
+          "tasks": [],
+          "totalTasks": 0,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "db2671e4-635b-483f-9aa9-589a6c713bc3",
+      "initiativeTitle": "Pre-Launch Readiness: MVP Validation Sprint",
+      "initiativeStatus": "active",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "81d03f7d-a8cc-49f3-88cf-ca854993f5e7",
+      "workstreamTitle": "MCP Integration Readiness",
+      "workstreamStatus": "blocked",
+      "nextTaskId": "b077b3ac-ed06-4578-bc61-e3f3ce700b4c",
+      "nextTaskTitle": "Document assumptions + placeholders for unknown product specifics",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "6c07ee89-8f51-4173-a470-97a7995a6a13",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "b077b3ac-ed06-4578-bc61-e3f3ce700b4c"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "6c07ee89-8f51-4173-a470-97a7995a6a13",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "ce70f490-4c49-4f2f-84a7-51e123caf230",
+          "title": "Context discovery & assumptions",
+          "tasks": [
+            {
+              "id": "204dd07a-3b9b-41be-a390-0197f3e4f3fd",
+              "title": "Locate or infer integration surfaces (OpenClaw/MCP/Claude Code)",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 1
+        },
+        {
+          "id": "96290434-c843-41ce-a20c-e80220bf28cb",
+          "title": "Flow mapping & validation checklist drafting",
+          "tasks": [
+            {
+              "id": "849ffbb4-b1aa-48bf-b0d6-3a90b2ca0edc",
+              "title": "Draft OpenClaw plugin critical flows + validation/evidence",
+              "status": "done"
+            },
+            {
+              "id": "4fd3c077-0039-4868-854a-80ad970bda38",
+              "title": "Draft MCP integration critical flows + validation/evidence",
+              "status": "done"
+            },
+            {
+              "id": "5faf0e63-8029-4096-8c47-924b5818342a",
+              "title": "Draft Claude Code plugin (stretch) critical flows + validation/evidence",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 3
+        },
+        {
+          "id": "f93a178e-9b83-45ff-9e1b-4c381cecd18e",
+          "title": "Readiness risks, blockers & mitigations",
+          "tasks": [
+            {
+              "id": "3f0cd4af-e8df-4129-b66f-112a0b8f1bd3",
+              "title": "Compile readiness risks/blockers for blog-driven traffic",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        },
+        {
+          "id": "ad859571-57ac-4791-bed5-1fb770c4dcf4",
+          "title": "Quality gate & delivery",
+          "tasks": [
+            {
+              "id": "a9ce1d62-7f23-436f-bb85-8468b65ab4c7",
+              "title": "Save artifacts + run evaluation; iterate if needed",
+              "status": "todo"
+            },
+            {
+              "id": "9429f2aa-e9c9-4d1e-a1e8-469fe5c1b84c",
+              "title": "Mark milestones done and complete workstream",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 0
+        },
+        {
+          "id": "83babed1-4061-4df6-b5e5-4e807a6590ba",
+          "title": "1) Context & Doc Recon",
+          "tasks": [
+            {
+              "id": "920929e6-2267-448b-9b00-233e4535eeaa",
+              "title": "Locate/confirm docs for OpenClaw, MCP, Claude Code integrations",
+              "status": "done"
+            },
+            {
+              "id": "ed393f03-161b-4e7d-bb8c-a4736e17bd62",
+              "title": "Define representative workflow per integration",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 2
+        },
+        {
+          "id": "f1e26050-fe79-4fbf-9631-f9f6d1582607",
+          "title": "2) Validation Checklist Drafting",
+          "tasks": [
+            {
+              "id": "08d5bc64-89ad-43b5-9045-111f7a2b8477",
+              "title": "Draft validation checklist: OpenClaw plugin",
+              "status": "in_progress"
+            },
+            {
+              "id": "643e0d82-f147-4e9e-aa11-8c7e2d629346",
+              "title": "Draft validation checklist: MCP integration",
+              "status": "in_progress"
+            },
+            {
+              "id": "e5451a2e-73ef-4634-b4af-3f8cbbe134ff",
+              "title": "Draft validation checklist: Claude Code plugin (stretch)",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 0
+        },
+        {
+          "id": "5b62291c-349a-4649-9358-0d02ff1ed991",
+          "title": "3) Readiness Risks & Blockers",
+          "tasks": [
+            {
+              "id": "23599cbb-e51e-4a76-b06f-4ecd9dee3834",
+              "title": "Compile readiness risks/blockers for blog-driven traffic",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        },
+        {
+          "id": "64e08895-d293-4ff0-8425-d395b7b8d44f",
+          "title": "4) QA, Evidence Standardization & Delivery",
+          "tasks": [
+            {
+              "id": "71791b23-64f3-49a1-a3d9-a2c7b5c50814",
+              "title": "Save artifacts + run evaluations + finalize workstream status",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        },
+        {
+          "id": "b5bec7e8-f41d-4528-94ea-8e5bc2cbf20b",
+          "title": "Context, assumptions & source check",
+          "tasks": [],
+          "totalTasks": 0,
+          "doneTasks": 0
+        },
+        {
+          "id": "979b9054-9f71-455d-9f78-83bd8433e837",
+          "title": "Context & Source Research",
+          "tasks": [
+            {
+              "id": "d7902873-d04a-4183-bf1b-9a80f8c04293",
+              "title": "Research public docs for OpenClaw, MCP, Claude Code plugin mechanisms",
+              "status": "in_progress"
+            },
+            {
+              "id": "1e263258-74ac-4d75-80ed-a9c770536ed9",
+              "title": "Enumerate OrgX-side dependencies needed for each integration (keys/scopes/OAuth)",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 0
+        },
+        {
+          "id": "29249596-9887-4155-b7aa-dbb97d53a34c",
+          "title": "Per-Integration Critical Flows",
+          "tasks": [
+            {
+              "id": "3429f941-c09b-44a2-aec4-c993ed3ec1c3",
+              "title": "Define OpenClaw plugin critical flows + negative tests",
+              "status": "todo"
+            },
+            {
+              "id": "e8a36d1b-6e1e-4568-a9a3-8024162e6366",
+              "title": "Define MCP integration critical flows + negative tests",
+              "status": "todo"
+            },
+            {
+              "id": "fb217244-765e-48c0-a1a7-c2c239573084",
+              "title": "Define Claude Code plugin (stretch) critical flows + negative tests",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 0
+        },
+        {
+          "id": "52d56bcb-968f-49fa-a641-3713f9ef42e7",
+          "title": "Validation & Evidence Checklist Draft",
+          "tasks": [
+            {
+              "id": "38a231e1-5b49-471e-914c-80290a53948f",
+              "title": "Draft and save Integrations/Plugins Validation Checklist artifact",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        },
+        {
+          "id": "7f5da634-7874-4d06-b3bc-17c6ffbef465",
+          "title": "Risks, Blockers & Delivery",
+          "tasks": [
+            {
+              "id": "fab12db2-3e7d-4174-a053-0f6116d12af2",
+              "title": "Draft and save Integration Readiness Risks & Blockers artifact",
+              "status": "todo"
+            },
+            {
+              "id": "4242b94a-fb06-4405-bb96-f4685b568d7e",
+              "title": "Evaluate artifacts and close out workstream",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 0
+        },
+        {
+          "id": "6c07ee89-8f51-4173-a470-97a7995a6a13",
+          "title": "Milestone 1 — Scope & assumptions",
+          "tasks": [
+            {
+              "id": "b077b3ac-ed06-4578-bc61-e3f3ce700b4c",
+              "title": "Document assumptions + placeholders for unknown product specifics",
+              "status": "in_progress"
+            },
+            {
+              "id": "5f696255-f012-4a6f-a5ed-2445c098b021",
+              "title": "Define a reusable checklist template and evidence pack standard",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 0
+        },
+        {
+          "id": "b816c3a7-fe2f-4530-bbb8-4780a2779710",
+          "title": "Milestone 2 — Critical flows per integration",
+          "tasks": [
+            {
+              "id": "f46700f9-3073-439f-b93f-6777fca0d365",
+              "title": "Draft OpenClaw plugin critical flows (install/auth/connect/run/error/uninstall)",
+              "status": "todo"
+            },
+            {
+              "id": "7a632718-2f6d-4216-9752-734d8f4dd8c5",
+              "title": "Draft MCP integration critical flows (setup/auth/connect/run/error/uninstall)",
+              "status": "todo"
+            },
+            {
+              "id": "dac7befe-3207-4d6b-851e-cb490b927f5d",
+              "title": "Draft Claude Code plugin critical flows (install/auth/connect/run/error/uninstall)",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 0
+        },
+        {
+          "id": "7b745824-109c-4ee0-8c69-ce96abc27628",
+          "title": "Milestone 3 — Evidence & validation requirements",
+          "tasks": [
+            {
+              "id": "1530bd2e-dc72-4760-9756-b7d08804dc0b",
+              "title": "Add per-step validation steps + evidence requirements for each integration",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 1,
+          "doneTasks": 0
+        },
+        {
+          "id": "7faafa96-f494-4748-80a8-5aa74abf26ae",
+          "title": "Milestone 4 — Readiness risks & delivery",
+          "tasks": [
+            {
+              "id": "2c77a43f-f468-4e09-8f79-6d58cda66a0b",
+              "title": "Compile readiness risks/blockers for blog-driven traffic + mitigations",
+              "status": "todo"
+            },
+            {
+              "id": "47fb2a4d-e591-4f0f-ae37-2d4882c907c8",
+              "title": "Save artifacts + run evaluations; iterate if needed",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 0
+        },
+        {
+          "id": "43bc8d4b-9cd0-465f-a007-410dff85b767",
+          "title": "Core Tool Smoke Test",
+          "tasks": [
+            {
+              "id": "d9a7293a-cd64-4d43-ba99-7919bbfbd07c",
+              "title": "Test entity_action lifecycle (launch → pause → complete) on each entity type",
+              "status": "todo"
+            },
+            {
+              "id": "a54b57dd-44df-4da5-ae17-9455666525c5",
+              "title": "Test scaffold_initiative creates full hierarchy (initiative → workstreams → milestones → tasks)",
+              "status": "todo"
+            },
+            {
+              "id": "90fe9440-c90c-4e7b-8e0e-e5f9b087cd09",
+              "title": "Test spawn_agent_task dispatches work and get_agent_status reflects it",
+              "status": "todo"
+            },
+            {
+              "id": "5a844167-a029-4c6c-afd7-b189cf98ba34",
+              "title": "Test get_org_snapshot returns real data with initiatives, health scores",
+              "status": "done"
+            },
+            {
+              "id": "177f9786-edb7-4abe-8ab6-88b6b8e36391",
+              "title": "Test score_next_up_queue returns ranked items with factor breakdowns",
+              "status": "todo"
+            },
+            {
+              "id": "396be9b1-118d-4737-9418-f5aa9363dac1",
+              "title": "Test get_pending_decisions / approve_decision / reject_decision flow end-to-end",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 2
+        },
+        {
+          "id": "fd2d3ebf-5c51-45b6-8f90-51dc525622c8",
+          "title": "Widget Rendering Validation",
+          "tasks": [
+            {
+              "id": "499e43dd-f757-455e-9359-050b5c17a77f",
+              "title": "Test Decision Triage widget renders with approve/reject actions",
+              "status": "todo"
+            },
+            {
+              "id": "bc984355-1661-4105-8746-e1b243b355e0",
+              "title": "Test Command Center dashboard widget renders in Claude.ai",
+              "status": "todo"
+            },
+            {
+              "id": "a3463d98-1960-4140-a1a4-2699965738f0",
+              "title": "Screenshot each widget as proof of render quality",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 0
+        },
+        {
+          "id": "6796e5e7-d979-4540-8989-0c17eae9cec2",
+          "title": "Happy Path Walkthrough",
+          "tasks": [
+            {
+              "id": "6e623b33-46a8-4aa0-ae46-126a44f0331e",
+              "title": "Capture screenshots/transcript of successful walkthrough as proof artifact",
+              "status": "todo"
+            },
+            {
+              "id": "1ead94dc-688c-4f5f-895f-cab0bf51a4ce",
+              "title": "Walkthrough: Create initiative → launch → check pulse → approve decision → complete task",
+              "status": "todo"
+            },
+            {
+              "id": "01abd0d9-4e05-40bf-8d5d-c0572b2cd76f",
+              "title": "Document any rough edges or confusing responses for polish pass",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+      "initiativeTitle": "Proactive Agent Mesh: Introspection, Learning & Autonomous Operations",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "5807b34c-f3d4-4062-86d3-0444a1208344",
+      "workstreamTitle": "Local/Cloud Agent Sync (OpenClaw)",
+      "workstreamStatus": "active",
+      "nextTaskId": "013c48f4-b0ee-4d38-a477-dcfbd99031de",
+      "nextTaskTitle": "Implement local run telemetry emission to cloud",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "c8fb1396-10ae-4b27-a2cf-e1b36324defa",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "013c48f4-b0ee-4d38-a477-dcfbd99031de"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "c8fb1396-10ae-4b27-a2cf-e1b36324defa",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "725a05b2-c95d-4511-bd05-3b47e549a66d",
+          "title": "Local/Cloud Sync v1 (Outbox + Dedup + Retros)",
+          "tasks": [
+            {
+              "id": "dc2b7cbd-8a10-42ec-8791-3d0a19bd6a82",
+              "title": "OpenClaw plugin: sync retros/outcomes + changeset events to cloud",
+              "status": "done"
+            },
+            {
+              "id": "5580eae7-7782-4cda-99a6-192067b4d597",
+              "title": "Implement event deduplication bus (local + cloud)",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 2
+        },
+        {
+          "id": "f0e27978-2e78-4147-bc54-f533ce3600f1",
+          "title": "OpenClaw Agent Instantiation",
+          "tasks": [
+            {
+              "id": "959cdabb-7821-4802-a2d4-a64d7a5efd9a",
+              "title": "OpenClaw Agent Instantiation: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "d73259c5-0a4d-48ed-9a1e-67d76aee2b77",
+              "title": "OpenClaw Agent Instantiation: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "c01478a1-3b58-4eca-b754-4ea567cae87d",
+              "title": "OpenClaw Agent Instantiation: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "c57b84a9-1b66-4643-ac5c-1d86c6e16a55",
+              "title": "Sync persona configs between local and cloud agents",
+              "status": "todo"
+            },
+            {
+              "id": "ac113c8a-8854-4210-9591-3becf00ba3a1",
+              "title": "Create local agent mirrors on OpenClaw plugin pairing",
+              "status": "in_progress"
+            },
+            {
+              "id": "f589edc5-564e-433f-8f5c-fe34f6c7c398",
+              "title": "Store pairing state in Supabase with API key auth",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 0
+        },
+        {
+          "id": "c8fb1396-10ae-4b27-a2cf-e1b36324defa",
+          "title": "Bidirectional State Sync",
+          "tasks": [
+            {
+              "id": "8da8281e-a70d-4cf4-8de4-0e78525b134f",
+              "title": "Bidirectional State Sync: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "9a7db2ea-aa5b-4c4f-9ec1-70d495f924df",
+              "title": "Bidirectional State Sync: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "4e93f487-e85b-4778-a804-989c47240110",
+              "title": "Extend /api/client/sync endpoint for agent state",
+              "status": "done"
+            },
+            {
+              "id": "013c48f4-b0ee-4d38-a477-dcfbd99031de",
+              "title": "Implement local run telemetry emission to cloud",
+              "status": "in_progress"
+            },
+            {
+              "id": "e32ed544-e75b-4696-8cf7-76a1b173025a",
+              "title": "Route local retros into learning aggregator",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 1
+        },
+        {
+          "id": "c16a1960-d67f-40cb-b4b7-f175a0b14244",
+          "title": "Unified Event Bus",
+          "tasks": [
+            {
+              "id": "bfdd93b1-4f6d-453d-840f-2e9f27c10a64",
+              "title": "Unified Event Bus: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "c6d6edd5-dfd9-4643-94de-ebf1560c52f7",
+              "title": "Unified Event Bus: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "5e3f04c1-92f2-4f9f-a95a-16c4e047d1fc",
+              "title": "Implement cross-environment fingerprint coordination",
+              "status": "todo"
+            },
+            {
+              "id": "c6b94b2f-45f0-477e-940b-6dff37f84017",
+              "title": "Add Supabase realtime channel for event bus sync",
+              "status": "todo"
+            },
+            {
+              "id": "f0976ab7-6bd3-402a-ae8c-c7652b49ff2d",
+              "title": "Extend event dedup bus to span local and cloud environments",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+      "initiativeTitle": "Proactive Agent Mesh: Introspection, Learning & Autonomous Operations",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "99dafb36-48f0-4204-907d-9e7bec413adb",
+      "workstreamTitle": "Post-Run Introspection Engine",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "2c8c83d2-eebc-4a13-9b63-c4fdd5a0137d",
+      "nextTaskTitle": "Sentinel: resolve decision",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "6612ed67-01da-4c20-b136-c19a19c47529",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "2c8c83d2-eebc-4a13-9b63-c4fdd5a0137d"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "6612ed67-01da-4c20-b136-c19a19c47529",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "eb95054c-9a09-45fb-b3f9-3dce1930e59c",
+          "title": "Post-Run Introspection v1 (Epilogue + Retro Artifact)",
+          "tasks": [
+            {
+              "id": "81378704-52e2-4d35-8a3c-99285cb19de0",
+              "title": "Add run epilogue: write retro artifact + link to entity context",
+              "status": "done"
+            },
+            {
+              "id": "70e0eb07-4cea-4db8-aa71-9ce6306277b0",
+              "title": "Record execution_outcomes on run completion + surface in learning digest",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 2
+        },
+        {
+          "id": "b59aa598-78fc-4f7a-80c1-5a3dda534b79",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "3ccb9052-b34a-41bd-bebd-1bb2794e427e",
+              "title": "Backlog: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "b1976dfb-9e37-4d23-9aea-f9d3579d90ae",
+              "title": "Backlog: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "b44351a0-36f2-439f-b6fe-08542a726b71",
+              "title": "Backlog: Validation",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 0
+        },
+        {
+          "id": "6612ed67-01da-4c20-b136-c19a19c47529",
+          "title": "Retro Quality & Templating",
+          "tasks": [
+            {
+              "id": "55321c92-12a1-42ed-a303-01533a781fd1",
+              "title": "Retro Quality & Templating: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "4699b80b-3d20-43e2-89fa-e372beb503bb",
+              "title": "Retro Quality & Templating: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "cfcaa192-c7ea-4f66-b068-194d1931e04f",
+              "title": "Add retro rendering in entity timeline UI",
+              "status": "done"
+            },
+            {
+              "id": "9f31ec3d-5d08-47a0-9ca3-8959c3259ec0",
+              "title": "Create domain-specific retro templates per agent type",
+              "status": "done"
+            },
+            {
+              "id": "2539a00a-c621-4886-92b0-5f6bcf8729f2",
+              "title": "Implement retro quality rubric scoring",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 3
+        },
+        {
+          "id": "f376bc35-b698-4e05-b8a7-1b1577fe257a",
+          "title": "Run State Machine Integration",
+          "tasks": [
+            {
+              "id": "4e62c055-5fc5-4bba-a751-be61b6f87c7e",
+              "title": "Implement retro generation LLM call with telemetry review",
+              "status": "done"
+            },
+            {
+              "id": "617db3c0-4533-40aa-8616-f655deb4f255",
+              "title": "Wire retro attachment to relevant entities (initiative/milestone/task)",
+              "status": "done"
+            },
+            {
+              "id": "06ea2d0c-0fba-463c-8fbe-ce48b51961e0",
+              "title": "Add 'introspecting' state to run state machine",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 3
+        },
+        {
+          "id": "acdb10a7-3ddc-43cd-b2e3-d80b0fa1969e",
+          "title": "Retro Schema & Data Model",
+          "tasks": [
+            {
+              "id": "14b10d74-77eb-4fe6-a444-9ec6dcc8eecd",
+              "title": "Retro Schema & Data Model: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "ca966d5b-bce9-47ab-93ca-4b036d951e19",
+              "title": "Retro Schema & Data Model: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "2df11618-a05b-44f2-b516-58a00ad20b2d",
+              "title": "Retro Schema & Data Model: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "6727a5be-cd0a-4097-9f8a-c0bb51fd71e3",
+              "title": "Design retro artifact JSON schema with versioning",
+              "status": "done"
+            },
+            {
+              "id": "75d8175b-67d1-44d9-b7a5-566a59985c2f",
+              "title": "Create Supabase migration for agent_run_retros table",
+              "status": "done"
+            },
+            {
+              "id": "5a2b7542-520f-4d4e-b8c4-ef02978d547d",
+              "title": "Add retro as first-class artifact type in entity system",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 3
+        }
+      ]
+    },
+    {
+      "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+      "initiativeTitle": "Proactive Agent Mesh: Introspection, Learning & Autonomous Operations",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "fb012b8e-3ca9-4ee8-aaa6-960afc3c431b",
+      "workstreamTitle": "Proactive Sentinel Jobs",
+      "workstreamStatus": "active",
+      "nextTaskId": "24896248-eb73-49cc-a9b0-9fb2ebab0557",
+      "nextTaskTitle": "Auto-create sentinel configs on plugin installation",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "94d1e262-3e26-4eeb-8696-c300e24ad600",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "24896248-eb73-49cc-a9b0-9fb2ebab0557"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "94d1e262-3e26-4eeb-8696-c300e24ad600",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "46d810e6-be1b-449d-980d-dd5b652adcb0",
+          "title": "Proactive Sentinels v1 (Watchers + Trigger Contracts)",
+          "tasks": [
+            {
+              "id": "f139a7c8-865f-42cd-8fad-c60f8661ae42",
+              "title": "Ship minimal sentinel set (stale initiatives, blocked workstreams, pending decisions)",
+              "status": "done"
+            },
+            {
+              "id": "eace0987-2816-4324-adb6-2ce75c2dd518",
+              "title": "Trigger contracts + UI surfacing",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 2
+        },
+        {
+          "id": "91f02832-41c8-4536-a1a5-f4ff35458f3c",
+          "title": "Built-in Sentinel Catalog",
+          "tasks": [
+            {
+              "id": "9f1a69f6-70c4-4a26-bbdd-8f88045a54b7",
+              "title": "Built-in Sentinel Catalog: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "5e8a8c10-478e-4f1e-a39b-253af90f0ea7",
+              "title": "Built-in Sentinel Catalog: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "7174d9ba-965d-4949-a126-14585d79dd98",
+              "title": "Implement engineering sentinels (error log, CI failure, dependency scan)",
+              "status": "done"
+            },
+            {
+              "id": "21dc978e-c0ae-42a5-9464-79f4f4d26e1a",
+              "title": "Implement sales sentinels (deal stagnation, lead response)",
+              "status": "done"
+            },
+            {
+              "id": "4e6f7239-ec7c-4eb1-ac72-e296df506609",
+              "title": "Implement ops sentinels (cost anomaly, SLA breach)",
+              "status": "done"
+            },
+            {
+              "id": "2a85c264-a2ee-45b1-aa1c-1afe1b245a88",
+              "title": "Implement marketing sentinels (content performance, budget monitor)",
+              "status": "done"
+            },
+            {
+              "id": "95ce9231-7306-4563-9516-a5783634f5f0",
+              "title": "Implement design sentinel (accessibility audit)",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 7,
+          "doneTasks": 5
+        },
+        {
+          "id": "94d1e262-3e26-4eeb-8696-c300e24ad600",
+          "title": "Plugin Installation Bootstrap",
+          "tasks": [
+            {
+              "id": "251c50e5-082b-4488-971d-ab50d5c0f0b4",
+              "title": "Plugin Installation Bootstrap: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "eadd6028-db60-45ca-9d1b-af9174d10854",
+              "title": "Plugin Installation Bootstrap: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "f49d86bb-dc3c-4284-a8d6-585c216b88e7",
+              "title": "Wire sentinels to spawn_agent_task for execution",
+              "status": "todo"
+            },
+            {
+              "id": "8860369e-d4f3-4b03-baf8-ab669d7c0d96",
+              "title": "Build sentinel management UI (enable/disable/customize)",
+              "status": "todo"
+            },
+            {
+              "id": "24896248-eb73-49cc-a9b0-9fb2ebab0557",
+              "title": "Auto-create sentinel configs on plugin installation",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 0
+        },
+        {
+          "id": "6d175576-f081-4232-9815-c8aca6f6d8d2",
+          "title": "Event Deduplication Bus",
+          "tasks": [
+            {
+              "id": "9a93581e-af63-4346-91df-8ff1efe236aa",
+              "title": "Create event_fingerprints table with hash, source, active_run_ids",
+              "status": "done"
+            },
+            {
+              "id": "721335ef-1d67-4835-bdb3-56c7e90a6138",
+              "title": "Add dedup check before agent spawn in spawn_agent_task",
+              "status": "done"
+            },
+            {
+              "id": "5e03bf67-b49c-49e7-b2bc-066584128208",
+              "title": "Implement fingerprinting logic per event type",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 3
+        }
+      ]
+    },
+    {
+      "initiativeId": "aa6d16dc-d450-417f-8a17-fd89bd597195",
+      "initiativeTitle": "OrgX OpenClaw Plugin — Saturday Launch",
+      "initiativeStatus": "active",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "d42b07f6-5943-48ce-9f11-e8a6544e358c",
+      "workstreamTitle": "MCP-in-Claude Verification & UX",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "e23a0a2d-97cd-4584-a9e3-cc6c9240a28f",
+      "nextTaskTitle": "G0.1: MCP Connection Smoke Test: Implementation",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": "2026-02-11T00:00:00.000Z",
+      "nextTaskMilestoneId": "44167783-de58-4dec-a97f-c3b4fd56ca80",
+      "runnerAgentId": "design-agent",
+      "runnerAgentName": "Design Agent",
+      "runnerAgents": [
+        {
+          "id": "design-agent",
+          "name": "Design Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "e23a0a2d-97cd-4584-a9e3-cc6c9240a28f"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "44167783-de58-4dec-a97f-c3b4fd56ca80",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "02de0bfb-de8b-40e2-b40f-ac1f212a9799",
+          "title": "G0.2: Tool-by-Tool Triage (Demo Script Coverage)",
+          "tasks": [
+            {
+              "id": "7cbfce67-2b62-4948-88ae-de7b61e41989",
+              "title": "G0.2: Tool-by-Tool Triage (Demo Script Coverage): Discovery",
+              "status": "done"
+            },
+            {
+              "id": "124e733b-7741-4ff1-b5e1-fcd91ff1e112",
+              "title": "G0.2: Tool-by-Tool Triage (Demo Script Coverage): Implementation",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 1
+        },
+        {
+          "id": "44167783-de58-4dec-a97f-c3b4fd56ca80",
+          "title": "G0.1: MCP Connection Smoke Test",
+          "tasks": [
+            {
+              "id": "818dade4-a1d1-4f5e-88fb-e5624e6544c8",
+              "title": "G0.1: MCP Connection Smoke Test: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "e23a0a2d-97cd-4584-a9e3-cc6c9240a28f",
+              "title": "G0.1: MCP Connection Smoke Test: Implementation",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 1
+        },
+        {
+          "id": "c550317e-43a7-4097-958f-2a103dd7cdb3",
+          "title": "G0.3: MCP Result UX Polish (10/10 Rendered Output)",
+          "tasks": [
+            {
+              "id": "957e37fd-fdf2-427a-9af4-e530ce38057f",
+              "title": "G0.3: MCP Result UX Polish (10/10 Rendered Output): Discovery",
+              "status": "done"
+            },
+            {
+              "id": "696f740f-ae57-494c-9bc1-b4ab93e384dc",
+              "title": "G0.3: MCP Result UX Polish (10/10 Rendered Output): Implementation",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 2
+        }
+      ]
+    },
+    {
+      "initiativeId": "aa6d16dc-d450-417f-8a17-fd89bd597195",
+      "initiativeTitle": "OrgX OpenClaw Plugin — Saturday Launch",
+      "initiativeStatus": "active",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "ea90bdd6-f2d5-4b8e-999a-42617ae6a547",
+      "workstreamTitle": "Decision Gate Flow",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "598102ce-2483-40aa-b7c3-b768bbbcddaa",
+      "nextTaskTitle": "G2.1: Decision Creation Mid-Execution: Implementation",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": "2026-02-12T00:00:00.000Z",
+      "nextTaskMilestoneId": "92fc3b08-3569-44ee-ba88-9b6960f25dc1",
+      "runnerAgentId": "operations-agent",
+      "runnerAgentName": "Operations Agent",
+      "runnerAgents": [
+        {
+          "id": "operations-agent",
+          "name": "Operations Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "598102ce-2483-40aa-b7c3-b768bbbcddaa"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "92fc3b08-3569-44ee-ba88-9b6960f25dc1",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "92fc3b08-3569-44ee-ba88-9b6960f25dc1",
+          "title": "G2.1: Decision Creation Mid-Execution",
+          "tasks": [
+            {
+              "id": "f24324ae-fa21-4f5b-b656-0fca444ff1e1",
+              "title": "G2.1: Decision Creation Mid-Execution: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "598102ce-2483-40aa-b7c3-b768bbbcddaa",
+              "title": "G2.1: Decision Creation Mid-Execution: Implementation",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 1
+        },
+        {
+          "id": "1b3ecc18-0da2-42f6-9ed3-d77198b94755",
+          "title": "G2.2: Approval → Resume Loop",
+          "tasks": [
+            {
+              "id": "800841fe-ac56-4ad0-9aa8-9dc83c94d32c",
+              "title": "G2.2: Approval → Resume Loop: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "6d0c767e-052f-48d3-96da-516887462029",
+              "title": "G2.2: Approval → Resume Loop: Implementation",
+              "status": "blocked"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "aa6d16dc-d450-417f-8a17-fd89bd597195",
+      "initiativeTitle": "OrgX OpenClaw Plugin — Saturday Launch",
+      "initiativeStatus": "active",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "17181dc5-6d05-4552-85a8-cb60d00f6a82",
+      "workstreamTitle": "Org Memory & Context Survival",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "76ce32fa-b1cc-4cc5-8777-a26cffedbc5c",
+      "nextTaskTitle": "G3.1: Org Memory Returns Real Data: Implementation",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": "2026-02-12T00:00:00.000Z",
+      "nextTaskMilestoneId": "7c9ef232-6bdf-46f1-bda3-d10d102dabf8",
+      "runnerAgentId": "operations-agent",
+      "runnerAgentName": "Operations Agent",
+      "runnerAgents": [
+        {
+          "id": "operations-agent",
+          "name": "Operations Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "76ce32fa-b1cc-4cc5-8777-a26cffedbc5c"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "7c9ef232-6bdf-46f1-bda3-d10d102dabf8",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "7c9ef232-6bdf-46f1-bda3-d10d102dabf8",
+          "title": "G3.1: Org Memory Returns Real Data",
+          "tasks": [
+            {
+              "id": "fa78d451-1b9a-4045-9d96-8b0fec8d1713",
+              "title": "G3.1: Org Memory Returns Real Data: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "76ce32fa-b1cc-4cc5-8777-a26cffedbc5c",
+              "title": "G3.1: Org Memory Returns Real Data: Implementation",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 1
+        },
+        {
+          "id": "e52f43c0-a48c-4e00-bb91-a367e7cf9813",
+          "title": "G3.2: Cross-Session Context Survival",
+          "tasks": [
+            {
+              "id": "b2946ffc-565f-40be-8d5e-1be018873d45",
+              "title": "G3.2: Cross-Session Context Survival: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "6e32e2de-41d7-4892-8089-c8b68c6fe891",
+              "title": "G3.2: Cross-Session Context Survival: Implementation",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "aa6d16dc-d450-417f-8a17-fd89bd597195",
+      "initiativeTitle": "OrgX OpenClaw Plugin — Saturday Launch",
+      "initiativeStatus": "active",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "6c779fc9-9db4-482e-9f3c-0d2719aa3bc9",
+      "workstreamTitle": "Plan to Initiative Bridge",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "d8dfa001-8521-46a7-8dc9-b9110dfa1c70",
+      "nextTaskTitle": "G4.1: Plan → Scaffold → Launch Continuous Flow: Implementation",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": "2026-02-12T00:00:00.000Z",
+      "nextTaskMilestoneId": "077690b1-8f42-4bac-874a-00eb593a8fb9",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "d8dfa001-8521-46a7-8dc9-b9110dfa1c70"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "077690b1-8f42-4bac-874a-00eb593a8fb9",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "077690b1-8f42-4bac-874a-00eb593a8fb9",
+          "title": "G4.1: Plan → Scaffold → Launch Continuous Flow",
+          "tasks": [
+            {
+              "id": "9e1003cb-3ba2-4ac5-8781-194f8e9f5374",
+              "title": "G4.1: Plan → Scaffold → Launch Continuous Flow: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "d8dfa001-8521-46a7-8dc9-b9110dfa1c70",
+              "title": "G4.1: Plan → Scaffold → Launch Continuous Flow: Implementation",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "99aceceb-d8b0-4c43-86ae-278fbd7d59ea",
+      "initiativeTitle": "MCP Stream Agent Reassignment Capability",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "63c144b2-eb0d-4da4-99ca-0555068664e8",
+      "workstreamTitle": "Backend: Stream Reassignment API",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "bf5df21b-63bb-4170-a5a8-78562c1f168a",
+      "nextTaskTitle": "MCP Tool Surface: Implementation",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": "2026-03-01T00:00:00.000Z",
+      "nextTaskMilestoneId": "e8e60e34-4d19-497a-8611-c97002b0706e",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "bf5df21b-63bb-4170-a5a8-78562c1f168a"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "e8e60e34-4d19-497a-8611-c97002b0706e",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "7c3062a8-0934-4a4e-855f-3acc581bd8f1",
+          "title": "Stream Domain Update Support",
+          "tasks": [
+            {
+              "id": "2857a0e5-3bf2-4612-a58c-e79536739160",
+              "title": "Stream Domain Update Support: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "58c6c9cb-f4b4-42e6-9bba-c005d53bb690",
+              "title": "Stream Domain Update Support: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "5ef0b288-6b50-4eed-8c5c-2a09706b6e69",
+              "title": "Validate agent_domain values against known domains (engineering, marketing, sales, operations, design, product, orchestration)",
+              "status": "todo"
+            },
+            {
+              "id": "032791c5-c71c-4db2-8586-6418d2e34da2",
+              "title": "Add bulk reassignment support — accept initiative_id + domain mapping to reassign multiple streams in one call",
+              "status": "todo"
+            },
+            {
+              "id": "802343d2-9a4b-46a6-b4df-dc103e9b560d",
+              "title": "Add agent_domain to stream update schema — allow update_entity type=stream to accept agent_domain field",
+              "status": "todo"
+            },
+            {
+              "id": "f08e2f17-5406-4afe-b025-9b4f4d1097aa",
+              "title": "Handle reassignment side effects — if stream is active/ready, re-dispatch to correct agent pool after domain change",
+              "status": "blocked"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 1
+        },
+        {
+          "id": "e8e60e34-4d19-497a-8611-c97002b0706e",
+          "title": "MCP Tool Surface",
+          "tasks": [
+            {
+              "id": "8e8b8586-cbd9-4c93-ad8a-21f0b29c5e13",
+              "title": "MCP Tool Surface: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "bf5df21b-63bb-4170-a5a8-78562c1f168a",
+              "title": "MCP Tool Surface: Implementation",
+              "status": "in_progress"
+            },
+            {
+              "id": "5155ea71-5a4b-4edb-99a9-8de25536c6c2",
+              "title": "MCP Tool Surface: Validation",
+              "status": "done"
+            },
+            {
+              "id": "0e205ab1-f346-4a1d-91da-ffc50517514f",
+              "title": "Add reassign_streams convenience tool — takes initiative_id and workstream-to-domain mapping, updates all streams",
+              "status": "done"
+            },
+            {
+              "id": "393cdf96-4e84-40bd-b26e-680b4bc6ef6f",
+              "title": "Return confirmation with before/after domain for each stream in response",
+              "status": "todo"
+            },
+            {
+              "id": "38b5fe44-5b84-4279-a88e-a2fd3a2e3bf6",
+              "title": "Expose reassign capability through existing update_entity tool — document agent_domain as updatable field for streams",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 2
+        }
+      ]
+    },
+    {
+      "initiativeId": "7906cc8b-d60c-43d6-b714-8a91502d6ceb",
+      "initiativeTitle": "Agent Dojo — Continuous Self-Improvement Engine",
+      "initiativeStatus": "active",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "0b28b2ae-3ad0-4066-8a06-7f9be4c0f6df",
+      "workstreamTitle": "Agent Practice Regimens",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "22b4ed38-eb27-496a-9b2c-e56cc0406874",
+      "nextTaskTitle": "First Improvement Cycle Complete: Implementation",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": "2026-03-03T00:00:00.000Z",
+      "nextTaskMilestoneId": "9a822005-165b-4d76-bffc-31a27d93c8e4",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "22b4ed38-eb27-496a-9b2c-e56cc0406874"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "9a822005-165b-4d76-bffc-31a27d93c8e4",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "ece78621-5f5e-43ea-bf97-1a6f8159b909",
+          "title": "Launch All 7 Agent Practice Programs",
+          "tasks": [
+            {
+              "id": "eb32ce72-d3f0-4584-8062-44fc0f2a7f81",
+              "title": "Launch All 7 Agent Practice Programs: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "d0a8a5d4-b4f9-4e95-a0aa-e5c279484ae1",
+              "title": "Launch All 7 Agent Practice Programs: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "e9ecac50-763a-4aac-b63c-b7e1f9dbc701",
+              "title": "Launch All 7 Agent Practice Programs: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "cef19ec7-b584-4859-bfe3-dab21205b2bd",
+              "title": "Mark (Marketing) — daily campaign brief + social post practice with brand voice rubric",
+              "status": "todo"
+            },
+            {
+              "id": "14f0118b-1e7e-4406-aa1f-bd5ea6df4823",
+              "title": "Eli (Engineering) — daily code patch + tech spec practice with correctness rubric",
+              "status": "todo"
+            },
+            {
+              "id": "a1947c78-d03b-4e66-865f-08af19ff73d4",
+              "title": "Sage (Sales) — daily outreach sequence + deal scorecard practice with personalization rubric",
+              "status": "todo"
+            },
+            {
+              "id": "3f88b385-d620-4092-90be-f872681302d2",
+              "title": "Pace (Product) — daily initiative plan + decision pack practice with strategic clarity rubric",
+              "status": "todo"
+            },
+            {
+              "id": "f5b5cccd-c39b-4856-9570-ad787378b792",
+              "title": "Orion (Operations) — daily morning brief + incident playbook practice with precision rubric",
+              "status": "todo"
+            },
+            {
+              "id": "917632db-c592-4849-bee0-b5674d304bf9",
+              "title": "Dana (Design) — daily token system + accessibility audit practice with craft rubric",
+              "status": "todo"
+            },
+            {
+              "id": "b595c826-cfc1-4ba4-b5ce-379d050189c8",
+              "title": "Xandy (Orchestrator) — daily routing plan + cross-domain synthesis practice with coordination rubric",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 10,
+          "doneTasks": 2
+        },
+        {
+          "id": "9a822005-165b-4d76-bffc-31a27d93c8e4",
+          "title": "First Improvement Cycle Complete",
+          "tasks": [
+            {
+              "id": "22b4ed38-eb27-496a-9b2c-e56cc0406874",
+              "title": "First Improvement Cycle Complete: Implementation",
+              "status": "in_progress"
+            },
+            {
+              "id": "59171c53-744b-429f-ac33-54c0df7d3ec0",
+              "title": "Confirm at least 3 agents have auto-committed a skill improvement",
+              "status": "todo"
+            },
+            {
+              "id": "e8122a69-fecc-4b03-96f2-3905ffa7196b",
+              "title": "Verify all 7 agents have 7+ days of practice scores tracked",
+              "status": "todo"
+            },
+            {
+              "id": "58c9228d-e23b-4f76-b573-d678069d0bc8",
+              "title": "Run cost analysis — validate practice runs staying under $5/day total across all agents",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "d35e5cbc-5ec7-44c9-84ee-ea2fe6344d92",
+      "initiativeTitle": "Configurable Agent Behavior System",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "efb1da69-081c-4e9d-8f08-99b1ceead047",
+      "workstreamTitle": "Platform Settings UI",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "18be29f0-1b24-4c18-852f-3248f752634f",
+      "nextTaskTitle": "Per-Agent Configuration Panels: Implementation",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": "2026-03-26T00:00:00.000Z",
+      "nextTaskMilestoneId": "ec0d6216-b04a-493a-8637-8043fcc582d9",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "18be29f0-1b24-4c18-852f-3248f752634f"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "ec0d6216-b04a-493a-8637-8043fcc582d9",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "9916526f-14b6-4c82-b969-be983b28500a",
+          "title": "Agent Settings Page",
+          "tasks": [
+            {
+              "id": "ea6c15c2-8e19-4701-ab85-b635c4794bb1",
+              "title": "Agent Settings Page: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "537181d9-0ffa-4513-bf11-9fb98ba80761",
+              "title": "Design agent settings page — tabbed interface per agent, grouped settings with descriptions and current values",
+              "status": "done"
+            },
+            {
+              "id": "30c1ad62-85b5-4902-973d-f89f033ef99a",
+              "title": "Implement preset system — 'Conservative' (all approvals), 'Balanced' (smart defaults), 'Autonomous' (max automation)",
+              "status": "done"
+            },
+            {
+              "id": "9681c40b-3024-4467-a083-9d20fe3fbbe6",
+              "title": "Build settings form components — toggles, dropdowns, sliders, with real-time validation against schema",
+              "status": "done"
+            },
+            {
+              "id": "5b1cbfc2-6da8-46ff-a3cc-206d29d2c3fc",
+              "title": "Add settings preview — show what an agent run would look like with current config before saving",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 5
+        },
+        {
+          "id": "ec0d6216-b04a-493a-8637-8043fcc582d9",
+          "title": "Per-Agent Configuration Panels",
+          "tasks": [
+            {
+              "id": "70a509e2-3cf5-4ed2-a253-7edcee95fbf2",
+              "title": "Per-Agent Configuration Panels: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "18be29f0-1b24-4c18-852f-3248f752634f",
+              "title": "Per-Agent Configuration Panels: Implementation",
+              "status": "in_progress"
+            },
+            {
+              "id": "50a5933c-84b8-4a4d-bc3f-2255f1706a78",
+              "title": "Engineering Agent panel — auto-commit toggle, merge strategy (squash/rebase/merge), PR template, CI gate requirements, artifact = PR link",
+              "status": "todo"
+            },
+            {
+              "id": "59c3a8ae-e1cd-429d-96eb-d96a50e0292d",
+              "title": "Marketing Agent panel — content approval workflow, platform selection (LinkedIn/Twitter/Instagram), tone presets, A/B test automation",
+              "status": "todo"
+            },
+            {
+              "id": "58b4739d-fc6a-40b6-ad9f-0338f96adcc4",
+              "title": "Sales/Ops/Design/Product/Orchestration panels — agent-specific settings following schema definitions",
+              "status": "todo"
+            },
+            {
+              "id": "dc366c21-342a-4225-91d1-e883cbc17559",
+              "title": "Add 'Test This Config' button — runs a dry-run with current settings against a sample task, shows expected behavior",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 2
+        }
+      ]
+    },
+    {
+      "initiativeId": "d35e5cbc-5ec7-44c9-84ee-ea2fe6344d92",
+      "initiativeTitle": "Configurable Agent Behavior System",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "93a1d2aa-7889-421f-8970-94a80487d02b",
+      "workstreamTitle": "Agent Behavior Schema & Registry",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "44ae5afb-908e-4180-94d8-10d0db256016",
+      "nextTaskTitle": "Build JSON Schema validation for all config types — ensure type safety and constraint enforcement",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "7c181884-7ca9-448f-94ab-e53218e5c81f",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "44ae5afb-908e-4180-94d8-10d0db256016"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "7c181884-7ca9-448f-94ab-e53218e5c81f",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "7c181884-7ca9-448f-94ab-e53218e5c81f",
+          "title": "Universal Behavior Schema",
+          "tasks": [
+            {
+              "id": "fb1ec80e-7559-4098-940d-ce841ed0830e",
+              "title": "Universal Behavior Schema: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "acca8bc9-a364-452e-ab3d-bf56d24a6bbe",
+              "title": "Define settings for remaining agents — Marketing: content_approval_gate, platform_targets, tone_preset, ab_test_auto; Sales: crm_sync, outreach_cadence; Ops: alert_thresholds, escalation_rules; Design: asset_format, brand_compliance_check; Product: prd_template, stakeholder_notify; Orchestration: parallel_limit, retry_policy",
+              "status": "todo"
+            },
+            {
+              "id": "abf9eb39-4174-4893-be2d-23d79d855f46",
+              "title": "Define 5+ configurable settings per agent with sensible defaults — Engineering: auto_commit, auto_merge, pr_as_artifact, branch_strategy, test_required",
+              "status": "todo"
+            },
+            {
+              "id": "012a4d18-ef33-460b-a698-e1cee975c6dc",
+              "title": "Design AgentBehaviorConfig schema — execution_mode (auto/supervised/manual), artifact_type, approval_threshold, automation_level, rollback_behavior",
+              "status": "todo"
+            },
+            {
+              "id": "44ae5afb-908e-4180-94d8-10d0db256016",
+              "title": "Build JSON Schema validation for all config types — ensure type safety and constraint enforcement",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 0
+        },
+        {
+          "id": "07a2247f-e65c-4a18-b8bb-63afed0e45d1",
+          "title": "Behavior Registry Service",
+          "tasks": [
+            {
+              "id": "49ef9c28-212d-489a-9c9b-77bffb61eedb",
+              "title": "Behavior Registry Service: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "4566f14f-d1c3-4e6f-9ef6-6a18cd073dfa",
+              "title": "Behavior Registry Service: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "31a76c31-da8f-427c-84a8-b220f5ab986f",
+              "title": "Build registry API — GET /agents/:id/config, PUT /agents/:id/config, POST /agents/:id/config/reset",
+              "status": "todo"
+            },
+            {
+              "id": "96bd4e91-6a4b-49f6-9140-c29e18532eed",
+              "title": "Create Supabase table for agent_behavior_configs with versioning (config_version, created_at, active flag)",
+              "status": "todo"
+            },
+            {
+              "id": "f651d9a5-bffb-4d18-a8cd-09d64759f450",
+              "title": "Implement config inheritance — workspace defaults → agent-type defaults → user overrides",
+              "status": "todo"
+            },
+            {
+              "id": "809f7d44-221a-45cf-a285-34f73a64c132",
+              "title": "Add config diff and audit log — track who changed what, when, with rollback capability",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "9cca40bb-d789-454d-b193-c5e760eb0632",
+      "initiativeTitle": "Onboarding v2 20/10: Real Demo + MCP Depth + Screenshot-Proven",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "ac631848-19b8-4b8e-9d2e-b8d7e19b9af7",
+      "workstreamTitle": "Visual Parity With mcp.useorgx.com",
+      "workstreamStatus": "active",
+      "nextTaskId": "771252c1-a15e-4c13-98ce-8725ddc3f0a4",
+      "nextTaskTitle": "Design audit doc for each onboarding step",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "77bcb25a-7eac-4de0-a16c-d0b60cccab7b",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "771252c1-a15e-4c13-98ce-8725ddc3f0a4"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "77bcb25a-7eac-4de0-a16c-d0b60cccab7b",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "3de164bc-d778-44a8-8f69-61a84e21e16d",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "518a95b0-475b-47ce-9bee-f38080287060",
+              "title": "Backlog: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "95fa6033-ff78-4089-b1aa-c7010999142e",
+              "title": "Backlog: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "f36b7604-b57f-46e3-a633-3fe0e174bc0e",
+              "title": "Backlog: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "775ab48f-f7b2-4555-8d7e-41b54de42615",
+              "title": "Upgrade next-up loading skeletons + add delight",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 0
+        },
+        {
+          "id": "77bcb25a-7eac-4de0-a16c-d0b60cccab7b",
+          "title": "Visual polish pass 1",
+          "tasks": [
+            {
+              "id": "8bce6390-2777-4ff7-865f-85e24c938e30",
+              "title": "Visual polish pass 1: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "9e3726f6-d631-43d7-a63f-457286c5c220",
+              "title": "Visual polish pass 1: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "14d99658-e325-48b9-8f64-f71b907b03fb",
+              "title": "Visual polish pass 1: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "9134d698-7d44-4eef-93fa-3c134e18f63e",
+              "title": "Wrap /onboarding and /onboarding/v2 in McpShell + DotGrid + WovenFlow",
+              "status": "done"
+            },
+            {
+              "id": "771252c1-a15e-4c13-98ce-8725ddc3f0a4",
+              "title": "Design audit doc for each onboarding step",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 5,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "aa6d16dc-d450-417f-8a17-fd89bd597195",
+      "initiativeTitle": "OrgX OpenClaw Plugin — Saturday Launch",
+      "initiativeStatus": "active",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "b9fd7df9-c610-4627-8ff7-f2cd08b88f4f",
+      "workstreamTitle": "10x Quality: Orchestration Moat Experiments",
+      "workstreamStatus": "paused",
+      "nextTaskId": "a27ebb19-0cb4-4d7f-8ae4-9b79448800ec",
+      "nextTaskTitle": "Backlog: Implementation",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "5102abca-fe0c-4506-87db-8b9621ffff65",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "a27ebb19-0cb4-4d7f-8ae4-9b79448800ec"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "5102abca-fe0c-4506-87db-8b9621ffff65",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "5102abca-fe0c-4506-87db-8b9621ffff65",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "a27ebb19-0cb4-4d7f-8ae4-9b79448800ec",
+              "title": "Backlog: Implementation",
+              "status": "in_progress"
+            },
+            {
+              "id": "e5ee3545-0ded-4132-b6dd-18794253b15d",
+              "title": "Backlog: Validation",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "aa6d16dc-d450-417f-8a17-fd89bd597195",
+      "initiativeTitle": "OrgX OpenClaw Plugin — Saturday Launch",
+      "initiativeStatus": "active",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "c663f60a-ffb8-4887-86e2-11a1306a3c95",
+      "workstreamTitle": "10x Quality: Performance & Latency",
+      "workstreamStatus": "paused",
+      "nextTaskId": "be9a7b45-7a00-478e-a562-f28ed838077d",
+      "nextTaskTitle": "Backlog: Implementation",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "93cc5bf4-4080-42dd-a441-b5471883fc69",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "be9a7b45-7a00-478e-a562-f28ed838077d"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "93cc5bf4-4080-42dd-a441-b5471883fc69",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "93cc5bf4-4080-42dd-a441-b5471883fc69",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "cc5d7f1c-c393-4359-9a9c-e00059fb32f3",
+              "title": "Backlog: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "be9a7b45-7a00-478e-a562-f28ed838077d",
+              "title": "Backlog: Implementation",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "aa6d16dc-d450-417f-8a17-fd89bd597195",
+      "initiativeTitle": "OrgX OpenClaw Plugin — Saturday Launch",
+      "initiativeStatus": "active",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "73186d83-8171-4856-a840-308be91012d7",
+      "workstreamTitle": "10x Quality: Reliability + Observability",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "3d964650-a799-4d73-8b84-9d896c782ce2",
+      "nextTaskTitle": "Backlog: Implementation",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "b5fafda7-94a5-45e7-842c-65f5f1278e2b",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "3d964650-a799-4d73-8b84-9d896c782ce2"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "b5fafda7-94a5-45e7-842c-65f5f1278e2b",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "b5fafda7-94a5-45e7-842c-65f5f1278e2b",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "3d964650-a799-4d73-8b84-9d896c782ce2",
+              "title": "Backlog: Implementation",
+              "status": "in_progress"
+            },
+            {
+              "id": "c49fd47c-8c5c-43d4-abd5-a64e26ce3699",
+              "title": "Backlog: Validation",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "aa6d16dc-d450-417f-8a17-fd89bd597195",
+      "initiativeTitle": "OrgX OpenClaw Plugin — Saturday Launch",
+      "initiativeStatus": "active",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "9f7308eb-282b-4e69-afdc-145a850665f2",
+      "workstreamTitle": "Deterministic Reporting Control Plane (4-Layer Core)",
+      "workstreamStatus": "active",
+      "nextTaskId": "8aef0369-6ba1-42fc-832f-a5b75cb539e2",
+      "nextTaskTitle": "Backlog: Implementation",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "54ab7790-022e-4bdc-9a85-f7b08d62bc29",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "8aef0369-6ba1-42fc-832f-a5b75cb539e2"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "54ab7790-022e-4bdc-9a85-f7b08d62bc29",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "54ab7790-022e-4bdc-9a85-f7b08d62bc29",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "40a73b64-5392-47d0-b1a9-8063fc0d9164",
+              "title": "Backlog: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "8aef0369-6ba1-42fc-832f-a5b75cb539e2",
+              "title": "Backlog: Implementation",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "aa6d16dc-d450-417f-8a17-fd89bd597195",
+      "initiativeTitle": "OrgX OpenClaw Plugin — Saturday Launch",
+      "initiativeStatus": "active",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "38d265f1-2f3f-4a50-a509-ad2ec2bcaf15",
+      "workstreamTitle": "Reporting Reliability Hardening (Hooks + Replay + SLO)",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "5af1391c-bc8e-4933-b5b8-5cef473a8880",
+      "nextTaskTitle": "Backlog: Implementation",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "d1ef5f97-c1f4-4219-9080-4965caa0ea4a",
+      "runnerAgentId": "operations-agent",
+      "runnerAgentName": "Operations Agent",
+      "runnerAgents": [
+        {
+          "id": "operations-agent",
+          "name": "Operations Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "5af1391c-bc8e-4933-b5b8-5cef473a8880"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "d1ef5f97-c1f4-4219-9080-4965caa0ea4a",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "d1ef5f97-c1f4-4219-9080-4965caa0ea4a",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "116d5efb-e48c-4f24-87c8-62a15c084345",
+              "title": "Backlog: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "5af1391c-bc8e-4933-b5b8-5cef473a8880",
+              "title": "Backlog: Implementation",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "62631dde-1909-43ee-aa89-44035e5ac499",
+      "initiativeTitle": "Proactive Agent Mesh: Introspection, Learning & Autonomous Operations",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "bd94f979-32c1-46cb-b792-9daca7c4137d",
+      "workstreamTitle": "Strategy & Narrative",
+      "workstreamStatus": "active",
+      "nextTaskId": "3ea46e83-2d74-4245-b233-021aa41ed7fc",
+      "nextTaskTitle": "(Milestone) Narrative copy draft",
+      "nextTaskPriority": 50,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "a842543f-b622-40a8-b149-fd1c2cfcfa65",
+      "runnerAgentId": "product-agent",
+      "runnerAgentName": "Product Agent",
+      "runnerAgents": [
+        {
+          "id": "product-agent",
+          "name": "Product Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "running",
+      "blockReason": null,
+      "sliceScope": "milestone",
+      "sliceTaskIds": [
+        "3ea46e83-2d74-4245-b233-021aa41ed7fc"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": "a842543f-b622-40a8-b149-fd1c2cfcfa65",
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "a842543f-b622-40a8-b149-fd1c2cfcfa65",
+          "title": "North-Star Narrative + Success Signals",
+          "tasks": [
+            {
+              "id": "a2be0371-91eb-4136-bc6d-07c0c1fe0086",
+              "title": "North-Star Narrative + Success Signals: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "42066af2-a143-4e6a-bba0-f59242f3c297",
+              "title": "North-Star Narrative + Success Signals: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "5b3cc356-95ca-4c18-8c41-868e4ba39fc0",
+              "title": "North-Star Narrative + Success Signals: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "3ea46e83-2d74-4245-b233-021aa41ed7fc",
+              "title": "(Milestone) Narrative copy draft",
+              "status": "in_progress"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 0
+        },
+        {
+          "id": "f562d9bd-0584-45a5-8346-cdccd0519b3f",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "7ecd8218-b2e3-40e5-9a3a-52961278a732",
+              "title": "Backlog: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "4f794986-e541-4b75-b038-caca9907ea2f",
+              "title": "Backlog: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "8507c6ae-f760-4595-aa5b-d7752d59c21d",
+              "title": "Backlog: Validation",
+              "status": "todo"
+            },
+            {
+              "id": "51147dcb-a098-4d51-b1f5-d8179430cee7",
+              "title": "Define product narrative + value ladder",
+              "status": "todo"
+            },
+            {
+              "id": "ae3a9238-a9e2-4bbe-859e-4fba69492a92",
+              "title": "Define success signals + guardrail metrics",
+              "status": "todo"
+            },
+            {
+              "id": "d2e8f4f1-6317-42db-863f-a0479dde63f5",
+              "title": "Draft operator playbook outline",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 6,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "aa6d16dc-d450-417f-8a17-fd89bd597195",
+      "initiativeTitle": "OrgX OpenClaw Plugin — Saturday Launch",
+      "initiativeStatus": "active",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "e11835db-5afd-4097-a63d-9b73809c334b",
+      "workstreamTitle": "Plugin Packaging & Distribution",
+      "workstreamStatus": "active",
+      "nextTaskId": "27ead70b-18ce-4a52-8ae3-370f1c39fc1c",
+      "nextTaskTitle": "Submit to OpenClaw marketplace",
+      "nextTaskPriority": 8,
+      "nextTaskDueAt": "2026-02-11T00:00:00.000Z",
+      "nextTaskMilestoneId": "de36e55c-71f4-4934-865f-8b263611645c",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "queued",
+      "blockReason": null,
+      "sliceScope": "workstream",
+      "sliceTaskIds": [
+        "27ead70b-18ce-4a52-8ae3-370f1c39fc1c"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": null,
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "de36e55c-71f4-4934-865f-8b263611645c",
+          "title": "Plugin Downloadable",
+          "tasks": [
+            {
+              "id": "c664df8a-6428-4f0c-8d49-23413774fd10",
+              "title": "Plugin Downloadable: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "237dccdf-8857-4a8e-97d6-7c7b94777c0e",
+              "title": "Plugin Downloadable: Implementation",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 2
+        },
+        {
+          "id": "ec7e237a-2317-40ba-bba7-b43efee1b90d",
+          "title": "Deprecated Milestone Archive (Plugin Packaging & Distribution)",
+          "tasks": [],
+          "totalTasks": 0,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "aa6d16dc-d450-417f-8a17-fd89bd597195",
+      "initiativeTitle": "OrgX OpenClaw Plugin — Saturday Launch",
+      "initiativeStatus": "active",
+      "initiativePriority": "critical",
+      "initiativePriorityNum": null,
+      "workstreamId": "1485c491-48b2-42f2-9b95-02eb8d529b10",
+      "workstreamTitle": "Twitter Ads Campaign",
+      "workstreamStatus": "active",
+      "nextTaskId": "a668ac18-ac58-4284-87a7-4929183abb80",
+      "nextTaskTitle": "Set up Twitter Ads account",
+      "nextTaskPriority": 12,
+      "nextTaskDueAt": "2026-02-12T00:00:00.000Z",
+      "nextTaskMilestoneId": "d8ef03db-e891-4ec4-92ed-6df41f20d08c",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "queued",
+      "blockReason": null,
+      "sliceScope": "workstream",
+      "sliceTaskIds": [
+        "a668ac18-ac58-4284-87a7-4929183abb80"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": null,
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "d8ef03db-e891-4ec4-92ed-6df41f20d08c",
+          "title": "Ads Running",
+          "tasks": [
+            {
+              "id": "08dddd04-0565-4fd9-afd1-d1919734dbfc",
+              "title": "Ads Running: Discovery",
+              "status": "done"
+            },
+            {
+              "id": "2873127b-441d-435e-a2fc-d93fe3713842",
+              "title": "Ads Running: Implementation",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 2
+        },
+        {
+          "id": "035126af-91a5-46dd-8e32-6b6926e5a80c",
+          "title": "Deprecated Milestone Archive (Twitter Ads Campaign)",
+          "tasks": [],
+          "totalTasks": 0,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "e181d7a3-25f7-47ab-848e-ec03e2096d08",
+      "initiativeTitle": "Agent-Native Account Management API",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "cba8c721-3336-41d6-9a07-b466758f096f",
+      "workstreamTitle": "Account Management API",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "62a6eaec-9501-46c6-86a4-84e8e136431b",
+      "nextTaskTitle": "Workspace CRUD: GET/POST/PATCH/DELETE /api/v1/workspaces",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "d44311c7-fbeb-4733-8c2c-06e79687f58f",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "queued",
+      "blockReason": null,
+      "sliceScope": "workstream",
+      "sliceTaskIds": [
+        "62a6eaec-9501-46c6-86a4-84e8e136431b"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": null,
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "d44311c7-fbeb-4733-8c2c-06e79687f58f",
+          "title": "Core Account Endpoints",
+          "tasks": [
+            {
+              "id": "abb409a3-539e-4506-b29b-c31d74e008d1",
+              "title": "POST /api/v1/accounts — Account creation endpoint",
+              "status": "done"
+            },
+            {
+              "id": "62a6eaec-9501-46c6-86a4-84e8e136431b",
+              "title": "Workspace CRUD: GET/POST/PATCH/DELETE /api/v1/workspaces",
+              "status": "todo"
+            },
+            {
+              "id": "e632a897-97f9-4523-ae2c-3439ac216da5",
+              "title": "API Key Management: GET/POST/DELETE /api/v1/api-keys",
+              "status": "todo"
+            },
+            {
+              "id": "8fd2f7eb-45ca-4ae2-ad01-d642c793e732",
+              "title": "Scope enforcement middleware",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 1
+        },
+        {
+          "id": "856c314f-4b16-4441-b32e-911c9fea677f",
+          "title": "Extended Management Endpoints",
+          "tasks": [
+            {
+              "id": "508a26c3-de38-4834-b927-252d45cbab41",
+              "title": "Agent configuration API: GET/PUT /workspaces/{id}/agents/{type}",
+              "status": "todo"
+            },
+            {
+              "id": "fb1a3ad2-19d6-48c3-86f8-9e1c62295337",
+              "title": "Team member management: invite, list, update role, remove",
+              "status": "todo"
+            },
+            {
+              "id": "921bb5d5-e626-4c5b-8a7e-b0b3938488af",
+              "title": "Billing API: subscription status, usage, checkout/portal URLs",
+              "status": "todo"
+            },
+            {
+              "id": "ff9e8daa-dd68-4502-b822-645942464c9e",
+              "title": "MCP server management API: add, list, remove connected servers",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "e181d7a3-25f7-47ab-848e-ec03e2096d08",
+      "initiativeTitle": "Agent-Native Account Management API",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "a6b14080-0ee5-44ef-8ffd-5fa793cdd601",
+      "workstreamTitle": "Auth Infrastructure",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "f0b077a0-105d-46e4-8e3c-340dfdddc24d",
+      "nextTaskTitle": "Unify Clerk session auth + OAuth token auth",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "249c9c85-7a78-4bf4-a68f-3dcd9896b35f",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "queued",
+      "blockReason": null,
+      "sliceScope": "workstream",
+      "sliceTaskIds": [
+        "f0b077a0-105d-46e4-8e3c-340dfdddc24d"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": null,
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "7350541d-02fd-4a75-849e-7c32ec4c8a5e",
+          "title": "Device Auth Flow Live",
+          "tasks": [
+            {
+              "id": "4a996db7-71af-4910-a746-31e228d56b6b",
+              "title": "Implement POST /api/v1/auth/device-code endpoint",
+              "status": "todo"
+            },
+            {
+              "id": "7c96df37-b47d-4609-868e-29bb8802f74d",
+              "title": "Build /device verification page in Next.js",
+              "status": "todo"
+            },
+            {
+              "id": "7a737c38-3c00-43e8-a2df-efd0d826974b",
+              "title": "Implement POST /api/v1/auth/token with device_code grant",
+              "status": "todo"
+            },
+            {
+              "id": "0563a7aa-2fdb-4148-b8ce-e5721adacaaf",
+              "title": "Token refresh and revocation endpoints",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 0
+        },
+        {
+          "id": "249c9c85-7a78-4bf4-a68f-3dcd9896b35f",
+          "title": "OAuth 2.1 DCR with Auto-Provisioning",
+          "tasks": [
+            {
+              "id": "16c4c6cd-1a6f-4775-a31f-240ca0716642",
+              "title": "Extend POST /register DCR endpoint for CLI clients",
+              "status": "todo"
+            },
+            {
+              "id": "5954f083-c595-4189-bc85-bd3117dbe73d",
+              "title": "Add auto_provision flag to /authorize flow",
+              "status": "todo"
+            },
+            {
+              "id": "f0b077a0-105d-46e4-8e3c-340dfdddc24d",
+              "title": "Unify Clerk session auth + OAuth token auth",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+      "initiativeTitle": "Proactive Agent Mesh: Introspection, Learning & Autonomous Operations",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "5a6246cf-b3e6-4072-94ee-983f5cc76606",
+      "workstreamTitle": "Agent Commentary System",
+      "workstreamStatus": "blocked",
+      "nextTaskId": "afbcc427-24b1-4abd-b5bf-199b0f98529b",
+      "nextTaskTitle": "Update agent persona prompts with commenting guidelines",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "071da7cc-2a2c-45fc-8d1d-c4b428e50b3b",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "queued",
+      "blockReason": null,
+      "sliceScope": "workstream",
+      "sliceTaskIds": [
+        "afbcc427-24b1-4abd-b5bf-199b0f98529b"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": null,
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "0894bd16-efaa-460b-a37b-a7eb9be22b49",
+          "title": "Agent Commentary v1 (Entity Notes + Threading)",
+          "tasks": [
+            {
+              "id": "533b3c09-a20a-45b2-91ac-c4149b92cc47",
+              "title": "Add entity_comments table + API routes",
+              "status": "done"
+            },
+            {
+              "id": "79d52b7a-ccaa-4781-a374-e676cc9b7037",
+              "title": "UI: render commentary thread on initiative/workstream/task views",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 2
+        },
+        {
+          "id": "ee20f0c5-c1a2-4124-9e85-366d2a80d248",
+          "title": "Backlog",
+          "tasks": [
+            {
+              "id": "12e937ef-5310-47c1-8826-0f5dde17bed2",
+              "title": "Backlog: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "a0b5697b-c41d-4f10-b584-92beb266aa40",
+              "title": "Backlog: Implementation",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 0
+        },
+        {
+          "id": "36ea61ce-5a08-4300-81c6-9a0473706d9e",
+          "title": "Schema, Data Model & MCP Tool",
+          "tasks": [
+            {
+              "id": "a25f5916-a4a2-42fe-90c2-19881b7174e5",
+              "title": "Create entity_comments Supabase migration with indexes",
+              "status": "done"
+            },
+            {
+              "id": "7f2111bc-8275-4649-b3d0-22fb381dc01f",
+              "title": "Register comment_on_entity MCP tool in orgx-mcp worker",
+              "status": "done"
+            },
+            {
+              "id": "445db11f-144c-4866-9555-02fed7f76eca",
+              "title": "Add list_entity_comments MCP tool for reading comments on any entity",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 3
+        },
+        {
+          "id": "f594af8a-54da-4c23-907c-702b7a732cda",
+          "title": "UI Rendering & Cross-System Integration",
+          "tasks": [
+            {
+              "id": "ec292788-e91f-4c2b-a49b-f467b5b53902",
+              "title": "UI Rendering & Cross-System Integration: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "e34a414c-0271-497b-917c-95f7a226136b",
+              "title": "UI Rendering & Cross-System Integration: Validation",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 2,
+          "doneTasks": 0
+        },
+        {
+          "id": "071da7cc-2a2c-45fc-8d1d-c4b428e50b3b",
+          "title": "Agent Integration & Emission Points",
+          "tasks": [
+            {
+              "id": "7a8098ba-5156-482b-add7-4847257fde24",
+              "title": "Agent Integration & Emission Points: Discovery",
+              "status": "todo"
+            },
+            {
+              "id": "c219b4a2-65cf-4f90-ac54-b452fbbd429f",
+              "title": "Agent Integration & Emission Points: Implementation",
+              "status": "todo"
+            },
+            {
+              "id": "4ebe8a35-7423-4bd5-9303-66a89636b662",
+              "title": "Make comment_on_entity available at all run phases",
+              "status": "done"
+            }
+          ],
+          "totalTasks": 3,
+          "doneTasks": 1
+        }
+      ]
+    },
+    {
+      "initiativeId": "99ccf4f0-aaa6-47e5-982c-87085fc93b8c",
+      "initiativeTitle": "User Journey Analytics: Full-Funnel Event Tracking",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "40b16c92-c359-47d8-8cf8-745345ee6f68",
+      "workstreamTitle": "Acquisition & Entry Point Events",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "061b466b-7466-4cd8-bb31-20fbd552923c",
+      "nextTaskTitle": "Implement anonymous → identified user stitching",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "b0c310c0-5039-4ca5-a513-adc6dfed0426",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "queued",
+      "blockReason": null,
+      "sliceScope": "workstream",
+      "sliceTaskIds": [
+        "061b466b-7466-4cd8-bb31-20fbd552923c"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": null,
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "b0c310c0-5039-4ca5-a513-adc6dfed0426",
+          "title": "Entry Point Tracking Live",
+          "tasks": [
+            {
+              "id": "8e931c34-979e-4716-ad5b-1ea99f31fea1",
+              "title": "Implement MCP client plugin install/discovery events",
+              "status": "todo"
+            },
+            {
+              "id": "191aa1d3-10e9-4325-b6cd-6ca7158c761e",
+              "title": "Implement direct signup funnel events",
+              "status": "todo"
+            },
+            {
+              "id": "814927ee-4c22-48a9-91cd-22a597996b27",
+              "title": "Implement channel attribution and UTM tracking",
+              "status": "todo"
+            },
+            {
+              "id": "061b466b-7466-4cd8-bb31-20fbd552923c",
+              "title": "Implement anonymous → identified user stitching",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 0
+        }
+      ]
+    },
+    {
+      "initiativeId": "99ccf4f0-aaa6-47e5-982c-87085fc93b8c",
+      "initiativeTitle": "User Journey Analytics: Full-Funnel Event Tracking",
+      "initiativeStatus": "paused",
+      "initiativePriority": "active",
+      "initiativePriorityNum": null,
+      "workstreamId": "bb8cd5b6-6f2b-4dee-83c5-8bc4e3608fbf",
+      "workstreamTitle": "Analytics Infrastructure & Reporting",
+      "workstreamStatus": "not_started",
+      "nextTaskId": "a318c33f-f4af-4c36-8852-50a8928247dd",
+      "nextTaskTitle": "Build primary funnel conversion dashboard",
+      "nextTaskPriority": 25,
+      "nextTaskDueAt": null,
+      "nextTaskMilestoneId": "0e278e36-a851-473c-8d63-7ab600216f72",
+      "runnerAgentId": "engineering-agent",
+      "runnerAgentName": "Engineering Agent",
+      "runnerAgents": [
+        {
+          "id": "engineering-agent",
+          "name": "Engineering Agent"
+        }
+      ],
+      "runnerSource": "assigned",
+      "queueState": "queued",
+      "blockReason": null,
+      "sliceScope": "workstream",
+      "sliceTaskIds": [
+        "a318c33f-f4af-4c36-8852-50a8928247dd"
+      ],
+      "sliceTaskCount": 1,
+      "sliceMilestoneId": null,
+      "isPinned": false,
+      "pinnedRank": null,
+      "updatedAt": null,
+      "milestoneBreakdown": [
+        {
+          "id": "0e278e36-a851-473c-8d63-7ab600216f72",
+          "title": "Analytics Pipeline Operational",
+          "tasks": [
+            {
+              "id": "4eb244ea-7599-424d-8df6-9215f29d7a89",
+              "title": "Implement shared analytics utility layer",
+              "status": "todo"
+            },
+            {
+              "id": "d877f885-7538-43a6-b23d-933184665b14",
+              "title": "Select and integrate analytics provider",
+              "status": "todo"
+            },
+            {
+              "id": "77b97670-1e57-4c4b-a114-0d9a215a862e",
+              "title": "Set up alerting for funnel anomalies",
+              "status": "todo"
+            },
+            {
+              "id": "a318c33f-f4af-4c36-8852-50a8928247dd",
+              "title": "Build primary funnel conversion dashboard",
+              "status": "todo"
+            }
+          ],
+          "totalTasks": 4,
+          "doneTasks": 0
+        }
+      ]
+    }
+  ],
+  "pagination": {
+    "offset": 0,
+    "limit": 40,
+    "total": 163,
+    "nextCursor": "40",
+    "hasMore": true
+  },
+  "source": "canonical",
+  "degraded": [
+    "Some items have circular dependencies — timeline estimates adjusted accordingly.",
+    "Timeline estimates may be less accurate — limited completed work to calibrate against."
+  ]
+}

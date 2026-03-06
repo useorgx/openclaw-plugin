@@ -1,0 +1,14 @@
+{
+  "title": "ADR-0002: Make Code/orgx the single orchestration authority with event-ledger projections",
+  "status": "accepted",
+  "context": "Mission Control continuity has shown repeated split-brain symptoms across Next Up, In Progress, Activity, and Completed surfaces. The plugin currently combines canonical reads, stale cache fallback, and local derivation paths that can disagree under latency, auth drift, and fallback conditions. This results in lifecycle ambiguity (queued/running/active confusion), inconsistent running counts, and reduced operator trust.",
+  "decision": "OrgX orchestration authority moves to Code/orgx as the sole control-plane runtime. Lifecycle truth is represented in a Postgres append-only event ledger with deterministic projection tables for Next Up, In Progress, Activity, and Completed. The plugin is reduced to command issuance plus projection rendering. Rollout follows shadow-verify-cutover, with invariant checks and latency SLO gates before canonical cutover.",
+  "consequences": [
+    "All lifecycle transitions must be command/event-driven and idempotent, not UI- or route-derived.",
+    "Reconciliation-first orchestration loop becomes mandatory: reconcile active runs, process retries, then dispatch.",
+    "Projection APIs become the only source for Mission Control cards and counts.",
+    "Legacy fallback logic remains temporary during shadow mode and is removed after cutover gates pass.",
+    "Operator policy moves to versioned control-plane configuration so principal-level dispatch behavior is explicit and testable.",
+    "Verification burden increases up front (invariant, contract, chaos, and e2e continuity suites) but materially lowers runtime ambiguity and incident recovery time."
+  ]
+}

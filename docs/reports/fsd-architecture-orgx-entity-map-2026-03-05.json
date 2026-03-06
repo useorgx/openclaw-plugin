@@ -1,0 +1,727 @@
+{
+  "generated_at": "2026-03-05T12:13:37.434Z",
+  "dry_run": false,
+  "workspace_id": "7af01a51-49b1-47d8-98b9-91a198debca8",
+  "initiative_id": "c091defd-9d6c-48e0-8603-927c223c7c47",
+  "initiative_title": "OrgX FSD Orchestrator Re-Architecture (Single Authority v1)",
+  "workstreams": [
+    {
+      "id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "title": "W1 Experience Surface (Projection-Only UI)",
+      "sequence": 1
+    },
+    {
+      "id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "title": "W2 Public APIs (Command/Query Split + Idempotency)",
+      "sequence": 2
+    },
+    {
+      "id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "title": "W3 Orchestration Kernel (Reconciliation + State Machine)",
+      "sequence": 3
+    },
+    {
+      "id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "title": "W4 Event Ledger and Projections (Postgres Authoritative State)",
+      "sequence": 4
+    },
+    {
+      "id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "title": "W5 Execution Fabric (Executor Adapters + Lifecycle Contract)",
+      "sequence": 5
+    },
+    {
+      "id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "title": "W6 Observability and Verification (SLOs + Shadow Cutover Gates)",
+      "sequence": 6
+    }
+  ],
+  "milestones": [
+    {
+      "id": "7ec32e4e-3002-47a8-b0a4-303f6e0a5ad4",
+      "title": "M1 Spec and Contracts",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "sequence": 1
+    },
+    {
+      "id": "5b5af269-066f-45df-81c2-d009ccef5353",
+      "title": "M2 Build and Integrate",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "sequence": 2
+    },
+    {
+      "id": "4a1d427f-2c37-4a09-96cb-51e81d4e4c0d",
+      "title": "M3 Verify and Cutover Readiness",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "sequence": 3
+    },
+    {
+      "id": "9004cfab-68b8-45da-9733-07b3e05baf1d",
+      "title": "M1 Spec and Contracts",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "sequence": 1
+    },
+    {
+      "id": "acfb877c-be34-4ddb-9468-f4b85495e4df",
+      "title": "M2 Build and Integrate",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "sequence": 2
+    },
+    {
+      "id": "86c93b1d-accd-424e-a983-e91c11d282a0",
+      "title": "M3 Verify and Cutover Readiness",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "sequence": 3
+    },
+    {
+      "id": "f5c07f06-3d88-4177-8013-a5d70dd8e903",
+      "title": "M1 Spec and Contracts",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "sequence": 1
+    },
+    {
+      "id": "ff37ee82-ae81-45c0-bff1-30d2b27fae96",
+      "title": "M2 Build and Integrate",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "sequence": 2
+    },
+    {
+      "id": "f04814c5-8f36-4bc8-a3ea-876ccf58b9c5",
+      "title": "M3 Verify and Cutover Readiness",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "sequence": 3
+    },
+    {
+      "id": "79b0878b-9ab1-45d0-a9f4-50ca4a4728c8",
+      "title": "M1 Spec and Contracts",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "sequence": 1
+    },
+    {
+      "id": "5867c199-f082-4d62-ae4a-08128fb2bd0a",
+      "title": "M2 Build and Integrate",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "sequence": 2
+    },
+    {
+      "id": "9d2fe07a-927e-4c47-94df-e19a11de70e4",
+      "title": "M3 Verify and Cutover Readiness",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "sequence": 3
+    },
+    {
+      "id": "1ebbc457-028c-4343-be1f-905b5a85dd5f",
+      "title": "M1 Spec and Contracts",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "sequence": 1
+    },
+    {
+      "id": "af617c50-b8d6-4257-9ab8-494281aa0902",
+      "title": "M2 Build and Integrate",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "sequence": 2
+    },
+    {
+      "id": "83abd43f-5b4b-44a9-a8c6-9bd9f50aa257",
+      "title": "M3 Verify and Cutover Readiness",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "sequence": 3
+    },
+    {
+      "id": "6ac74119-75c5-46ed-8959-8af8fc885fd2",
+      "title": "M1 Spec and Contracts",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "sequence": 1
+    },
+    {
+      "id": "02e6e6f2-768f-4c2b-8b1b-ce79ca64b88f",
+      "title": "M2 Build and Integrate",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "sequence": 2
+    },
+    {
+      "id": "cf5ad8c1-a602-480e-84a7-a00f8b7a1c00",
+      "title": "M3 Verify and Cutover Readiness",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "sequence": 3
+    }
+  ],
+  "tasks": [
+    {
+      "id": "75305c17-8f1f-418c-9862-a306ced53fef",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "milestone_id": "7ec32e4e-3002-47a8-b0a4-303f6e0a5ad4",
+      "sequence": 1
+    },
+    {
+      "id": "8405622b-2a64-47f3-ad14-5dbb6286de6c",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "milestone_id": "7ec32e4e-3002-47a8-b0a4-303f6e0a5ad4",
+      "sequence": 2
+    },
+    {
+      "id": "69a0d884-dc25-4c98-83b1-5afa89c21911",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "milestone_id": "7ec32e4e-3002-47a8-b0a4-303f6e0a5ad4",
+      "sequence": 3
+    },
+    {
+      "id": "449c705f-98fd-42b1-9257-86132f41dd21",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "milestone_id": "7ec32e4e-3002-47a8-b0a4-303f6e0a5ad4",
+      "sequence": 4
+    },
+    {
+      "id": "40c9913f-a82b-4f10-b685-685d0631e011",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "milestone_id": "5b5af269-066f-45df-81c2-d009ccef5353",
+      "sequence": 1
+    },
+    {
+      "id": "7344a37e-3551-49c6-85af-038ef44df4fa",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "milestone_id": "5b5af269-066f-45df-81c2-d009ccef5353",
+      "sequence": 2
+    },
+    {
+      "id": "758f731d-db56-457c-a7b8-0963875a4b7f",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "milestone_id": "5b5af269-066f-45df-81c2-d009ccef5353",
+      "sequence": 3
+    },
+    {
+      "id": "78bb386c-1dbf-4909-81de-9739d4dfb6d1",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "milestone_id": "5b5af269-066f-45df-81c2-d009ccef5353",
+      "sequence": 4
+    },
+    {
+      "id": "90a79781-d522-4880-8707-94ab3861b6ff",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "milestone_id": "4a1d427f-2c37-4a09-96cb-51e81d4e4c0d",
+      "sequence": 1
+    },
+    {
+      "id": "6cf86404-b070-4a53-ac6b-2e10f905a68d",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "milestone_id": "4a1d427f-2c37-4a09-96cb-51e81d4e4c0d",
+      "sequence": 2
+    },
+    {
+      "id": "e288772a-1094-4f16-a338-115c368429cb",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "milestone_id": "4a1d427f-2c37-4a09-96cb-51e81d4e4c0d",
+      "sequence": 3
+    },
+    {
+      "id": "5c15c10b-0e62-49d4-8a97-b931cc330b6a",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "768b4ac6-62ad-4b56-8053-82dd5d8c7e06",
+      "milestone_id": "4a1d427f-2c37-4a09-96cb-51e81d4e4c0d",
+      "sequence": 4
+    },
+    {
+      "id": "67f7d98f-a183-483b-adb4-ca286cd8da5e",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "milestone_id": "9004cfab-68b8-45da-9733-07b3e05baf1d",
+      "sequence": 1
+    },
+    {
+      "id": "9c6e4d82-39fa-4248-882e-0ec9351edd90",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "milestone_id": "9004cfab-68b8-45da-9733-07b3e05baf1d",
+      "sequence": 2
+    },
+    {
+      "id": "a5771644-d253-4669-84b1-9a9226ca5cbd",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "milestone_id": "9004cfab-68b8-45da-9733-07b3e05baf1d",
+      "sequence": 3
+    },
+    {
+      "id": "6281b986-49fd-4ede-8f4f-44d33e09ffcf",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "milestone_id": "9004cfab-68b8-45da-9733-07b3e05baf1d",
+      "sequence": 4
+    },
+    {
+      "id": "598f83cf-d69e-4133-9176-24c333c7ef3a",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "milestone_id": "acfb877c-be34-4ddb-9468-f4b85495e4df",
+      "sequence": 1
+    },
+    {
+      "id": "c51792e5-a611-4547-8a2c-7c882f74afcb",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "milestone_id": "acfb877c-be34-4ddb-9468-f4b85495e4df",
+      "sequence": 2
+    },
+    {
+      "id": "4eff9a63-0872-40bf-973f-4cfbd698337b",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "milestone_id": "acfb877c-be34-4ddb-9468-f4b85495e4df",
+      "sequence": 3
+    },
+    {
+      "id": "39244402-917b-411e-876c-7d006ad9800a",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "milestone_id": "acfb877c-be34-4ddb-9468-f4b85495e4df",
+      "sequence": 4
+    },
+    {
+      "id": "ea95f569-5f8f-4c09-9589-287e11e39223",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "milestone_id": "86c93b1d-accd-424e-a983-e91c11d282a0",
+      "sequence": 1
+    },
+    {
+      "id": "54290507-941b-4362-a171-f60daa5319cb",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "milestone_id": "86c93b1d-accd-424e-a983-e91c11d282a0",
+      "sequence": 2
+    },
+    {
+      "id": "a11b4b11-c1aa-4de5-be0d-451aa0db92c1",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "milestone_id": "86c93b1d-accd-424e-a983-e91c11d282a0",
+      "sequence": 3
+    },
+    {
+      "id": "e4538a22-534d-46cb-b0fd-d2aca85e4fb2",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "665a5697-f682-45ec-824d-70964b6f6a83",
+      "milestone_id": "86c93b1d-accd-424e-a983-e91c11d282a0",
+      "sequence": 4
+    },
+    {
+      "id": "8d8dc9b0-8f99-44b0-b83d-d6517e185bfa",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "milestone_id": "f5c07f06-3d88-4177-8013-a5d70dd8e903",
+      "sequence": 1
+    },
+    {
+      "id": "3573aedf-02da-4a78-9c60-dca9e113a32f",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "milestone_id": "f5c07f06-3d88-4177-8013-a5d70dd8e903",
+      "sequence": 2
+    },
+    {
+      "id": "7c9f3570-875b-4751-8357-7787a7e1a883",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "milestone_id": "f5c07f06-3d88-4177-8013-a5d70dd8e903",
+      "sequence": 3
+    },
+    {
+      "id": "577d081f-8446-4bdd-ad28-53c155647025",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "milestone_id": "f5c07f06-3d88-4177-8013-a5d70dd8e903",
+      "sequence": 4
+    },
+    {
+      "id": "ea694213-405d-4510-92d5-b3ccb7666e84",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "milestone_id": "ff37ee82-ae81-45c0-bff1-30d2b27fae96",
+      "sequence": 1
+    },
+    {
+      "id": "7371bf03-1604-4aae-818d-54c4f0148b17",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "milestone_id": "ff37ee82-ae81-45c0-bff1-30d2b27fae96",
+      "sequence": 2
+    },
+    {
+      "id": "7aaa6d46-f24e-4425-bf9c-27b4c52d18e7",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "milestone_id": "ff37ee82-ae81-45c0-bff1-30d2b27fae96",
+      "sequence": 3
+    },
+    {
+      "id": "9cd81724-f611-45be-b710-cb592ccda03d",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "milestone_id": "ff37ee82-ae81-45c0-bff1-30d2b27fae96",
+      "sequence": 4
+    },
+    {
+      "id": "68a290d5-c087-49f7-9e8f-fdf15ae7d9cc",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "milestone_id": "f04814c5-8f36-4bc8-a3ea-876ccf58b9c5",
+      "sequence": 1
+    },
+    {
+      "id": "2b7eb684-2665-4c71-ae49-c756588ad66e",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "milestone_id": "f04814c5-8f36-4bc8-a3ea-876ccf58b9c5",
+      "sequence": 2
+    },
+    {
+      "id": "d33558f7-69a1-4840-8a5b-d1b5a0d1f700",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "milestone_id": "f04814c5-8f36-4bc8-a3ea-876ccf58b9c5",
+      "sequence": 3
+    },
+    {
+      "id": "9737c6d3-501a-4075-a0dc-95f8e79fb8d8",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "b409989c-af63-4250-a0d4-579274cf6db3",
+      "milestone_id": "f04814c5-8f36-4bc8-a3ea-876ccf58b9c5",
+      "sequence": 4
+    },
+    {
+      "id": "05df95f3-fdae-42e5-860d-83b930f0aabf",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "milestone_id": "79b0878b-9ab1-45d0-a9f4-50ca4a4728c8",
+      "sequence": 1
+    },
+    {
+      "id": "0a750de7-74ca-45e3-b70e-4a90128ded51",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "milestone_id": "79b0878b-9ab1-45d0-a9f4-50ca4a4728c8",
+      "sequence": 2
+    },
+    {
+      "id": "33e228f7-632b-457a-8c9d-876d5afe1e2b",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "milestone_id": "79b0878b-9ab1-45d0-a9f4-50ca4a4728c8",
+      "sequence": 3
+    },
+    {
+      "id": "e550804a-0af6-4fa6-b4d1-d4e95fba4e78",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "milestone_id": "79b0878b-9ab1-45d0-a9f4-50ca4a4728c8",
+      "sequence": 4
+    },
+    {
+      "id": "3fed3128-e8c6-474b-a7c0-50873922e9be",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "milestone_id": "5867c199-f082-4d62-ae4a-08128fb2bd0a",
+      "sequence": 1
+    },
+    {
+      "id": "6201cc44-a575-4bf2-b616-2a46b85b0277",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "milestone_id": "5867c199-f082-4d62-ae4a-08128fb2bd0a",
+      "sequence": 2
+    },
+    {
+      "id": "c63f3fbb-8c20-46d1-986a-5fa9561020d2",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "milestone_id": "5867c199-f082-4d62-ae4a-08128fb2bd0a",
+      "sequence": 3
+    },
+    {
+      "id": "00b03770-32e4-4307-a9c2-2b3d2d12db3b",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "milestone_id": "5867c199-f082-4d62-ae4a-08128fb2bd0a",
+      "sequence": 4
+    },
+    {
+      "id": "e9fdd896-f837-42e1-9965-e6d7c8474c50",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "milestone_id": "9d2fe07a-927e-4c47-94df-e19a11de70e4",
+      "sequence": 1
+    },
+    {
+      "id": "863256f1-76d1-45ac-8eac-51f13838838c",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "milestone_id": "9d2fe07a-927e-4c47-94df-e19a11de70e4",
+      "sequence": 2
+    },
+    {
+      "id": "6d67e46f-1992-43f4-95b9-46267ef8078d",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "milestone_id": "9d2fe07a-927e-4c47-94df-e19a11de70e4",
+      "sequence": 3
+    },
+    {
+      "id": "7bd2d380-8025-4010-967e-0659c0f2859c",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "0efb160b-0ada-498a-bf40-fd60f30aa2dc",
+      "milestone_id": "9d2fe07a-927e-4c47-94df-e19a11de70e4",
+      "sequence": 4
+    },
+    {
+      "id": "46cd3140-d8ad-458e-a3bb-e61fc23a6a7e",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "milestone_id": "1ebbc457-028c-4343-be1f-905b5a85dd5f",
+      "sequence": 1
+    },
+    {
+      "id": "cc468b8a-8fa1-4c0c-9870-959c63bd943d",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "milestone_id": "1ebbc457-028c-4343-be1f-905b5a85dd5f",
+      "sequence": 2
+    },
+    {
+      "id": "8855d7e4-44e7-4e5e-9af9-58889a289447",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "milestone_id": "1ebbc457-028c-4343-be1f-905b5a85dd5f",
+      "sequence": 3
+    },
+    {
+      "id": "a532ac5b-de24-4456-b3d4-225d1867bfce",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "milestone_id": "1ebbc457-028c-4343-be1f-905b5a85dd5f",
+      "sequence": 4
+    },
+    {
+      "id": "0c738083-f5e7-49e2-80e1-aeb88847ef24",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "milestone_id": "af617c50-b8d6-4257-9ab8-494281aa0902",
+      "sequence": 1
+    },
+    {
+      "id": "1ab17b2e-6643-486d-b37c-1afa1b598a78",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "milestone_id": "af617c50-b8d6-4257-9ab8-494281aa0902",
+      "sequence": 2
+    },
+    {
+      "id": "d5c4a96e-2c7b-4ffc-b0fa-0ca011570dde",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "milestone_id": "af617c50-b8d6-4257-9ab8-494281aa0902",
+      "sequence": 3
+    },
+    {
+      "id": "76ccc184-5acf-4e1d-9e4b-c47104248d79",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "milestone_id": "af617c50-b8d6-4257-9ab8-494281aa0902",
+      "sequence": 4
+    },
+    {
+      "id": "e12e8019-5adb-4d7d-a51b-2bc9e4b97508",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "milestone_id": "83abd43f-5b4b-44a9-a8c6-9bd9f50aa257",
+      "sequence": 1
+    },
+    {
+      "id": "1b3c8b94-9cd7-4309-b49c-91310897e428",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "milestone_id": "83abd43f-5b4b-44a9-a8c6-9bd9f50aa257",
+      "sequence": 2
+    },
+    {
+      "id": "bb35a20a-6b7f-46ba-bd1b-874f3bc3aec4",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "milestone_id": "83abd43f-5b4b-44a9-a8c6-9bd9f50aa257",
+      "sequence": 3
+    },
+    {
+      "id": "3527ddfa-1a41-4ba8-bc1d-08e6d92b69c0",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "89c398f3-7050-405a-b4a5-736477312f71",
+      "milestone_id": "83abd43f-5b4b-44a9-a8c6-9bd9f50aa257",
+      "sequence": 4
+    },
+    {
+      "id": "8e269290-1b7c-4f26-a5eb-b8cbd58aff9b",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "milestone_id": "6ac74119-75c5-46ed-8959-8af8fc885fd2",
+      "sequence": 1
+    },
+    {
+      "id": "f950077b-2a25-4b50-8452-b2caafa2e3e0",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "milestone_id": "6ac74119-75c5-46ed-8959-8af8fc885fd2",
+      "sequence": 2
+    },
+    {
+      "id": "fde15d0d-3dd7-443e-be62-b5fadf8fb899",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "milestone_id": "6ac74119-75c5-46ed-8959-8af8fc885fd2",
+      "sequence": 3
+    },
+    {
+      "id": "c08178d4-1f81-4a95-9d79-522cc170ff85",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "milestone_id": "6ac74119-75c5-46ed-8959-8af8fc885fd2",
+      "sequence": 4
+    },
+    {
+      "id": "262f24ef-b367-449a-8666-39919735949d",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "milestone_id": "02e6e6f2-768f-4c2b-8b1b-ce79ca64b88f",
+      "sequence": 1
+    },
+    {
+      "id": "a77af921-5902-4518-ad4d-e79afee614dd",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "milestone_id": "02e6e6f2-768f-4c2b-8b1b-ce79ca64b88f",
+      "sequence": 2
+    },
+    {
+      "id": "7154b3cf-f349-45c6-a4fe-19c861dfa855",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "milestone_id": "02e6e6f2-768f-4c2b-8b1b-ce79ca64b88f",
+      "sequence": 3
+    },
+    {
+      "id": "5e3c7e9b-027d-4ed2-adde-95ed0f570eea",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "milestone_id": "02e6e6f2-768f-4c2b-8b1b-ce79ca64b88f",
+      "sequence": 4
+    },
+    {
+      "id": "cee91900-e5d2-4c65-b534-1e4161160ad5",
+      "title": "T1 Define interface/state contract",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "milestone_id": "cf5ad8c1-a602-480e-84a7-a00f8b7a1c00",
+      "sequence": 1
+    },
+    {
+      "id": "76ad2c62-67f5-46da-bf23-1ce01896c358",
+      "title": "T2 Implement canonical path",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "milestone_id": "cf5ad8c1-a602-480e-84a7-a00f8b7a1c00",
+      "sequence": 2
+    },
+    {
+      "id": "409a86c3-84d1-4967-a2b7-936d97296d89",
+      "title": "T3 Add invariant/contract tests",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "milestone_id": "cf5ad8c1-a602-480e-84a7-a00f8b7a1c00",
+      "sequence": 3
+    },
+    {
+      "id": "876eb2f3-7a24-4dd8-b77d-b118f3aca175",
+      "title": "T4 Produce verification evidence + gate result",
+      "workstream_id": "d3de1390-fa68-4d59-bb05-51514c446619",
+      "milestone_id": "cf5ad8c1-a602-480e-84a7-a00f8b7a1c00",
+      "sequence": 4
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "ea5a85bb-676a-4d2f-895d-85bc00b93650",
+      "name": "ADR-0002 Single Authority Control Plane",
+      "status": "created",
+      "warnings": [
+        "Missing required field(s) for engineering.pr: pr_url, branch"
+      ]
+    },
+    {
+      "id": "9b732959-477c-44a7-89bc-a6dd0098df30",
+      "name": "FSD Orchestrator Architecture v1",
+      "status": "created",
+      "warnings": [
+        "Missing required field(s) for engineering.pr: pr_url, branch"
+      ]
+    },
+    {
+      "id": "be57274f-45db-46a5-8ac9-d150a1dc7627",
+      "name": "FSD Orchestrator Verification Matrix v1",
+      "status": "created",
+      "warnings": [
+        "Missing required field(s) for engineering.pr: pr_url, branch"
+      ]
+    }
+  ],
+  "verification": {
+    "counts": {
+      "workstreams": 6,
+      "milestones": 18,
+      "tasks": 72
+    },
+    "expected": {
+      "workstreams": 6,
+      "milestones": 18,
+      "tasks": 72
+    },
+    "pass": {
+      "workstream_count": true,
+      "milestone_count": true,
+      "task_count": true,
+      "docs_artifacts_present": true
+    },
+    "milestone_count_by_workstream": {
+      "768b4ac6-62ad-4b56-8053-82dd5d8c7e06": 3,
+      "665a5697-f682-45ec-824d-70964b6f6a83": 3,
+      "b409989c-af63-4250-a0d4-579274cf6db3": 3,
+      "0efb160b-0ada-498a-bf40-fd60f30aa2dc": 3,
+      "89c398f3-7050-405a-b4a5-736477312f71": 3,
+      "d3de1390-fa68-4d59-bb05-51514c446619": 3
+    },
+    "task_count_by_milestone": {
+      "7ec32e4e-3002-47a8-b0a4-303f6e0a5ad4": 4,
+      "5b5af269-066f-45df-81c2-d009ccef5353": 4,
+      "4a1d427f-2c37-4a09-96cb-51e81d4e4c0d": 4,
+      "9004cfab-68b8-45da-9733-07b3e05baf1d": 4,
+      "acfb877c-be34-4ddb-9468-f4b85495e4df": 4,
+      "86c93b1d-accd-424e-a983-e91c11d282a0": 4,
+      "f5c07f06-3d88-4177-8013-a5d70dd8e903": 4,
+      "ff37ee82-ae81-45c0-bff1-30d2b27fae96": 4,
+      "f04814c5-8f36-4bc8-a3ea-876ccf58b9c5": 4,
+      "79b0878b-9ab1-45d0-a9f4-50ca4a4728c8": 4,
+      "5867c199-f082-4d62-ae4a-08128fb2bd0a": 4,
+      "9d2fe07a-927e-4c47-94df-e19a11de70e4": 4,
+      "1ebbc457-028c-4343-be1f-905b5a85dd5f": 4,
+      "af617c50-b8d6-4257-9ab8-494281aa0902": 4,
+      "83abd43f-5b4b-44a9-a8c6-9bd9f50aa257": 4,
+      "6ac74119-75c5-46ed-8959-8af8fc885fd2": 4,
+      "02e6e6f2-768f-4c2b-8b1b-ce79ca64b88f": 4,
+      "cf5ad8c1-a602-480e-84a7-a00f8b7a1c00": 4
+    }
+  }
+}

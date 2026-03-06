@@ -48,7 +48,7 @@ type RouteResLike = {
   once?: (event: string, listener: () => void) => void;
 };
 
-type RegisterLiveLegacyRoutesDeps<TRes extends RouteResLike> = {
+type RegisterLiveLegacyRoutesDeps<TReq extends RouteReqLike, TRes extends RouteResLike> = {
   getLiveSessions: (input: {
     initiative: string | null;
     projectId: string | null;
@@ -132,6 +132,12 @@ type RegisterLiveLegacyRoutesDeps<TRes extends RouteResLike> = {
   };
   isUserScopedApiKey: (apiKey: string) => boolean;
   streamIdleTimeoutMs: number;
+  renderLiveStreamV2?: (input: {
+    path: string;
+    query: URLSearchParams;
+    req: TReq;
+    res: TRes;
+  }) => Promise<void>;
 };
 
 export function registerLiveLegacyRoutes<
@@ -139,7 +145,7 @@ export function registerLiveLegacyRoutes<
   TRes extends RouteResLike,
 >(
   router: Router<Record<string, never>, TReq, TRes>,
-  deps: RegisterLiveLegacyRoutesDeps<TRes>
+  deps: RegisterLiveLegacyRoutesDeps<TReq, TRes>
 ): void {
   function toContextBundle(value: AgentContextBundle): {
     agents: Record<string, AgentLaunchContext>;
@@ -514,10 +520,25 @@ export function registerLiveLegacyRoutes<
   );
 
   async function renderLiveStream(query: URLSearchParams, req: TReq, res: TRes): Promise<void> {
-    sendDeprecated(res, "/orgx/api/live/stream", "/orgx/api/live/snapshot-v2");
-    void query;
-    void req;
-    return;
+    if (typeof deps.renderLiveStreamV2 === "function") {
+      await deps.renderLiveStreamV2({
+        path: "live/stream",
+        query,
+        req,
+        res,
+      });
+      return;
+    }
+    const suffix = query.toString();
+    const location = suffix
+      ? `/orgx/api/live/stream-v2?${suffix}`
+      : "/orgx/api/live/stream-v2";
+    res.writeHead(307, {
+      Location: location,
+      Deprecation: "true",
+      Link: `</orgx/api/live/stream-v2>; rel="successor-version"`,
+    });
+    res.end();
   }
 
   router.add(

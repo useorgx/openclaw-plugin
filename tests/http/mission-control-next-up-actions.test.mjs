@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -78,6 +79,45 @@ async function call(handler, req) {
 async function sleep(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+function cleanupAutopilotChildren() {
+  try {
+    const listing = execFileSync("ps", ["-Ao", "pid=,command="], {
+      encoding: "utf8",
+    });
+    for (const line of listing.split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const match = trimmed.match(/^(\d+)\s+(.*)$/);
+      if (!match) continue;
+      const pid = Number(match[1]);
+      const command = match[2] ?? "";
+      if (!Number.isFinite(pid) || pid <= 0) continue;
+      if (
+        !command.includes("autopilot-logs/") &&
+        !command.includes("mock-autopilot-slice-worker")
+      ) {
+        continue;
+      }
+      try {
+        process.kill(pid, "SIGKILL");
+      } catch {
+        // best effort
+      }
+    }
+  } catch {
+    // best effort
+  }
+}
+
+test.afterEach(() => {
+  cleanupAutopilotChildren();
+});
+
+test.after(async () => {
+  await sleep(3_000);
+  cleanupAutopilotChildren();
+});
 
 function withEnv(patch, fn) {
   const prev = {};
@@ -1925,6 +1965,16 @@ test("mission-control clear resets blocked/in-progress task state and persists q
 
       assert.equal(tasks.get("task-ws1-running")?.status, "todo");
       assert.equal(tasks.get("task-ws1-blocked")?.status, "todo");
+
+      const resStop = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/stop",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1" }),
+      });
+      assert.equal(resStop.status, 200);
+      await sleep(50);
+      cleanupAutopilotChildren();
     }
   );
 });
@@ -1971,6 +2021,16 @@ test("mission-control activity auto-fix schedules execution and emits lifecycle 
       assert.ok(events.includes("autopilot_autofix_executed"), "expected executed event");
       assert.equal(tasks.get("task-ws1-running")?.status, "todo");
       assert.equal(tasks.get("task-ws1-blocked")?.status, "todo");
+
+      const resStop = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/stop",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1" }),
+      });
+      assert.equal(resStop.status, 200);
+      await sleep(50);
+      cleanupAutopilotChildren();
     }
   );
 });

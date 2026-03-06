@@ -236,3 +236,32 @@ test("write APIs no-op for invalid queue identifiers", async () => {
     process.env.HOME = originalHome;
   }
 });
+
+test("appendOutboxDeadLetter no-ops for invalid queue identifiers", async () => {
+  const originalHome = process.env.HOME;
+  const home = mkdtempSync(join(tmpdir(), "orgx-outbox-invalid-dead-letter-id-test-"));
+  process.env.HOME = home;
+
+  try {
+    const outbox = await importFreshOutbox();
+    await assert.doesNotReject(async () => {
+      await outbox.appendOutboxDeadLetter(
+        "../bad-queue",
+        {
+          id: "evt-1",
+          type: "progress",
+          timestamp: new Date().toISOString(),
+          payload: { summary: "ignored" },
+          activityItem: sampleActivityItem("evt-1"),
+        },
+        "test_invalid_queue",
+        null
+      );
+    });
+
+    const deadLetterDir = join(home, ".openclaw", "orgx-outbox", "_dead-letter");
+    assert.equal(existsSync(deadLetterDir), false);
+  } finally {
+    process.env.HOME = originalHome;
+  }
+});
