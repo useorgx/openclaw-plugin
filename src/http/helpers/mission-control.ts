@@ -896,7 +896,7 @@ export function deriveInitiativeLifecycleStatus(
 }
 
 export function isDispatchableWorkstreamStatus(status: string): boolean {
-  const normalized = status.toLowerCase();
+  const normalized = normalizeMissionControlStatus(status);
   if (!normalized) return true;
   return !(
     normalized === "blocked" ||
@@ -908,8 +908,14 @@ export function isDispatchableWorkstreamStatus(status: string): boolean {
   );
 }
 
+export function normalizeMissionControlStatus(
+  status: string | null | undefined
+): string {
+  return (status ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
 export function isDoneStatus(status: string): boolean {
-  const normalized = status.toLowerCase();
+  const normalized = normalizeMissionControlStatus(status);
   return (
     normalized === "done" ||
     normalized === "completed" ||

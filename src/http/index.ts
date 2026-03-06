@@ -2129,6 +2129,50 @@ async function parseJsonRequest(req: PluginRequest): Promise<Record<string, unkn
 // Factory
 // =============================================================================
 
+type HttpRuntimeLifecycle = {
+  start: () => void;
+  stop: () => void;
+};
+
+let activeHttpRuntimeLifecycle: HttpRuntimeLifecycle | null = null;
+
+function createHttpRuntimeLifecycle(input: {
+  prewarmNextUpQueue: () => void;
+  tickAllAutoContinue: () => Promise<void> | void;
+  autoContinueTickMs: number;
+}): HttpRuntimeLifecycle {
+  let nextUpPrewarmTimer: ReturnType<typeof setTimeout> | null = null;
+  let autoContinueTimer: ReturnType<typeof setInterval> | null = null;
+
+  const stop = () => {
+    if (nextUpPrewarmTimer) {
+      clearTimeout(nextUpPrewarmTimer);
+      nextUpPrewarmTimer = null;
+    }
+    if (autoContinueTimer) {
+      clearInterval(autoContinueTimer);
+      autoContinueTimer = null;
+    }
+  };
+
+  return {
+    start() {
+      stop();
+      nextUpPrewarmTimer = setTimeout(() => {
+        nextUpPrewarmTimer = null;
+        input.prewarmNextUpQueue();
+      }, 75);
+      nextUpPrewarmTimer.unref?.();
+
+      autoContinueTimer = setInterval(() => {
+        void input.tickAllAutoContinue();
+      }, input.autoContinueTickMs);
+      autoContinueTimer.unref?.();
+    },
+    stop,
+  };
+}
+
 export function createHttpHandler(
   config: OrgXConfig & { dashboardEnabled?: boolean; pluginVersion?: string; installationId?: string | null },
   client: OrgXClient,
@@ -3674,13 +3718,14 @@ export function createHttpHandler(
       // best effort prewarm only
     });
   };
-  const nextUpPrewarmTimer = setTimeout(prewarmNextUpQueue, 75);
-  nextUpPrewarmTimer.unref?.();
-
-  const autoContinueTimer = setInterval(() => {
-    void tickAllAutoContinue();
-  }, AUTO_CONTINUE_TICK_MS);
-  autoContinueTimer.unref?.();
+  activeHttpRuntimeLifecycle?.stop();
+  const runtimeLifecycle = createHttpRuntimeLifecycle({
+    prewarmNextUpQueue,
+    tickAllAutoContinue,
+    autoContinueTickMs: AUTO_CONTINUE_TICK_MS,
+  });
+  runtimeLifecycle.start();
+  activeHttpRuntimeLifecycle = runtimeLifecycle;
 
   const apiRouter = createRouter<Record<string, never>, PluginRequest, PluginResponse>();
   registerOnboardingRoutes(apiRouter, {
@@ -4283,6 +4328,7 @@ export function createHttpHandler(
     outboxReadAllItems: () => outboxAdapter.readAllItems(),
     toLocalLiveActivity,
     loadLocalTurnDetail,
+    summarizeActivityHeadline,
     sendJson,
     safeErrorMessage,
     sendHtml,

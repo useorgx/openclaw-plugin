@@ -15,10 +15,12 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { loadChromium, resolveQaRunDir, shouldDryRun } from "./qa-output-paths.mjs";
 
-const BASE_URL = String(process.env.ORGX_LIVE_BASE_URL || "http://127.0.0.1:18789")
-  .trim()
-  .replace(/\/+$/, "");
-const LIVE_URL_BASE = String(process.env.ORGX_LIVE_URL || `${BASE_URL}/orgx/live`).trim();
+const DEFAULT_BASE_URL = "http://127.0.0.1:18789";
+const LIVE_URL_BASE_RESOLVED = String(process.env.ORGX_LIVE_URL || `${DEFAULT_BASE_URL}/orgx/live`).trim();
+const BASE_URL = String(
+  process.env.ORGX_LIVE_BASE_URL || new URL(LIVE_URL_BASE_RESOLVED).origin
+).replace(/\/+$/, "");
+const LIVE_URL_BASE = LIVE_URL_BASE_RESOLVED;
 const WORKSPACE_ID_ENV = String(process.env.ORGX_LIVE_AUDIT_WORKSPACE_ID || "").trim();
 const REQUEST_TIMEOUT_MS = Number.isFinite(Number(process.env.ORGX_LIVE_AUDIT_REQUEST_TIMEOUT_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.ORGX_LIVE_AUDIT_REQUEST_TIMEOUT_MS)))
@@ -203,20 +205,95 @@ async function readWorkspaceIdFromPage(page, liveUrl) {
 }
 
 async function readButtonCount(page, pattern) {
-  const buttons = page.getByRole("button", { name: pattern });
-  const count = await buttons.count().catch(() => 0);
-  if (count === 0) return null;
+  const locators = [
+    page.getByRole("button", { name: pattern }),
+    page.locator('button:visible, [role="button"]:visible, [role="tab"]:visible').filter({
+      hasText: pattern,
+    }),
+  ];
   let best = null;
-  for (let index = 0; index < count; index += 1) {
-    const button = buttons.nth(index);
-    const visible = await button.isVisible().catch(() => false);
-    if (!visible) continue;
-    const text = await button.textContent().catch(() => "");
-    const parsed = extractFirstInteger(text);
-    if (parsed === null) continue;
-    best = best === null ? parsed : Math.max(best, parsed);
+  for (const locator of locators) {
+    const count = await locator.count().catch(() => 0);
+    if (count === 0) continue;
+    for (let index = 0; index < count; index += 1) {
+      const button = locator.nth(index);
+      const visible = await button.isVisible().catch(() => false);
+      if (!visible) continue;
+      const text = await button
+        .evaluate((element) => {
+          if (!(element instanceof HTMLElement)) {
+            return element.textContent || "";
+          }
+          return element.innerText || element.textContent || "";
+        })
+        .catch(() => "");
+      const parsed = extractFirstInteger(text);
+      if (parsed === null) continue;
+      best = best === null ? parsed : Math.max(best, parsed);
+    }
   }
-  return best;
+  if (best !== null) return best;
+
+  const bodyText = await page
+    .evaluate(() => {
+      if (!document.body) return "";
+      return document.body.innerText || document.body.textContent || "";
+    })
+    .catch(() => "");
+  const bodyTextString = String(bodyText || "");
+  const patternSource = String(pattern?.source || "").toLowerCase();
+  const fallbackMatcher =
+    patternSource.includes("in progress")
+      ? /\bIn Progress\s+(\d+)\b/i
+      : patternSource.includes("next up")
+        ? /\bNext Up\s+(\d+)\b/i
+        : patternSource.includes("needs attention")
+          ? /\bNeeds attention\s+(\d+)\b/i
+          : null;
+  if (fallbackMatcher) {
+    const match = bodyTextString.match(fallbackMatcher);
+    if (match) {
+      const parsed = Number.parseInt(match[1], 10);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  if (patternSource.includes("needs attention")) {
+    const blocked = bodyTextString.match(/\b(\d+)\s+blocked\b/i);
+    const decisions = bodyTextString.match(/\b(\d+)\s+decisions\b/i);
+    const blockedCount = blocked ? Number.parseInt(blocked[1], 10) : null;
+    const decisionsCount = decisions ? Number.parseInt(decisions[1], 10) : null;
+    const combined =
+      (Number.isFinite(blockedCount) ? blockedCount : 0) +
+      (Number.isFinite(decisionsCount) ? decisionsCount : 0);
+    if (combined > 0) return combined;
+  }
+  return null;
+}
+
+function findVisibleLabeledControl(page, pattern) {
+  return page
+    .locator('button:visible, [role="button"]:visible, [role="tab"]:visible')
+    .filter({ hasText: pattern })
+    .first();
+}
+
+async function waitForDashboardReady(page) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const activityTab = findVisibleLabeledControl(page, /^Activity\b/i);
+    const missionControlTab = findVisibleLabeledControl(page, /Mission Control/i);
+    const refreshButton = findVisibleLabeledControl(page, /^Refresh\b/i);
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 20_000) {
+      const activityVisible = await activityTab.isVisible().catch(() => false);
+      const missionControlVisible = await missionControlTab.isVisible().catch(() => false);
+      const refreshVisible = await refreshButton.isVisible().catch(() => false);
+      if ((activityVisible || missionControlVisible) && refreshVisible) return;
+      await page.waitForTimeout(250);
+    }
+    if (attempt === 0) {
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 90_000 }).catch(() => {});
+    }
+  }
 }
 
 async function run() {
@@ -255,6 +332,7 @@ async function run() {
       nextUpMissingInitiativeIds: [],
     },
     ui: {
+      gatewayUnauthorized: false,
       panes: {
         agents: false,
         activity: false,
@@ -283,9 +361,12 @@ async function run() {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   try {
     await page.goto(scopedLiveUrl.toString(), { waitUntil: "domcontentloaded", timeout: 90_000 });
+    await waitForDashboardReady(page);
     await page.waitForTimeout(1_200);
     await dismissFirstRunChecklist(page);
     await page.waitForTimeout(600);
+    const pageText = await page.locator("body").textContent().catch(() => "");
+    report.ui.gatewayUnauthorized = /unauthorized:\s*gateway token missing/i.test(pageText || "");
 
     const pageWorkspaceId = await readWorkspaceIdFromPage(page, liveUrl);
     if (pageWorkspaceId) {
@@ -368,7 +449,7 @@ async function run() {
 
     report.ui.decisionsLabelVisible = await page.getByText(/Decisions/i).first().isVisible().catch(() => false);
     if (!report.ui.decisionsLabelVisible) {
-      const activityTab = page.getByRole("button", { name: /^Activity\b/i }).first();
+      const activityTab = findVisibleLabeledControl(page, /^Activity\b/i);
       if (await activityTab.count()) {
         await activityTab.click({ timeout: 4_000 }).catch(() => {});
         await page.waitForTimeout(450);
@@ -390,7 +471,7 @@ async function run() {
       .isVisible()
       .catch(() => false);
 
-    const nextUpTab = page.getByRole("button", { name: /^Next Up\b/i }).first();
+    const nextUpTab = findVisibleLabeledControl(page, /^Next Up\b/i);
     if (await nextUpTab.count()) {
       await nextUpTab.click({ timeout: 4_000 }).catch(() => {});
       await page.waitForTimeout(400);
@@ -412,7 +493,7 @@ async function run() {
       report.ui.nextUpActionVisible = (await nextUpActionButtons.count().catch(() => 0)) > 0;
     }
     if (!report.ui.nextUpActionVisible && report.api.nextUpCount > 0) {
-      const missionControlTab = page.getByRole("button", { name: /Mission Control/i }).first();
+      const missionControlTab = findVisibleLabeledControl(page, /Mission Control/i);
       if (await missionControlTab.count()) {
         await missionControlTab.click({ timeout: 4_000 }).catch(() => {});
         await page.waitForTimeout(450);
@@ -429,7 +510,7 @@ async function run() {
       report.ui.nextUpActionVisible = (await nextUpActionButtons.count().catch(() => 0)) > 0;
     }
 
-    const inProgressTab = page.getByRole("button", { name: /^In Progress\b/i }).first();
+    const inProgressTab = findVisibleLabeledControl(page, /^In Progress\b/i);
     if (await inProgressTab.count()) {
       await inProgressTab.click({ timeout: 4_000 }).catch(() => {});
       await page.waitForTimeout(350);
@@ -445,6 +526,13 @@ async function run() {
   }
 
   const checks = [
+    {
+      id: "P0-0",
+      ok: !report.ui.gatewayUnauthorized,
+      detail: report.ui.gatewayUnauthorized
+        ? "gateway is serving unauthorized shell instead of OrgX Live"
+        : "gateway authorized",
+    },
     {
       id: "P0-1",
       ok: report.ui.panes.agents && report.ui.panes.activity && report.ui.panes.rightRail,
@@ -478,7 +566,8 @@ async function run() {
       id: "P0-5",
       ok:
         report.api.needsAttentionCount === 0
-          ? report.ui.decisionsLabelVisible
+          ? (report.ui.counts.needsAttention === null || report.ui.counts.needsAttention === 0) &&
+            !report.ui.decisionsPositiveBadgeVisible
           : (report.ui.counts.needsAttention === report.api.needsAttentionCount) &&
             (report.ui.decisionsPositiveBadgeVisible ||
               report.ui.needsInputSignalVisible ||

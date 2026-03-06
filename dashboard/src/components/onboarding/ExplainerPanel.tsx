@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { OnboardingState } from '@/types';
 import { humanizeWarning } from '@/lib/humanize';
+import { DEMO_MODE_STORAGE_KEY } from '@/lib/storageKeys';
 import orgxLogo from '@/assets/orgx-logo.png';
 import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
 
@@ -108,7 +109,6 @@ const onboardingBenefits: Array<{ type: EntityIconType; label: string; detail: s
 ];
 
 const SETUP_COMMAND = 'openclaw plugins install @useorgx/openclaw-plugin';
-const DEMO_MODE_KEY = 'orgx.demo_mode';
 const AUTO_ROTATE_MS = 6500;
 
 function keySourceLabel(source: OnboardingState['keySource']): string {
@@ -503,7 +503,7 @@ export function ExplainerPanel({
             type="button"
             onClick={() => {
               try {
-                window.localStorage.setItem(DEMO_MODE_KEY, '1');
+                window.localStorage.setItem(DEMO_MODE_STORAGE_KEY, '1');
               } catch {
                 // ignore
               }
@@ -517,7 +517,7 @@ export function ExplainerPanel({
             type="button"
             onClick={() => {
               try {
-                window.localStorage.removeItem(DEMO_MODE_KEY);
+                window.localStorage.removeItem(DEMO_MODE_STORAGE_KEY);
               } catch {
                 // ignore
               }

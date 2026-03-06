@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { identifyTelemetry } from '@/lib/telemetry';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
 import { humanizeWarning } from '@/lib/humanize';
+import { ONBOARDING_SKIP_STORAGE_KEY } from '@/lib/storageKeys';
+import { mergeOnboardingState } from '@shared/onboarding-state';
 
 import type { OnboardingState } from '@/types';
 
 const DEFAULT_DOCS_URL = 'https://orgx.mintlify.site/guides/openclaw-plugin-setup';
 const DEFAULT_POLL_MS = 1500;
-const ONBOARDING_SKIP_STORAGE_KEY = 'orgx.onboarding.skip';
 const PAIRING_INTERSTITIAL_DELAY_MS = 680;
 const PAIRING_INTERSTITIAL_HTML = `<!doctype html>
 <html lang="en">
@@ -228,39 +229,6 @@ const DEFAULT_STATE: OnboardingState = {
   pollIntervalMs: null,
 };
 
-function mergeOnboardingState(
-  previous: OnboardingState,
-  next: OnboardingState
-): OnboardingState {
-  const preserveVerifiedContext = previous.hasApiKey && previous.connectionVerified;
-  const merged: OnboardingState = {
-    ...previous,
-    ...next,
-    docsUrl: next.docsUrl ?? previous.docsUrl ?? DEFAULT_DOCS_URL,
-  };
-
-  if (
-    preserveVerifiedContext &&
-    (next.status === 'pairing' || next.status === 'awaiting_browser_auth')
-  ) {
-    merged.hasApiKey = true;
-    merged.connectionVerified = true;
-    merged.workspaceName = previous.workspaceName ?? next.workspaceName ?? null;
-  } else if (!next.workspaceName && previous.workspaceName) {
-    merged.workspaceName = previous.workspaceName;
-  }
-
-  if ((!next.installationId || next.installationId.trim().length === 0) && previous.installationId) {
-    merged.installationId = previous.installationId;
-  }
-
-  if ((next.keySource === 'none' || !next.keySource) && previous.keySource && previous.keySource !== 'none') {
-    merged.keySource = previous.keySource;
-  }
-
-  return merged;
-}
-
 function buildOnboardingErrorState(
   previous: OnboardingState,
   message: string
@@ -374,7 +342,10 @@ export function useOnboarding() {
       return fallback;
     }
 
-    const merged = mergeOnboardingState(stateRef.current, payload.data);
+    const merged = {
+      ...mergeOnboardingState(stateRef.current, payload.data),
+      docsUrl: payload.data.docsUrl ?? stateRef.current.docsUrl ?? DEFAULT_DOCS_URL,
+    };
     maybeIdentify(merged.installationId ?? null);
     setState(merged);
     return merged;
@@ -420,7 +391,10 @@ export function useOnboarding() {
         fetch('/orgx/api/onboarding/status', { method: 'GET' })
       );
       if (payload.ok && payload.data) {
-        const merged = mergeOnboardingState(stateRef.current, payload.data);
+        const merged = {
+          ...mergeOnboardingState(stateRef.current, payload.data),
+          docsUrl: payload.data.docsUrl ?? stateRef.current.docsUrl ?? DEFAULT_DOCS_URL,
+        };
         maybeIdentify(merged.installationId ?? null);
         setState(merged);
       }
@@ -500,7 +474,10 @@ export function useOnboarding() {
         return;
       }
 
-      setState(mergeOnboardingState(stateRef.current, data.state));
+      setState({
+        ...mergeOnboardingState(stateRef.current, data.state),
+        docsUrl: data.state.docsUrl ?? stateRef.current.docsUrl ?? DEFAULT_DOCS_URL,
+      });
       const connectUrl = data.connectUrl;
       if (connectUrl) {
         const targetWindow = pairingWindowRef.current;
@@ -582,7 +559,10 @@ export function useOnboarding() {
           );
 
           if (payload.ok && payload.data) {
-            const merged = mergeOnboardingState(stateRef.current, payload.data);
+            const merged = {
+              ...mergeOnboardingState(stateRef.current, payload.data),
+              docsUrl: payload.data.docsUrl ?? stateRef.current.docsUrl ?? DEFAULT_DOCS_URL,
+            };
             maybeIdentify(merged.installationId ?? null);
             setState(merged);
             return merged;
@@ -619,7 +599,10 @@ export function useOnboarding() {
     );
 
     if (payload.ok && payload.data) {
-      const merged = mergeOnboardingState(stateRef.current, payload.data);
+      const merged = {
+        ...mergeOnboardingState(stateRef.current, payload.data),
+        docsUrl: payload.data.docsUrl ?? stateRef.current.docsUrl ?? DEFAULT_DOCS_URL,
+      };
       maybeIdentify(merged.installationId ?? null);
       setState(merged);
       return merged;
@@ -647,7 +630,10 @@ export function useOnboarding() {
     );
 
     if (payload.ok && payload.data) {
-      const merged = mergeOnboardingState(stateRef.current, payload.data);
+      const merged = {
+        ...mergeOnboardingState(stateRef.current, payload.data),
+        docsUrl: payload.data.docsUrl ?? stateRef.current.docsUrl ?? DEFAULT_DOCS_URL,
+      };
       maybeIdentify(merged.installationId ?? null);
       setState(merged);
       return merged;

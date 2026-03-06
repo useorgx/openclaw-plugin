@@ -1,12 +1,13 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { colors, motion as motionTokens } from '@/lib/tokens';
+import { colors, motion as motionTokens, normalizeStatus } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { sanitizeDisplayText, humanizeId, isOpaqueId, humanizePath, humanizeBlockerContextValue } from '@/lib/humanize';
 import { resolveProvider } from '@/lib/providers';
 import { projectRunStatus, type CanonicalRunStatus } from '@/lib/runStatusModel';
 import { statusColor } from '@/lib/entityStatusColors';
+import { isActiveStatus as isCanonicalActiveStatus } from '@/lib/status-taxonomy';
 import type { Initiative, LiveActivityItem, SessionTreeNode, SliceRunProjection } from '@/types';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
@@ -44,17 +45,6 @@ interface SessionInspectorProps {
 // ── Helpers ─────────────────────────────────────────────────────
 
 const UUID_RE = /^[0-9a-f-]{20,}$/i;
-const ACTIVE_SESSION_STATUSES = new Set([
-  'running',
-  'active',
-  'queued',
-  'pending',
-  'in_progress',
-  'working',
-  'planning',
-  'handoff',
-  'review',
-]);
 const GENERIC_FAILURE_REASONS = new Set([
   'agent execution failed',
   'execution failed',
@@ -64,10 +54,6 @@ const GENERIC_FAILURE_REASONS = new Set([
 
 function hasText(value: string | null | undefined): value is string {
   return typeof value === 'string' && value.trim().length > 0;
-}
-
-function normalizeStatus(value: string | null | undefined): string {
-  return (value ?? '').trim().toLowerCase();
 }
 
 function normalizeReason(value: string | null | undefined): string {
@@ -124,23 +110,23 @@ function resolveRunId(item: LiveActivityItem): string | null {
 }
 
 function effectiveSessionStatus(session: SessionTreeNode): string {
-  const status = normalizeStatus(session.status);
+  const status = normalizeStatus(session.status ?? '');
   if (status === 'blocked' || status === 'failed' || status === 'completed' || status === 'cancelled') {
     return status;
   }
 
-  const phase = normalizeStatus(session.phase);
+  const phase = normalizeStatus(session.phase ?? '');
   if (phase === 'blocked') return 'blocked';
   if (phase === 'handoff') return 'handoff';
   if (phase === 'completed') return 'completed';
   if (phase === 'review') return 'review';
 
-  const state = normalizeStatus(session.state);
+  const state = normalizeStatus(session.state ?? '');
   if (state === 'error') return 'failed';
   if (state === 'stopped') return 'paused';
   if (state === 'stale') return 'queued';
 
-  if (ACTIVE_SESSION_STATUSES.has(status)) return status;
+  if (isCanonicalActiveStatus(status)) return status;
   if (session.blockers.length > 0) return 'blocked';
 
   return status || 'unknown';

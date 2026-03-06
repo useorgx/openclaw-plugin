@@ -1,11 +1,16 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type UIEvent } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
-import { colors, getAgentRole } from '@/lib/tokens';
+import { colors, getAgentRole, normalizeStatus } from '@/lib/tokens';
 import { formatAbsoluteTime, formatRelativeTime } from '@/lib/time';
 import { statusColor } from '@/lib/entityStatusColors';
 import { resolveProvider, type ProviderId } from '@/lib/providers';
 import { isSyntheticInitiativeId } from '@/lib/initiativeIds';
+import {
+  isActiveStatus as isCanonicalActiveStatus,
+  isBlockedStatus,
+  isFailedStatus,
+} from '@/lib/status-taxonomy';
 import type {
   ConnectionStatus,
   LiveActivityItem,
@@ -55,16 +60,6 @@ const AGENT_ROW_BASE_HEIGHT = 58;
 const AGENT_ROW_CHILD_HEIGHT = 56;
 const AGENT_ROW_CONTAINER_PADDING = 20;
 const AGENT_ROW_ESTIMATED_GAP = 8;
-const ACTIVE_STATUSES = new Set([
-  'running',
-  'active',
-  'in_progress',
-  'working',
-  'planning',
-  'handoff',
-  'review',
-]);
-const ATTENTION_STATUSES = new Set(['blocked', 'failed']);
 const ARCHIVED_PAGE_SIZE = 10;
 
 const DEFAULT_ORGX_AGENTS = [
@@ -301,38 +296,40 @@ function isOrgxGroup(group: AgentGroup): boolean {
 }
 
 function effectiveSessionStatus(node: SessionTreeNode): string {
-  const status = normalizeIdentity(node.status) ?? 'archived';
+  const status = normalizeStatus(node.status ?? '') || 'archived';
   if (status === 'blocked' || status === 'failed' || status === 'completed' || status === 'cancelled') {
     return status;
   }
 
-  const phase = normalizeIdentity(node.phase);
+  const phase = normalizeStatus(node.phase ?? '');
   if (phase === 'blocked') return 'blocked';
   if (phase === 'handoff') return 'handoff';
   if (phase === 'completed') return 'completed';
   if (phase === 'review') return 'review';
 
-  const state = normalizeIdentity(node.state);
+  const state = normalizeStatus(node.state ?? '');
   if (state === 'error') return 'failed';
   if (state === 'stopped') return 'paused';
   if (state === 'stale') return 'queued';
 
-  if (ACTIVE_STATUSES.has(status)) return status;
+  if (isCanonicalActiveStatus(status)) return status;
   if (Array.isArray(node.blockers) && node.blockers.length > 0) return 'blocked';
 
   return status;
 }
 
 function isLiveStatus(status: string | null | undefined): boolean {
-  const normalized = normalizeIdentity(status);
-  return normalized
-    ? ACTIVE_STATUSES.has(normalized) || ATTENTION_STATUSES.has(normalized)
-    : false;
+  const normalized = normalizeStatus(status ?? '');
+  return Boolean(normalized) && (
+    isCanonicalActiveStatus(normalized) ||
+    isBlockedStatus(normalized) ||
+    isFailedStatus(normalized)
+  );
 }
 
 function isActiveStatus(status: string | null | undefined): boolean {
-  const normalized = normalizeIdentity(status);
-  return normalized ? ACTIVE_STATUSES.has(normalized) : false;
+  const normalized = normalizeStatus(status ?? '');
+  return Boolean(normalized) && isCanonicalActiveStatus(normalized);
 }
 
 function isCatalogAgentLive(agent: OpenClawCatalogAgent | null | undefined): boolean {

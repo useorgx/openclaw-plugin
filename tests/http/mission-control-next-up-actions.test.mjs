@@ -660,6 +660,101 @@ test("mission-control next-up re-paginates canonical payloads that ignore limit/
   );
 });
 
+test("mission-control next-up recomputes full summary totals when canonical pages under-report", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-canonical-summary-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const visibleItems = Array.from({ length: 87 }, (_, idx) => ({
+        initiativeId: "init-1",
+        initiativeTitle: "Initiative 1",
+        initiativeStatus: "active",
+        workstreamId: `ws-visible-${idx + 1}`,
+        workstreamTitle: `Visible ${idx + 1}`,
+        workstreamStatus: "active",
+        nextTaskId: `task-visible-${idx + 1}`,
+        nextTaskTitle: `Visible task ${idx + 1}`,
+        nextTaskPriority: idx + 1,
+        nextTaskDueAt: null,
+        queueState: "queued",
+      }));
+      const runningItems = Array.from({ length: 76 }, (_, idx) => ({
+        initiativeId: "init-1",
+        initiativeTitle: "Initiative 1",
+        initiativeStatus: "active",
+        workstreamId: `ws-running-${idx + 1}`,
+        workstreamTitle: `Running ${idx + 1}`,
+        workstreamStatus: "active",
+        nextTaskId: `task-running-${idx + 1}`,
+        nextTaskTitle: `Running task ${idx + 1}`,
+        nextTaskPriority: idx + 11,
+        nextTaskDueAt: null,
+        queueState: "running",
+      }));
+      const allItems = visibleItems.concat(runningItems);
+      const partialPage = allItems.slice(0, 24);
+      const rawRequestPaths = [];
+
+      const { handler } = await createHandler({
+        rawRequestImpl: async (method, path) => {
+          assert.equal(method, "GET");
+          assert.ok(path.startsWith("/api/client/mission-control/next-up?"));
+          rawRequestPaths.push(path);
+          const parsed = new URL(path, "https://example.com");
+          const limit = Number(parsed.searchParams.get("limit") ?? "24");
+          return {
+            ok: true,
+            generatedAt: new Date().toISOString(),
+            total: 163,
+            items: limit >= 163 ? allItems : partialPage,
+            summary: {
+              visibleTotal: 7,
+              stateCounts: {
+                queued: 7,
+                running: 17,
+                blocked: 0,
+                idle: 0,
+                completed: 0,
+              },
+            },
+            pagination: {
+              offset: 0,
+              limit: 24,
+              total: 163,
+              hasMore: true,
+              nextCursor: "24",
+            },
+          };
+        },
+      });
+
+      const res = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/mission-control/next-up?workspace_id=workspace-alpha&offset=0&limit=24",
+        headers: {},
+      });
+      assert.equal(res.status, 200);
+      const body = JSON.parse(res.body);
+      assert.equal(body.ok, true);
+      assert.equal(body.source, "canonical");
+      assert.equal(body.items.length, 24);
+      assert.equal(body.summary?.visibleTotal, 87);
+      assert.deepEqual(body.summary?.stateCounts, {
+        queued: 87,
+        running: 76,
+        blocked: 0,
+        idle: 0,
+        completed: 0,
+      });
+      assert.ok(rawRequestPaths.some((entry) => entry.includes("limit=163")));
+    }
+  );
+});
+
 test("mission-control next-up applies noise threshold and blocked dedup controls", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-noise-controls-"));
   await withEnv(

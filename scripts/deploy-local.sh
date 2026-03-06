@@ -71,6 +71,8 @@ if $LOCAL_ONLY; then
   cp -R dist openclaw.plugin.json package.json LICENSE README.md "$EXTENSIONS_DIR/"
   [ -d dashboard/dist ] && mkdir -p "$EXTENSIONS_DIR/dashboard" && cp -R dashboard/dist "$EXTENSIONS_DIR/dashboard/"
   [ -d skills ] && cp -R skills "$EXTENSIONS_DIR/"
+  echo "Installing runtime dependencies for local extension..."
+  (cd "$EXTENSIONS_DIR" && npm install --omit=dev)
 else
   TMPDIR=$(mktemp -d)
   (cd "$TMPDIR" && npm pack "@useorgx/openclaw-plugin@${VERSION}" --silent && tar xzf *.tgz && cp -R package/* "$EXTENSIONS_DIR/")

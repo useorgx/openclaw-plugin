@@ -14,6 +14,7 @@ export interface MissionControlInvalidateInput {
   includeGraph?: boolean;
   includeSlices?: boolean;
   includeAutoContinue?: boolean;
+  includeLiveData?: boolean;
 }
 
 export async function invalidateMissionControlQueries(
@@ -30,6 +31,7 @@ export async function invalidateMissionControlQueries(
     includeGraph = true,
     includeSlices = true,
     includeAutoContinue = true,
+    includeLiveData = true,
   } = input;
 
   const operations: Array<Promise<unknown>> = [];
@@ -62,12 +64,14 @@ export async function invalidateMissionControlQueries(
     );
   }
 
-  operations.push(
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.liveData({ authToken, embedMode, projectId }),
-    })
-  );
-  operations.push(queryClient.invalidateQueries({ queryKey: ['live-data'] }));
+  if (includeLiveData) {
+    operations.push(
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.liveData({ authToken, embedMode, projectId }),
+      })
+    );
+    operations.push(queryClient.invalidateQueries({ queryKey: ['live-data'] }));
+  }
 
   await Promise.all(operations);
 }

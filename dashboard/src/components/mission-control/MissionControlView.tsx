@@ -872,8 +872,47 @@ function MissionControlInner({
     let doneTasks = 0;
     let blockedCount = 0;
 
-    const countTask = (task: Record<string, unknown>, fallbackKey: string) => {
-      const rawId = typeof task.id === 'string' && task.id.trim().length > 0 ? task.id.trim() : fallbackKey;
+    const normalizeTaskText = (value: unknown): string => {
+      if (typeof value !== 'string') return '';
+      return value.trim().toLowerCase().replace(/\s+/g, ' ');
+    };
+
+    const taskSemanticKey = (
+      task: Record<string, unknown>,
+      context: {
+        initiativeId: string;
+        workstreamId: string;
+        milestoneId?: string | null;
+      }
+    ): string => {
+      const explicitId = typeof task.id === 'string' && task.id.trim().length > 0 ? task.id.trim() : '';
+      if (explicitId) return explicitId;
+      const title = normalizeTaskText(task.title ?? task.name ?? null);
+      const description = normalizeTaskText(task.description ?? task.summary ?? null);
+      const milestoneId =
+        typeof task.milestoneId === 'string' && task.milestoneId.trim().length > 0
+          ? task.milestoneId.trim()
+          : typeof task.milestone_id === 'string' && task.milestone_id.trim().length > 0
+            ? task.milestone_id.trim()
+            : context.milestoneId?.trim() ?? 'none';
+      return [
+        context.initiativeId,
+        context.workstreamId,
+        milestoneId,
+        title || 'untitled',
+        description || 'no-description',
+      ].join(':');
+    };
+
+    const countTask = (
+      task: Record<string, unknown>,
+      context: {
+        initiativeId: string;
+        workstreamId: string;
+        milestoneId?: string | null;
+      }
+    ) => {
+      const rawId = taskSemanticKey(task, context);
       if (seenTaskIds.has(rawId)) return;
       seenTaskIds.add(rawId);
       totalTasks += 1;
@@ -893,15 +932,15 @@ function MissionControlInner({
         if (String(workstream.status ?? '').trim().toLowerCase() === 'blocked') {
           blockedCount += 1;
         }
-        const workstreamTasks = Array.isArray(workstream.tasks)
-          ? (workstream.tasks as Array<Record<string, unknown>>)
-          : [];
-        workstreamTasks.forEach((task, index) =>
-          countTask(task, `${initiative.id}:${String(workstream.id ?? 'workstream')}:task:${index}`)
-        );
         const milestones = Array.isArray(workstream.milestones)
           ? (workstream.milestones as Array<Record<string, unknown>>)
           : [];
+        const initiativeId = initiative.id;
+        const workstreamId =
+          typeof workstream.id === 'string' && workstream.id.trim().length > 0
+            ? workstream.id.trim()
+            : 'workstream';
+        const milestoneTaskKeys = new Set<string>();
         for (const milestone of milestones) {
           if (String(milestone.status ?? '').trim().toLowerCase() === 'blocked') {
             blockedCount += 1;
@@ -909,13 +948,28 @@ function MissionControlInner({
           const milestoneTasks = Array.isArray(milestone.tasks)
             ? (milestone.tasks as Array<Record<string, unknown>>)
             : [];
-          milestoneTasks.forEach((task, index) =>
-            countTask(
-              task,
-              `${initiative.id}:${String(workstream.id ?? 'workstream')}:${String(milestone.id ?? 'milestone')}:task:${index}`
-            )
-          );
+          const milestoneId =
+            typeof milestone.id === 'string' && milestone.id.trim().length > 0
+              ? milestone.id.trim()
+              : 'milestone';
+          milestoneTasks.forEach((task) => {
+            const key = taskSemanticKey(task, {
+              initiativeId,
+              workstreamId,
+              milestoneId,
+            });
+            milestoneTaskKeys.add(key);
+            countTask(task, { initiativeId, workstreamId, milestoneId });
+          });
         }
+        const workstreamTasks = Array.isArray(workstream.tasks)
+          ? (workstream.tasks as Array<Record<string, unknown>>)
+          : [];
+        workstreamTasks.forEach((task) => {
+          const key = taskSemanticKey(task, { initiativeId, workstreamId });
+          if (milestoneTaskKeys.has(key)) return;
+          countTask(task, { initiativeId, workstreamId });
+        });
       }
     }
     const completionPercent =

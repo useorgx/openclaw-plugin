@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { buildOrgxHeaders } from '@/lib/http';
 import { humanizeWarning } from '@/lib/humanize';
+import { invalidateMissionControlQueries } from '@/lib/missionControlInvalidation';
 
 async function throwOnError(res: Response) {
   if (!res.ok) {
@@ -99,12 +100,13 @@ export function useEntityMutations(ctx: MutationContext) {
   });
 
   const invalidateAll = () => {
-    queryClient.invalidateQueries({ queryKey: ['live-data'] });
+    void invalidateMissionControlQueries(queryClient, {
+      authToken: ctx.authToken,
+      embedMode: ctx.embedMode,
+    });
     queryClient.invalidateQueries({ queryKey: ['live-initiatives'] });
     queryClient.invalidateQueries({ queryKey: ['initiative-details'] });
     queryClient.invalidateQueries({ queryKey: ['entities'] });
-    queryClient.invalidateQueries({ queryKey: ['mission-control-graph'] });
-    queryClient.invalidateQueries({ queryKey: ['mission-control-next-up'] });
   };
 
   const patchInitiativeTombstone = (initiativeId: string, hidden: boolean) => {

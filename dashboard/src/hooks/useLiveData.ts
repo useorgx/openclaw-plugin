@@ -81,7 +81,7 @@ const DEFAULT_MAX_DECISIONS = 80;
 const DEFAULT_BATCH_WINDOW_MS = 120;
 const DISCONNECT_AFTER_MS = 60_000;
 const SNAPSHOT_ENDPOINT_TIMEOUT_MS = 1_200;
-const SNAPSHOT_FALLBACK_STAGGER_MS = 90;
+const SNAPSHOT_FALLBACK_STAGGER_MS = 240;
 const METADATA_FINGERPRINT_MAX_DEPTH = 3;
 const METADATA_FINGERPRINT_MAX_KEYS = 24;
 const METADATA_FINGERPRINT_MAX_ARRAY_ITEMS = 24;
@@ -1713,8 +1713,16 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
   const inFlightSnapshotRef = useRef<Promise<void> | null>(null);
   const inFlightScopeKeyRef = useRef<string | null>(null);
   const [pollingEnabled, setPollingEnabled] = useState(false);
+  const [isDocumentVisible, setIsDocumentVisible] = useState(
+    typeof document === 'undefined' ? true : document.visibilityState === 'visible'
+  );
+  const [isNetworkOnline, setIsNetworkOnline] = useState(
+    typeof navigator === 'undefined' ? true : navigator.onLine !== false
+  );
   const lastSuccessAtRef = useRef<number>(0);
   const authBlockedRef = useRef<boolean>(false);
+  const streamHasDeliveredSnapshotRef = useRef<boolean>(false);
+  const snapshotFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scopeKeyRef = useRef<string>(
     `${normalizedInitiativeId ?? '__all__'}::${normalizedProjectId ?? '__all__'}`
   );
@@ -1749,6 +1757,30 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         clearTimeout(decisionMutationResetTimerRef.current);
         decisionMutationResetTimerRef.current = null;
       }
+      if (snapshotFallbackTimerRef.current) {
+        clearTimeout(snapshotFallbackTimerRef.current);
+        snapshotFallbackTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return undefined;
+
+    const handleVisibilityChange = () => {
+      setIsDocumentVisible(document.visibilityState === 'visible');
+    };
+    const handleOnline = () => setIsNetworkOnline(true);
+    const handleOffline = () => setIsNetworkOnline(false);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, []);
 
@@ -1757,6 +1789,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     if (scopeKeyRef.current === scopeKey) return;
     scopeKeyRef.current = scopeKey;
     resetScopeOnNextSnapshotRef.current = true;
+    streamHasDeliveredSnapshotRef.current = false;
     publishDecisionMutation(EMPTY_DECISION_MUTATION);
     setData((prev) => ({
       ...prev,
@@ -2452,8 +2485,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       fetchSnapshot();
       return undefined;
     }
-
-    fetchSnapshot();
+    streamHasDeliveredSnapshotRef.current = false;
 
     const streamQuery = new URLSearchParams();
     if (normalizedProjectId) {
@@ -2466,6 +2498,20 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       ? `/orgx/api/live/stream-v2?${streamQuery.toString()}`
       : '/orgx/api/live/stream-v2';
     const eventSource = new EventSource(streamUrl);
+    const armSnapshotFallback = () => {
+      if (snapshotFallbackTimerRef.current) {
+        clearTimeout(snapshotFallbackTimerRef.current);
+        snapshotFallbackTimerRef.current = null;
+      }
+      if (!isDocumentVisible || !isNetworkOnline) return;
+      snapshotFallbackTimerRef.current = setTimeout(() => {
+        snapshotFallbackTimerRef.current = null;
+        if (!streamHasDeliveredSnapshotRef.current && !authBlockedRef.current) {
+          void fetchSnapshot();
+        }
+      }, SNAPSHOT_FALLBACK_STAGGER_MS);
+    };
+    armSnapshotFallback();
 
     let pendingSnapshot:
       | {
@@ -2626,6 +2672,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           : { ...prev, connection: 'connected' }
       );
       setError(null);
+      armSnapshotFallback();
     };
 
     eventSource.onerror = () => {
@@ -2649,6 +2696,11 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
     eventSource.addEventListener('snapshot', (event) => {
       try {
+        streamHasDeliveredSnapshotRef.current = true;
+        if (snapshotFallbackTimerRef.current) {
+          clearTimeout(snapshotFallbackTimerRef.current);
+          snapshotFallbackTimerRef.current = null;
+        }
         const payload = JSON.parse((event as MessageEvent).data) as {
           sessions: SessionTreeResponse;
           activity?: LiveActivityItem[];
@@ -2773,6 +2825,10 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     });
 
     return () => {
+      if (snapshotFallbackTimerRef.current) {
+        clearTimeout(snapshotFallbackTimerRef.current);
+        snapshotFallbackTimerRef.current = null;
+      }
       if (flushTimer) {
         clearTimeout(flushTimer);
       }
@@ -2790,6 +2846,8 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     maxSessions,
     normalizedInitiativeId,
     normalizedProjectId,
+    isDocumentVisible,
+    isNetworkOnline,
     useMock,
   ]);
 
@@ -2797,14 +2855,32 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     if (!enabled) return undefined;
     if (useMock) return undefined;
     if (intervalRef.current) clearInterval(intervalRef.current);
-    if (!pollingEnabled) return undefined;
+    if (!pollingEnabled || !isDocumentVisible || !isNetworkOnline) return undefined;
 
-    intervalRef.current = setInterval(fetchSnapshot, pollInterval);
+    intervalRef.current = setInterval(() => {
+      void fetchSnapshot();
+    }, pollInterval);
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [enabled, fetchSnapshot, normalizedProjectId, pollInterval, pollingEnabled, useMock]);
+  }, [
+    enabled,
+    fetchSnapshot,
+    isDocumentVisible,
+    isNetworkOnline,
+    normalizedProjectId,
+    pollInterval,
+    pollingEnabled,
+    useMock,
+  ]);
+
+  useEffect(() => {
+    if (!enabled || useMock) return;
+    if (!pollingEnabled) return;
+    if (!isDocumentVisible || !isNetworkOnline) return;
+    void fetchSnapshot();
+  }, [enabled, fetchSnapshot, isDocumentVisible, isNetworkOnline, pollingEnabled, useMock]);
 
   return {
     data,

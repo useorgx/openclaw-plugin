@@ -535,14 +535,16 @@ export function NextUpPanel({
     [items]
   );
   const queueDisplayMode = useMemo<'queued' | 'blocked' | 'running' | 'empty'>(() => {
-    if (queueItems.length === 0) return 'empty';
+    const hasRunningItems = items.some((item) => item.queueState === QueueState.RUNNING);
+    if (queueItems.length === 0) {
+      return hasRunningItems ? QueueState.RUNNING : 'empty';
+    }
     if (queueItems.some((item) => item.queueState !== QueueState.RUNNING && item.queueState !== QueueState.BLOCKED)) {
       return QueueState.QUEUED;
     }
     if (queueItems.some((item) => item.queueState === QueueState.BLOCKED)) return QueueState.BLOCKED;
-    if (queueItems.some((item) => item.queueState === QueueState.RUNNING)) return QueueState.RUNNING;
-    return QueueState.QUEUED;
-  }, [queueItems]);
+    return hasRunningItems ? QueueState.RUNNING : QueueState.QUEUED;
+  }, [items, queueItems]);
 
   const filteredInitiativeGroups = useMemo(
     () => {

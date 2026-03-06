@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { cpSync, existsSync, rmSync, watch } from "node:fs";
+import { cpSync, existsSync, readFileSync, rmSync, watch, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -46,6 +46,40 @@ function safeReplaceDir(fromPath, toPath) {
   cpSync(fromPath, toPath, { recursive: true, force: true });
 }
 
+function runtimeDependencyVersion() {
+  const raw = readFileSync(resolve(repoRoot, "package.json"), "utf8");
+  const parsed = JSON.parse(raw);
+  return String(parsed?.dependencies?.["better-sqlite3"] || "").trim();
+}
+
+function runtimeDependencyInstalled() {
+  return existsSync(resolve(extensionRoot, "node_modules", "better-sqlite3", "package.json"));
+}
+
+function runtimeDependencyMarkerPath() {
+  return resolve(extensionRoot, ".orgx-runtime-deps-version");
+}
+
+function runtimeDependencyMarkerValue() {
+  try {
+    return readFileSync(runtimeDependencyMarkerPath(), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+async function ensureRuntimeDependencies() {
+  const expected = runtimeDependencyVersion();
+  const installed = runtimeDependencyInstalled();
+  const marker = runtimeDependencyMarkerValue();
+  if (installed && marker === expected) return;
+
+  log("installing extension runtime dependencies...");
+  await run("npm", ["install", "--omit=dev"], extensionRoot);
+  writeFileSync(runtimeDependencyMarkerPath(), expected, "utf8");
+  log("extension runtime dependencies installed");
+}
+
 function syncCoreArtifacts() {
   safeReplaceDir(resolve(repoRoot, "dist"), resolve(extensionRoot, "dist"));
   cpSync(
@@ -69,6 +103,7 @@ async function buildCoreAndSync() {
   log("building core...");
   await run("npm", ["run", "build:core"]);
   syncCoreArtifacts();
+  await ensureRuntimeDependencies();
   log("core synced to extension");
 }
 
