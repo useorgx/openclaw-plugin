@@ -189,7 +189,23 @@ function resolveAutopilotDefaultCwd(filename: string): string {
   return homedir();
 }
 
+function captureAutopilotWorkerEnv(): Record<string, string | undefined> {
+  return {
+    ORGX_AUTOPILOT_CWD: (process.env.ORGX_AUTOPILOT_CWD ?? "").trim() || undefined,
+    ORGX_AUTOPILOT_EXECUTOR: (process.env.ORGX_AUTOPILOT_EXECUTOR ?? "").trim() || undefined,
+    ORGX_AUTOPILOT_WORKER_KIND:
+      (process.env.ORGX_AUTOPILOT_WORKER_KIND ?? "").trim() || undefined,
+    ORGX_AUTOPILOT_MOCK_SCENARIO:
+      (process.env.ORGX_AUTOPILOT_MOCK_SCENARIO ?? "").trim() || undefined,
+    ORGX_AUTOPILOT_MOCK_SLEEP_MS:
+      (process.env.ORGX_AUTOPILOT_MOCK_SLEEP_MS ?? "").trim() || undefined,
+    ORGX_AUTOPILOT_SESSION_RESUME:
+      (process.env.ORGX_AUTOPILOT_SESSION_RESUME ?? "").trim() || undefined,
+  };
+}
+
 export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
+  const defaultWorkerEnvOverrides = captureAutopilotWorkerEnv();
   const {
     client,
     safeErrorMessage,
@@ -1085,6 +1101,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     activeTaskId: string | null;
     activeRunId: string | null;
     activeTaskTokenEstimate: number | null;
+    workerEnvOverrides: Record<string, string | undefined> | null;
   };
 
   const autoContinueRuns = new Map<string, AutoContinueRun>();
@@ -1182,6 +1199,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           typeof meta.auto_continue_active_task_token_estimate === "number"
             ? meta.auto_continue_active_task_token_estimate
             : null,
+        workerEnvOverrides: null,
       };
       ensureRunInternals(run);
       syncLegacyRunPointers(run);
@@ -1517,6 +1535,38 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     autoContinueSliceChildren.delete(id);
     autoContinueSliceLastHeartbeatMs.delete(id);
   };
+
+  const stopActiveSliceProcesses = async (sliceRunIds: string[]): Promise<void> => {
+    for (const rawRunId of sliceRunIds) {
+      const sliceRunId = rawRunId.trim();
+      if (!sliceRunId) continue;
+      const child = autoContinueSliceChildren.get(sliceRunId) ?? null;
+      try {
+        if (child && child.exitCode === null && !child.killed) {
+          child.kill("SIGTERM");
+        }
+      } catch {
+        // best effort
+      }
+
+      const slice = autoContinueSliceRuns.get(sliceRunId) ?? null;
+      const pid = slice?.pid ?? child?.pid ?? null;
+      if (pid && pidAlive(pid)) {
+        try {
+          await stopProcess(pid);
+        } catch {
+          // best effort
+        }
+      }
+
+      if (slice) {
+        slice.pid = null;
+        slice.updatedAt = new Date().toISOString();
+        autoContinueSliceRuns.set(sliceRunId, slice);
+      }
+      clearAutoContinueSliceTransientState(sliceRunId);
+    }
+  };
   const AUTO_CONTINUE_SLICE_TIMEOUT_MS = readBudgetEnvNumber(
     "ORGX_AUTOPILOT_SLICE_TIMEOUT_MS",
     55 * 60_000,
@@ -1748,6 +1798,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       run.tokenBudget,
       defaultAutoContinueTokenBudget()
     );
+    if (!run.workerEnvOverrides || typeof run.workerEnvOverrides !== "object") {
+      run.workerEnvOverrides = null;
+    }
   };
 
   const recordLocalStatusOverrides = (input: {
@@ -2118,6 +2171,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     const now = new Date().toISOString();
     ensureRunInternals(input.run);
     const activeRunIds = listActiveSliceRunIds(input.run);
+    await stopActiveSliceProcesses(activeRunIds);
     input.run.status = RunStatus.STOPPED;
     input.run.stopReason = input.reason;
     input.run.stoppedAt = now;
@@ -4493,18 +4547,35 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     const logPath = join(logsDir, `${sliceRunId}.log`);
     const outputPath = join(logsDir, `${sliceRunId}.output.json`);
 
-    const configuredWorkerCwd = (process.env.ORGX_AUTOPILOT_CWD ?? "").trim();
+    const workerEnvOverrides = run.workerEnvOverrides ?? defaultWorkerEnvOverrides;
+    const configuredWorkerCwd = (
+      workerEnvOverrides?.ORGX_AUTOPILOT_CWD ??
+      process.env.ORGX_AUTOPILOT_CWD ??
+      ""
+    ).trim();
     let workerCwd = configuredWorkerCwd || resolveAutopilotDefaultCwd(__filename);
     // LaunchAgents sometimes start with cwd="/". Fall back to plugin root (or home if unresolved).
     if (!workerCwd || workerCwd === "/") {
       workerCwd = resolveAutopilotDefaultCwd(__filename);
     }
     const sliceAgent = resolveOrgxAgentForDomain(executionPolicy.domain);
-    const workerKind = (process.env.ORGX_AUTOPILOT_WORKER_KIND ?? "").trim().toLowerCase();
+    const workerKind = (
+      workerEnvOverrides?.ORGX_AUTOPILOT_WORKER_KIND ??
+      process.env.ORGX_AUTOPILOT_WORKER_KIND ??
+      ""
+    )
+      .trim()
+      .toLowerCase();
     const inferredExecutor =
       workerKind === "claude-code" || workerKind === "claude_code" ? "claude-code" : "codex";
     const executorRaw =
-      (process.env.ORGX_AUTOPILOT_EXECUTOR ?? "").trim().toLowerCase() || inferredExecutor;
+      (
+        workerEnvOverrides?.ORGX_AUTOPILOT_EXECUTOR ??
+        process.env.ORGX_AUTOPILOT_EXECUTOR ??
+        ""
+      )
+        .trim()
+        .toLowerCase() || inferredExecutor;
     const executorSourceClient: RuntimeSourceClient =
       executorRaw === "claude-code" || executorRaw === "claude_code" ? "claude-code" : "codex";
     let runtimeHookUrl: string | null = null;
@@ -4530,6 +4601,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             outputSchemaPath: schemaPath,
             resumeSessionId: resumedFromSessionId,
 	          env: {
+              ...(workerEnvOverrides ?? {}),
 	            ORGX_SOURCE_CLIENT: executorSourceClient,
 	            ORGX_RUN_ID: sliceRunId,
 	            ORGX_CORRELATION_ID: sliceRunId,
@@ -4841,6 +4913,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     const sourceEvent = (input.event ?? "").trim() || null;
     const requestedByAgentId = (input.requestedByAgentId ?? "").trim() || null;
     const requestedByAgentName = (input.requestedByAgentName ?? "").trim() || null;
+    const autoFixWorkerEnv = captureAutopilotWorkerEnv();
 
     const providedGraceMs =
       typeof input.graceMs === "number" && Number.isFinite(input.graceMs)
@@ -5044,6 +5117,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         parallelMode: latestRun?.parallelMode ?? "iwmt",
         stopAfterSlice: true,
         ignoreSpawnGuardRateLimit: latestRun?.ignoreSpawnGuardRateLimit ?? false,
+        workerEnvOverrides: autoFixWorkerEnv,
       });
       await tickAutoContinueRun(dispatchRun);
 
@@ -5153,8 +5227,13 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     stopAfterSlice?: boolean;
     ignoreSpawnGuardRateLimit?: boolean;
     scope?: SliceScope;
+    workerEnvOverrides?: Record<string, string | undefined> | null;
   }): Promise<AutoContinueRun> {
     const now = new Date().toISOString();
+    const nextWorkerEnvOverrides =
+      input.workerEnvOverrides && typeof input.workerEnvOverrides === "object"
+        ? { ...input.workerEnvOverrides }
+        : { ...defaultWorkerEnvOverrides };
     const existing = autoContinueRuns.get(input.initiativeId) ?? null;
     const existingIsLive =
       existing?.status === RunStatus.RUNNING || existing?.status === RunStatus.STOPPING;
@@ -5190,6 +5269,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         activeTaskId: null,
         activeRunId: null,
         activeTaskTokenEstimate: null,
+        workerEnvOverrides: null,
       } as AutoContinueRun);
     ensureRunInternals(run);
 
@@ -5208,6 +5288,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     run.stopAfterSlice = Boolean(input.stopAfterSlice);
     run.ignoreSpawnGuardRateLimit = Boolean(input.ignoreSpawnGuardRateLimit);
     run.scope = input.scope ?? "task";
+    run.workerEnvOverrides = nextWorkerEnvOverrides;
     const hasExplicitTokenBudgetInput =
       input.tokenBudget !== null &&
       input.tokenBudget !== undefined &&

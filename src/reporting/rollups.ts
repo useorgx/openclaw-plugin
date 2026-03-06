@@ -2,24 +2,33 @@ export type TaskStateBucket = "done" | "blocked" | "active" | "todo";
 
 export function classifyTaskState(status: unknown): TaskStateBucket {
   const normalized = String(status ?? "").trim().toLowerCase();
+  const canonical = normalized.replace(/[\s-]+/g, "_");
   if (
-    normalized === "done" ||
-    normalized === "completed" ||
-    normalized === "cancelled" ||
-    normalized === "archived" ||
-    normalized === "deleted"
+    canonical === "done" ||
+    canonical === "completed" ||
+    canonical === "cancelled" ||
+    canonical === "archived" ||
+    canonical === "deleted"
   ) {
     return "done";
   }
-  if (normalized === "blocked" || normalized === "at_risk") {
+  if (
+    canonical === "blocked" ||
+    canonical === "at_risk" ||
+    canonical === "on_hold" ||
+    canonical === "onhold"
+  ) {
     return "blocked";
   }
   if (
-    normalized === "in_progress" ||
-    normalized === "active" ||
-    normalized === "running" ||
-    normalized === "queued" ||
-    normalized === "retry_pending"
+    canonical === "in_progress" ||
+    canonical === "inprogress" ||
+    canonical === "active" ||
+    canonical === "running" ||
+    canonical === "queued" ||
+    canonical === "retry_pending" ||
+    canonical === "pending_review" ||
+    canonical === "pendingreview"
   ) {
     return "active";
   }

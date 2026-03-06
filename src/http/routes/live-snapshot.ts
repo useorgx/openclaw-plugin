@@ -52,6 +52,9 @@ const LIVE_SNAPSHOT_NEXT_UP_TIMEOUT_MS = (() => {
   return Math.max(250, Math.min(15_000, Math.floor(raw)));
 })();
 
+const LIVE_STREAM_REFRESH_INTERVAL_MS = 1_500;
+const LIVE_STREAM_KEEPALIVE_MS = 20_000;
+
 async function withSoftTimeout<T>(
   work: Promise<T>,
   timeoutMs: number,
@@ -74,8 +77,12 @@ async function withSoftTimeout<T>(
 
 type LiveSnapshotRoutesDeps<TReq, TRes> = {
   parsePositiveInt: (raw: string | null, fallback: number, max?: number) => number;
-  readSnapshotResponseCache: (key: string) => Record<string, unknown> | null;
+  readSnapshotResponseCache: (
+    key: string,
+    options?: { allowStale?: boolean }
+  ) => Record<string, unknown> | null;
   writeSnapshotResponseCache: (key: string, payload: Record<string, unknown>) => void;
+  getSnapshotCacheGeneration: () => number;
   safeErrorMessage: (err: unknown) => string;
   readAgentContexts: () => AgentContextState;
   getScopedAgentIds: (contexts: Record<string, AgentLaunchContext>) => Set<string>;
@@ -210,6 +217,8 @@ type LiveSnapshotRoutesDeps<TReq, TRes> = {
   } | null;
 
   sendJson: (res: TRes, status: number, payload: unknown) => void;
+  securityHeaders: Record<string, string>;
+  corsHeaders: Record<string, string>;
 };
 
 type ChatSnapshotPayload = {
@@ -274,6 +283,16 @@ function emptyOutboxStatus(): Record<string, unknown> {
     lastReplayFailureAt: null,
     lastReplayError: null,
   };
+}
+
+function writeSseEvent<TRes extends { write?: (chunk: string | Buffer) => boolean | void }>(
+  res: TRes,
+  event: string,
+  payload: unknown
+): void {
+  if (typeof res.write !== "function") return;
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(payload ?? null)}\n\n`);
 }
 
 function filterSessionsByInitiative(
@@ -468,7 +487,17 @@ function filterHandoffsByInitiativeSet(
   });
 }
 
-export function registerLiveSnapshotRoutes<TReq, TRes>(
+export function registerLiveSnapshotRoutes<
+  TReq extends { on?: (event: string, listener: () => void) => void },
+  TRes extends {
+    write?: (chunk: string | Buffer) => boolean | void;
+    end: (chunk?: string | Buffer) => void;
+    writeHead: (statusCode: number, headers?: Record<string, string>) => unknown;
+    writableEnded?: boolean;
+    on?: (event: string, listener: () => void) => void;
+    once?: (event: string, listener: () => void) => void;
+  }
+>(
   router: Router<Record<string, never>, TReq, TRes>,
   deps: LiveSnapshotRoutesDeps<TReq, TRes>
 ): void {
@@ -500,6 +529,8 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     workspaceScopeFromHeaders(
       (req as { headers?: Record<string, unknown> } | null)?.headers
     );
+
+  const snapshotInflight = new Map<string, Promise<Record<string, unknown>>>();
 
   function parseSnapshotQuery(
     query: URLSearchParams,
@@ -560,6 +591,34 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     });
     return false;
   };
+
+  function withSnapshotMeta(
+    payload: Record<string, unknown>,
+    input: {
+      cacheKey: string;
+      stale: boolean;
+      staleReason?: string | null;
+    }
+  ): Record<string, unknown> {
+    const existingMeta =
+      payload.meta && typeof payload.meta === "object" && !Array.isArray(payload.meta)
+        ? (payload.meta as Record<string, unknown>)
+        : {};
+    return {
+      ...payload,
+      meta: {
+        ...existingMeta,
+        generatedAt:
+          (typeof payload.generatedAt === "string" && payload.generatedAt) ||
+          (typeof existingMeta.generatedAt === "string" && existingMeta.generatedAt) ||
+          new Date().toISOString(),
+        stale: input.stale,
+        staleReason: input.stale ? input.staleReason ?? "upstream_unavailable" : null,
+        sequence: deps.getSnapshotCacheGeneration(),
+        cacheKey: input.cacheKey,
+      },
+    };
+  }
 
   async function buildSnapshotBundle(
     query: URLSearchParams,
@@ -943,6 +1002,92 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     };
   }
 
+  async function buildSnapshotPayload(
+    version: "v1" | "v2",
+    path: string,
+    query: URLSearchParams,
+    headerScope: Record<string, unknown> | null
+  ): Promise<Record<string, unknown>> {
+    const bundle = await buildSnapshotBundle(query, headerScope);
+    const parsed = parseSnapshotQuery(query, headerScope);
+    const snapshotCacheKey = `${path}?${query.toString()}`;
+    if (version === "v1") {
+      const payload = withSnapshotMeta(bundle.payload as Record<string, unknown>, {
+        cacheKey: snapshotCacheKey,
+        stale: false,
+      });
+      deps.writeSnapshotResponseCache(snapshotCacheKey, payload);
+      deps.writeSnapshotResponseCache("live-snapshot", payload);
+      deps.writeSnapshotResponseCache(
+        snapshotAliasKey("live-snapshot", parsed.projectId),
+        payload
+      );
+      return payload;
+    }
+
+    const payload = withSnapshotMeta(
+      {
+        ...bundle.v2,
+        sessions: bundle.payload.sessions,
+        activity: bundle.payload.activity,
+        handoffs: bundle.payload.handoffs,
+        decisions: bundle.payload.decisions,
+        sliceRuns: bundle.payload.sliceRuns,
+        agents: bundle.payload.agents,
+        runtimeInstances: bundle.payload.runtimeInstances,
+        outbox: bundle.payload.outbox,
+        chat: bundle.payload.chat,
+        degraded: bundle.payload.degraded,
+      } as Record<string, unknown>,
+      {
+        cacheKey: snapshotCacheKey,
+        stale: false,
+      }
+    );
+    deps.writeSnapshotResponseCache(snapshotCacheKey, payload);
+    deps.writeSnapshotResponseCache("live-snapshot-v2", payload);
+    deps.writeSnapshotResponseCache(
+      snapshotAliasKey("live-snapshot-v2", parsed.projectId),
+      payload
+    );
+    return payload;
+  }
+
+  async function getSnapshotPayload(
+    version: "v1" | "v2",
+    path: string,
+    query: URLSearchParams,
+    headerScope: Record<string, unknown> | null
+  ): Promise<Record<string, unknown>> {
+    const snapshotCacheKey = `${path}?${query.toString()}`;
+    const cachedSnapshot = deps.readSnapshotResponseCache(snapshotCacheKey);
+    if (cachedSnapshot) return cachedSnapshot;
+
+    const inFlight = snapshotInflight.get(snapshotCacheKey);
+    if (inFlight) return await inFlight;
+
+    const work = buildSnapshotPayload(version, path, query, headerScope)
+      .catch((err: unknown) => {
+        const staleSnapshot = deps.readSnapshotResponseCache(snapshotCacheKey, {
+          allowStale: true,
+        });
+        if (staleSnapshot) {
+          return withSnapshotMeta(staleSnapshot, {
+            cacheKey: snapshotCacheKey,
+            stale: true,
+            staleReason: deps.safeErrorMessage(err),
+          });
+        }
+        throw err;
+      })
+      .finally(() => {
+        snapshotInflight.delete(snapshotCacheKey);
+      });
+
+    snapshotInflight.set(snapshotCacheKey, work);
+    return await work;
+  }
+
   async function renderSnapshot(
     path: string,
     query: URLSearchParams,
@@ -950,21 +1095,8 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     headerScope: Record<string, unknown> | null
   ): Promise<void> {
     if (!validateWorkspaceScope(query, res, "live.snapshot.validation", headerScope)) return;
-    const snapshotCacheKey = `${path}?${query.toString()}`;
-    const cachedSnapshot = deps.readSnapshotResponseCache(snapshotCacheKey);
-    if (cachedSnapshot) {
-      deps.sendJson(res, 200, cachedSnapshot);
-      return;
-    }
-    const bundle = await buildSnapshotBundle(query, headerScope);
-    const parsed = parseSnapshotQuery(query, headerScope);
-    deps.writeSnapshotResponseCache(snapshotCacheKey, bundle.payload as Record<string, unknown>);
-    deps.writeSnapshotResponseCache("live-snapshot", bundle.payload as Record<string, unknown>);
-    deps.writeSnapshotResponseCache(
-      snapshotAliasKey("live-snapshot", parsed.projectId),
-      bundle.payload as Record<string, unknown>
-    );
-    deps.sendJson(res, 200, bundle.payload);
+    const payload = await getSnapshotPayload("v1", path, query, headerScope);
+    deps.sendJson(res, 200, payload);
   }
 
   async function renderSnapshotV2(
@@ -974,35 +1106,99 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     headerScope: Record<string, unknown> | null
   ): Promise<void> {
     if (!validateWorkspaceScope(query, res, "live.snapshot-v2.validation", headerScope)) return;
-    const snapshotCacheKey = `${path}?${query.toString()}`;
-    const cachedSnapshot = deps.readSnapshotResponseCache(snapshotCacheKey);
-    if (cachedSnapshot) {
-      deps.sendJson(res, 200, cachedSnapshot);
+    const payload = await getSnapshotPayload("v2", path, query, headerScope);
+    deps.sendJson(res, 200, payload);
+  }
+
+  async function renderSnapshotStreamV2(
+    path: string,
+    query: URLSearchParams,
+    req: TReq,
+    res: TRes,
+    headerScope: Record<string, unknown> | null
+  ): Promise<void> {
+    if (!validateWorkspaceScope(query, res, "live.stream-v2.validation", headerScope)) return;
+
+    const streamHeaders = {
+      ...deps.securityHeaders,
+      ...deps.corsHeaders,
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    };
+    res.writeHead(200, streamHeaders);
+    if (typeof res.write !== "function") {
+      res.end();
       return;
     }
 
-    const bundle = await buildSnapshotBundle(query, headerScope);
-    const parsed = parseSnapshotQuery(query, headerScope);
-    const payload = {
-      ...bundle.v2,
-      sessions: bundle.payload.sessions,
-      activity: bundle.payload.activity,
-      handoffs: bundle.payload.handoffs,
-      decisions: bundle.payload.decisions,
-      sliceRuns: bundle.payload.sliceRuns,
-      agents: bundle.payload.agents,
-      runtimeInstances: bundle.payload.runtimeInstances,
-      outbox: bundle.payload.outbox,
-      chat: bundle.payload.chat,
-      degraded: bundle.payload.degraded,
-    } as Record<string, unknown>;
-    deps.writeSnapshotResponseCache(snapshotCacheKey, payload);
-    deps.writeSnapshotResponseCache("live-snapshot-v2", payload);
-    deps.writeSnapshotResponseCache(
-      snapshotAliasKey("live-snapshot-v2", parsed.projectId),
-      payload
-    );
-    deps.sendJson(res, 200, payload);
+    let closed = false;
+    let lastGeneration = -1;
+    let refreshTimer: ReturnType<typeof setInterval> | null = null;
+    let keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+
+    const cleanup = () => {
+      if (closed) return;
+      closed = true;
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+      }
+      if (keepaliveTimer) {
+        clearInterval(keepaliveTimer);
+        keepaliveTimer = null;
+      }
+      try {
+        if (!res.writableEnded) res.end();
+      } catch {
+        // ignore
+      }
+    };
+
+    req.on?.("close", cleanup);
+    res.on?.("close", cleanup);
+    res.once?.("finish", cleanup);
+
+    const emitSnapshot = async (): Promise<void> => {
+      if (closed) return;
+      try {
+        const payload = await getSnapshotPayload("v2", path, query, headerScope);
+        if (closed) return;
+        lastGeneration = deps.getSnapshotCacheGeneration();
+        writeSseEvent(res, "snapshot", payload);
+      } catch (err: unknown) {
+        writeSseEvent(res, "error", {
+          error: deps.safeErrorMessage(err),
+        });
+      }
+    };
+
+    await emitSnapshot();
+
+    refreshTimer = setInterval(() => {
+      if (closed) {
+        cleanup();
+        return;
+      }
+      const generation = deps.getSnapshotCacheGeneration();
+      if (generation === lastGeneration) return;
+      void emitSnapshot();
+    }, LIVE_STREAM_REFRESH_INTERVAL_MS);
+    refreshTimer.unref?.();
+
+    keepaliveTimer = setInterval(() => {
+      if (closed || typeof res.write !== "function") {
+        cleanup();
+        return;
+      }
+      try {
+        res.write(`: ping ${Date.now()}\n\n`);
+      } catch {
+        cleanup();
+      }
+    }, LIVE_STREAM_KEEPALIVE_MS);
+    keepaliveTimer.unref?.();
   }
 
   async function renderSliceNarrative(
@@ -1361,6 +1557,20 @@ export function registerLiveSnapshotRoutes<TReq, TRes>(
     async ({ path, query, res, req }) =>
       renderSnapshotV2(path, query, res, headerScopeFromRequest(req)),
     "Live snapshot (v2 projections, HEAD)"
+  );
+  router.add(
+    "GET",
+    "live/stream-v2",
+    async ({ path, query, req, res }) =>
+      renderSnapshotStreamV2(path, query, req, res, headerScopeFromRequest(req)),
+    "Live snapshot stream (v2)"
+  );
+  router.add(
+    "HEAD",
+    "live/stream-v2",
+    async ({ path, query, req, res }) =>
+      renderSnapshotV2(path, query, res, headerScopeFromRequest(req)),
+    "Live snapshot stream (v2, HEAD)"
   );
   router.add(
     "GET",

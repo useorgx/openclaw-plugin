@@ -2003,44 +2003,25 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         if (normalizedInitiativeId) {
           query.set('initiative', normalizedInitiativeId);
         }
-        const endpoints = [
-          { label: 'live/snapshot-v2', url: `/orgx/api/live/snapshot-v2?${query.toString()}` },
-          { label: 'dashboard-bundle', url: `/orgx/api/dashboard-bundle?${query.toString()}` },
-          { label: 'live/snapshot', url: `/orgx/api/live/snapshot?${query.toString()}` },
-        ];
-        const errors: string[] = [];
-        let snapshot: LiveSnapshotResponse | null = null;
-        let sawAuthFailure = false;
-        for (let index = 0; index < endpoints.length; index += 1) {
-          const endpoint = endpoints[index];
-          if (index > 0) {
-            await new Promise<void>((resolve) => {
-              setTimeout(resolve, SNAPSHOT_FALLBACK_STAGGER_MS);
-            });
-          }
-          const snapshotRes = await fetchJson<LiveSnapshotResponse>(endpoint.url, {
+        const snapshotRes = await fetchJson<LiveSnapshotResponse>(
+          `/orgx/api/live/snapshot-v2?${query.toString()}`,
+          {
             headers: buildOrgxHeaders({ workspaceId: normalizedProjectId }),
-          }, { timeoutMs: SNAPSHOT_ENDPOINT_TIMEOUT_MS });
-          if (snapshotRes.ok && snapshotRes.data) {
-            snapshot = snapshotRes.data;
-            break;
-          }
-          if (snapshotRes.status === 401 || snapshotRes.status === 403) {
-            sawAuthFailure = true;
-          }
-          errors.push(`${endpoint.label}: ${snapshotRes.error ?? 'unavailable'}`);
-        }
+          },
+          { timeoutMs: SNAPSHOT_ENDPOINT_TIMEOUT_MS }
+        );
 
-        if (!snapshot) {
-          if (sawAuthFailure) {
+        if (!snapshotRes.ok || !snapshotRes.data) {
+          if (snapshotRes.status === 401 || snapshotRes.status === 403) {
             const authErr = new Error(
               'Unauthorized. Update your OrgX API key in Settings (use a user-scoped oxk_... key; userId should be blank).'
             );
             (authErr as Error & { code?: string }).code = 'ORGX_AUTH';
             throw authErr;
           }
-          throw new Error(summarizeSnapshotFailureMessages(errors));
+          throw new Error(snapshotRes.error ?? 'live/snapshot-v2 unavailable');
         }
+        const snapshot = snapshotRes.data;
         if (scopeKeyRef.current !== requestScopeKey) {
           return;
         }
@@ -2474,14 +2455,6 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
     fetchSnapshot();
 
-    // Workspace-scoped dashboards prioritize strict scope correctness over upstream SSE speed.
-    // Upstream live stream payloads are not guaranteed to be workspace-filtered, so we force
-    // snapshot polling for scoped views to prevent cross-workspace leakage.
-    if (normalizedProjectId) {
-      setPollingEnabled(true);
-      return undefined;
-    }
-
     const streamQuery = new URLSearchParams();
     if (normalizedProjectId) {
       appendWorkspaceScopeParams(streamQuery, normalizedProjectId);
@@ -2490,12 +2463,9 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       streamQuery.set('initiative', normalizedInitiativeId);
     }
     const streamUrl = streamQuery.toString()
-      ? `/orgx/api/live/stream?${streamQuery.toString()}`
-      : '/orgx/api/live/stream';
+      ? `/orgx/api/live/stream-v2?${streamQuery.toString()}`
+      : '/orgx/api/live/stream-v2';
     const eventSource = new EventSource(streamUrl);
-
-    // Local runtime telemetry (Codex/Claude/OpenClaw hooks) streams independently from cloud SSE.
-    const runtimeEventSource = new EventSource('/orgx/api/hooks/runtime/stream');
 
     let pendingSnapshot:
       | {
@@ -2783,7 +2753,6 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     };
 
     eventSource.addEventListener('runtime.updated', handleRuntimeUpdated);
-    runtimeEventSource.addEventListener('runtime.updated', handleRuntimeUpdated);
 
     eventSource.addEventListener('handoff.updated', (event) => {
       try {
@@ -2808,7 +2777,6 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         clearTimeout(flushTimer);
       }
       eventSource.close();
-      runtimeEventSource.close();
     };
   }, [
     applySnapshot,
@@ -2829,8 +2797,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     if (!enabled) return undefined;
     if (useMock) return undefined;
     if (intervalRef.current) clearInterval(intervalRef.current);
-    const forcePollingForScopedWorkspace = Boolean(normalizedProjectId);
-    if (!pollingEnabled && !forcePollingForScopedWorkspace) return undefined;
+    if (!pollingEnabled) return undefined;
 
     intervalRef.current = setInterval(fetchSnapshot, pollInterval);
 

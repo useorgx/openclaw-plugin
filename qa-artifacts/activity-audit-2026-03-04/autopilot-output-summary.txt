@@ -1,0 +1,134 @@
+Autopilot output summary generated 2026-03-04T15:36:17Z
+
+=== c162034d-30f3-4dbf-9493-a210f3e06113.output.json ===
+{
+  "status": "completed",
+  "stop_reason": "n/a",
+  "initiative": "n/a",
+  "workstream": "Plugin + Core Codebase Unification",
+  "task_count": 0,
+  "decision_count": 0,
+  "artifact_count": 1
+}
+
+=== f7ea8839-f9a2-4e1f-9002-8511191fde02.output.json ===
+{
+  "status": "completed",
+  "stop_reason": "n/a",
+  "initiative": "n/a",
+  "workstream": "Launch Day Coordination",
+  "task_count": 0,
+  "decision_count": 0,
+  "artifact_count": 1
+}
+
+=== 45c631d0-a46f-4195-87dd-8b84d314fe1c.output.json ===
+{
+  "status": "completed",
+  "stop_reason": "n/a",
+  "initiative": "n/a",
+  "workstream": "Org Memory & Context Survival",
+  "task_count": 0,
+  "decision_count": 0,
+  "artifact_count": 2
+}
+
+=== 1f924442-f935-4e20-9c56-99cf0828ca29.output.json ===
+{
+  "status": "completed",
+  "stop_reason": "n/a",
+  "initiative": "n/a",
+  "workstream": "Org Memory & Context Survival",
+  "task_count": 0,
+  "decision_count": 0,
+  "artifact_count": 2
+}
+
+=== 5d8d2565-0426-45cd-b545-d691e44a4a20.output.json ===
+{
+  "status": "completed",
+  "stop_reason": "n/a",
+  "initiative": "n/a",
+  "workstream": "Decision Gate Flow",
+  "task_count": 0,
+  "decision_count": 0,
+  "artifact_count": 1
+}
+
+=== f5a7595d-1912-4d7b-9a6f-b52a842ad878.output.json ===
+{
+  "status": "completed",
+  "stop_reason": "n/a",
+  "initiative": "n/a",
+  "workstream": "Plan to Initiative Bridge",
+  "task_count": 0,
+  "decision_count": 0,
+  "artifact_count": 1
+}
+
+=== bf35524f-b250-45c7-8689-72cf8e84a168.output.json ===
+{
+  "status": "completed",
+  "stop_reason": "n/a",
+  "initiative": "n/a",
+  "workstream": "Agent Dispatch & Execution Loop",
+  "task_count": 0,
+  "decision_count": 0,
+  "artifact_count": 1
+}
+
+=== 268d24d0-dddb-4f4a-bbae-d24badc65577.output.json ===
+{
+  "status": "completed",
+  "stop_reason": "n/a",
+  "initiative": "n/a",
+  "workstream": "Decision Gate Flow",
+  "task_count": 0,
+  "decision_count": 0,
+  "artifact_count": 1
+}
+
+=== 6a2941d5-eb84-4718-abdb-440c3fb2371d.output.json ===
+{
+  "status": "completed",
+  "stop_reason": "n/a",
+  "initiative": "n/a",
+  "workstream": "Org Memory & Context Survival",
+  "task_count": 0,
+  "decision_count": 0,
+  "artifact_count": 1
+}
+
+=== 19139121-37ad-40da-885d-4bc409a4d9a4.output.json ===
+{
+  "status": "completed",
+  "stop_reason": "n/a",
+  "initiative": "n/a",
+  "workstream": "Agent Dispatch & Execution Loop",
+  "task_count": 0,
+  "decision_count": 0,
+  "artifact_count": 1
+}
+
+=== 2ac1e8d7-0317-469d-a064-9c87b57629ef.output.json ===
+{
+  "status": "completed",
+  "stop_reason": "n/a",
+  "initiative": "n/a",
+  "workstream": "MCP-in-Claude Verification & UX",
+  "task_count": 0,
+  "decision_count": 0,
+  "artifact_count": 1
+}
+
+=== 88b88691-dbcc-43c8-80ce-e77240b5d068.output.json ===
+{
+  "status": "completed",
+  "stop_reason": "n/a",
+  "initiative": "n/a",
+  "workstream": "MCP-in-Claude Verification & UX",
+  "task_count": 0,
+  "decision_count": 0,
+  "artifact_count": 2
+}
+

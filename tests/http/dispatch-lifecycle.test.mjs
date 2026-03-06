@@ -1,10 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createDispatchLifecycle } from "../../dist/http/helpers/dispatch-lifecycle.js";
+import { readOutbox } from "../../dist/outbox.js";
 
 function withEnv(patch, fn) {
   const prev = {};
@@ -77,6 +78,7 @@ test("requestDecisionSafe returns true when API fails but outbox buffering succe
     {
       OPENCLAW_HOME: openclawHome,
       ORGX_OUTBOX_DIR: null,
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: null,
     },
     async () => {
       const result = await lifecycle.requestDecisionSafe({
@@ -87,10 +89,10 @@ test("requestDecisionSafe returns true when API fails but outbox buffering succe
       });
       assert.equal(result?.queued, true);
       assert.ok(Array.isArray(result?.decisionIds));
-      const outboxPath = join(openclawHome, "orgx-outbox", "init-2.json");
-      assert.equal(existsSync(outboxPath), true);
-      const raw = readFileSync(outboxPath, "utf8");
-      assert.match(raw, /decision\.create/);
+      const events = await readOutbox("init-2");
+      assert.equal(events.length, 1);
+      assert.equal(events[0]?.type, "changeset");
+      assert.match(JSON.stringify(events[0]?.payload ?? {}), /decision\.create/);
     }
   );
 });
@@ -141,6 +143,7 @@ test("requestDecisionSafe returns false when API and outbox buffering both fail"
     {
       OPENCLAW_HOME: fakeHomeFile,
       ORGX_OUTBOX_DIR: null,
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: fakeHomeFile,
     },
     async () => {
       const result = await lifecycle.requestDecisionSafe({

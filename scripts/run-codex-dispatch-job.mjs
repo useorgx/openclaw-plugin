@@ -464,6 +464,7 @@ export function classifyTaskState(status) {
   if (
     canonical === "done" ||
     canonical === "completed" ||
+    canonical === "canceled" ||
     canonical === "cancelled" ||
     canonical === "archived" ||
     canonical === "deleted"

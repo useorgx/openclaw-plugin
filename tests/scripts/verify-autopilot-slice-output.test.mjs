@@ -94,7 +94,11 @@ function runVerifier(output, schema, requiredSkills = "", options = {}) {
   const schemaPath = join(root, "schema.json");
   writeFileSync(outputPath, JSON.stringify(hydratedOutput, null, 2), "utf8");
   writeFileSync(schemaPath, JSON.stringify(schema, null, 2), "utf8");
-  const env = { ...process.env, ORGX_REQUIRED_SKILLS: requiredSkills };
+  const env = {
+    ...process.env,
+    ORGX_REQUIRED_SKILLS: requiredSkills,
+    ...(options.env ?? {}),
+  };
   delete env.NODE_OPTIONS;
   return spawnSync(
     process.execPath,
@@ -179,6 +183,23 @@ test("verifier accepts skill heading when frontmatter fence is unclosed", () => 
   assert.match(result.stdout, /\[verify\] ok/i);
 });
 
+test("verifier accepts skill heading when YAML frontmatter closes with ellipsis", () => {
+  const output = makeValidOutput();
+  output.skill_evidence[0].skill_heading = "deliver engineering outputs";
+  const skillContent = [
+    "---",
+    "name: orgx-engineering-agent",
+    "description: Test skill file",
+    "...",
+    "",
+    "deliver engineering outputs",
+    "",
+  ].join("\n");
+  const result = runVerifier(output, makeSchema(), "", { skillContent });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
+});
+
 test("verifier accepts a schema-compliant completed output", () => {
   const result = runVerifier(makeValidOutput(), makeSchema());
   assert.equal(result.status, 0, result.stderr);
@@ -191,6 +212,15 @@ test("verifier rejects skill evidence missing required authenticity fields", () 
   const result = runVerifier(output, makeSchema());
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /skill_evidence\.skill_sha256/);
+});
+
+test("verifier rejects invalid skill identifiers in skill_evidence", () => {
+  const output = makeValidOutput();
+  output.skill_evidence[0].skill = "orgx engineering";
+  const result = runVerifier(output, makeSchema());
+  assert.notEqual(result.status, 0);
+  const combined = `${result.stderr}\n${result.stdout}`;
+  assert.match(combined, /skill_evidence\.skill must match \^\[a-z0-9\]\[a-z0-9_-\]\*\$/i);
 });
 
 test("verifier rejects null skill_evidence", () => {
@@ -209,6 +239,15 @@ test("verifier rejects empty skill_evidence arrays", () => {
   assert.notEqual(result.status, 0);
   const combined = `${result.stderr}\n${result.stdout}`;
   assert.match(combined, /skill_evidence must include at least one entry/i);
+});
+
+test("verifier rejects non-absolute skill evidence file paths", () => {
+  const output = makeValidOutput();
+  output.skill_evidence[0].skill_file = "relative/SKILL.md";
+  const result = runVerifier(output, makeSchema());
+  assert.notEqual(result.status, 0);
+  const combined = `${result.stderr}\n${result.stdout}`;
+  assert.match(combined, /skill_evidence\.skill_file must be an absolute path/i);
 });
 
 test("verifier rejects skill evidence when declared digest does not match skill file", () => {
@@ -391,6 +430,16 @@ test("verifier ignores connector words in prompt-style required skills text", ()
     makeValidOutput(),
     makeSchema(),
     "Required skills: $orgx-engineering-agent and optional guidance"
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
+});
+
+test("verifier ignores execution metadata words in prompt-shaped required skills text", () => {
+  const result = runVerifier(
+    makeValidOutput(),
+    makeSchema(),
+    "Execution policy: engineering\nRequired skills: $orgx-engineering-agent\nWorkstream: ws-1"
   );
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout, /\[verify\] ok/i);
@@ -672,6 +721,37 @@ test("verifier rejects blank optional slice_id values", () => {
   assert.notEqual(result.status, 0);
   const combined = `${result.stderr}\n${result.stdout}`;
   assert.match(combined, /slice_id must be a non-empty string or null/i);
+});
+
+test("verifier rejects workstream_id mismatches when ORGX_WORKSTREAM_ID is set", () => {
+  const output = makeValidOutput();
+  output.workstream_id = "ws-other";
+  const result = runVerifier(output, makeSchema(), "", {
+    env: { ORGX_WORKSTREAM_ID: "ws-1" },
+  });
+  assert.notEqual(result.status, 0);
+  const combined = `${result.stderr}\n${result.stdout}`;
+  assert.match(combined, /workstream_id must match ORGX_WORKSTREAM_ID \(ws-1\)/i);
+});
+
+test("verifier rejects slice_id mismatches when ORGX_SLICE_RUN_ID is set", () => {
+  const output = makeValidOutput();
+  output.slice_id = "slice-other";
+  const result = runVerifier(output, makeSchema(), "", {
+    env: { ORGX_SLICE_RUN_ID: "slice-1" },
+  });
+  assert.notEqual(result.status, 0);
+  const combined = `${result.stderr}\n${result.stdout}`;
+  assert.match(combined, /slice_id must match ORGX_SLICE_RUN_ID \(slice-1\)/i);
+});
+
+test("verifier accepts matching workstream and slice context env values", () => {
+  const output = makeValidOutput();
+  const result = runVerifier(output, makeSchema(), "", {
+    env: { ORGX_WORKSTREAM_ID: "ws-1", ORGX_SLICE_RUN_ID: "slice-1" },
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
 });
 
 test("verifier rejects artifact task_ids containing blank strings", () => {

@@ -258,7 +258,13 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     ensurePrivateDirForFile(input.logPath);
     ensurePrivateDirForFile(input.outputPath);
 
-    const workerKind = (process.env.ORGX_AUTOPILOT_WORKER_KIND ?? "").trim().toLowerCase();
+    const workerKind = (
+      input.env.ORGX_AUTOPILOT_WORKER_KIND ??
+      process.env.ORGX_AUTOPILOT_WORKER_KIND ??
+      ""
+    )
+      .trim()
+      .toLowerCase();
     if (workerKind === "mock") {
       const scriptPath = resolve(
         dirname(deps.filename),

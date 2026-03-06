@@ -1,0 +1,72 @@
+{
+  "startedAt": "2026-03-05T12:51:12.421Z",
+  "finishedAt": "2026-03-05T12:51:17.600Z",
+  "baseUrl": "http://127.0.0.1:18789",
+  "liveUrl": "http://127.0.0.1:18789/orgx/live",
+  "workspaceId": null,
+  "urls": {
+    "snapshot": "http://127.0.0.1:18789/orgx/api/live/snapshot?sessionsLimit=180&activityLimit=280&decisionsLimit=120",
+    "initiatives": "http://127.0.0.1:18789/orgx/api/live/initiatives?limit=400&offset=0",
+    "decisions": "http://127.0.0.1:18789/orgx/api/live/decisions?status=pending&limit=200",
+    "nextUp": "http://127.0.0.1:18789/orgx/api/mission-control/next-up?limit=120"
+  },
+  "api": {
+    "snapshotSessions": 0,
+    "snapshotActivity": 74,
+    "liveInitiatives": 47,
+    "pendingDecisions": 100,
+    "nextUpItems": 120,
+    "nextUpMissingInitiativeIds": []
+  },
+  "ui": {
+    "panes": {
+      "agents": true,
+      "activity": true,
+      "rightRail": true
+    },
+    "autopilotControlVisible": true,
+    "sessionRowVisible": false,
+    "decisionsLabelVisible": true,
+    "decisionsPositiveBadgeVisible": true,
+    "needsInputSignalVisible": false,
+    "nextUpActionVisible": true
+  },
+  "checks": [
+    {
+      "id": "P0-1",
+      "ok": true,
+      "detail": "agents=true activity=true rightRail=true"
+    },
+    {
+      "id": "P0-2",
+      "ok": true,
+      "detail": "autopilotControlVisible=true"
+    },
+    {
+      "id": "P0-3",
+      "ok": true,
+      "detail": "apiSessions=0 sessionRowVisible=false"
+    },
+    {
+      "id": "P0-4",
+      "ok": true,
+      "detail": "apiNextUpItems=120 nextUpActionVisible=true"
+    },
+    {
+      "id": "P0-5",
+      "ok": true,
+      "detail": "apiPending=100 decisionsLabelVisible=true decisionsPositiveBadgeVisible=true needsInputSignalVisible=false"
+    },
+    {
+      "id": "P0-6",
+      "ok": true,
+      "detail": "next-up initiatives are scoped correctly"
+    }
+  ],
+  "screenshots": {
+    "main": "/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-03-05/live-ui-p0-audit/2026-03-05T12-51-12-231Z/live-ui-p0-1772715077507.png"
+  },
+  "errors": [],
+  "passed": true,
+  "resultPath": "/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-03-05/live-ui-p0-audit/2026-03-05T12-51-12-231Z/live-ui-p0-audit-1772715077600.json"
+}

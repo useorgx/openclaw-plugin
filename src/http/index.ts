@@ -110,6 +110,11 @@ import {
   updateSkillPackPolicy,
 } from "../skill-pack-state.js";
 import { posthogCapture } from "../telemetry/posthog.js";
+import {
+  clearMaterializedSnapshotMemory,
+  readMaterializedSnapshot,
+  writeMaterializedSnapshot,
+} from "../stores/materialized-snapshot-store.js";
 import { createRouter } from "./router.js";
 import { summarizeActivityHeadline } from "./helpers/activity-headline.js";
 import {
@@ -412,7 +417,6 @@ async function mapWithConcurrency<T, R>(
 const ACTIVITY_WARM_THROTTLE_MS = 30_000;
 const activityWarmByKey = new Map<string, number>();
 const SNAPSHOT_RESPONSE_CACHE_TTL_MS = 800;
-const SNAPSHOT_RESPONSE_CACHE_MAX_ENTRIES = 16;
 const SNAPSHOT_ACTIVITY_PERSIST_MIN_INTERVAL_MS = 15_000;
 const SNAPSHOT_ACTIVITY_FINGERPRINT_DEPTH = 8;
 const NEXT_UP_QUEUE_CACHE_TTL_MS = readPositiveIntEnv(
@@ -465,10 +469,6 @@ const LIVE_WORKSPACE_INITIATIVE_STATUSES = [
 let lastSnapshotActivityPersistAt = 0;
 let lastSnapshotActivityFingerprint = "";
 let snapshotCacheGeneration = 0;
-const snapshotResponseCache = new Map<
-  string,
-  { expiresAt: number; generation: number; payload: Record<string, unknown> }
->();
 
 type ActivityBucket = "message" | "artifact" | "decision";
 
@@ -620,43 +620,33 @@ function snapshotActivityFingerprint(items: LiveActivityItem[]): string {
   return `${items.length}:${sample}`;
 }
 
-function readSnapshotResponseCache(key: string): Record<string, unknown> | null {
-  const entry = snapshotResponseCache.get(key);
-  if (!entry) return null;
-  if (entry.generation !== snapshotCacheGeneration || entry.expiresAt <= Date.now()) {
-    snapshotResponseCache.delete(key);
-    return null;
-  }
-  return entry.payload;
+function getSnapshotCacheGeneration(): number {
+  return snapshotCacheGeneration;
+}
+
+function readSnapshotResponseCache(
+  key: string,
+  options?: { allowStale?: boolean }
+): Record<string, unknown> | null {
+  return readMaterializedSnapshot(key, {
+    allowStale: options?.allowStale,
+    generation: snapshotCacheGeneration,
+  });
 }
 
 function writeSnapshotResponseCache(
   key: string,
   payload: Record<string, unknown>
 ): void {
-  const now = Date.now();
-  snapshotResponseCache.set(key, {
-    expiresAt: now + SNAPSHOT_RESPONSE_CACHE_TTL_MS,
+  writeMaterializedSnapshot(key, payload, {
     generation: snapshotCacheGeneration,
-    payload,
+    ttlMs: SNAPSHOT_RESPONSE_CACHE_TTL_MS,
   });
-
-  if (snapshotResponseCache.size <= SNAPSHOT_RESPONSE_CACHE_MAX_ENTRIES) return;
-
-  for (const [cachedKey, entry] of snapshotResponseCache.entries()) {
-    if (entry.expiresAt <= now) snapshotResponseCache.delete(cachedKey);
-  }
-
-  while (snapshotResponseCache.size > SNAPSHOT_RESPONSE_CACHE_MAX_ENTRIES) {
-    const oldestKey = snapshotResponseCache.keys().next().value as string | undefined;
-    if (!oldestKey) break;
-    snapshotResponseCache.delete(oldestKey);
-  }
 }
 
 function clearSnapshotResponseCache(): void {
   snapshotCacheGeneration += 1;
-  snapshotResponseCache.clear();
+  clearMaterializedSnapshotMemory();
 }
 
 function isUserScopedApiKey(apiKey: string): boolean {
@@ -4320,6 +4310,7 @@ export function createHttpHandler(
     parsePositiveInt,
     readSnapshotResponseCache,
     writeSnapshotResponseCache,
+    getSnapshotCacheGeneration,
     safeErrorMessage,
     readAgentContexts,
     getScopedAgentIds,
@@ -4382,6 +4373,8 @@ export function createHttpHandler(
       listChatThreads({ commandCenterId, initiativeId, limit, offset }),
     getCanonicalAutopilotState,
     sendJson,
+    securityHeaders: SECURITY_HEADERS,
+    corsHeaders: CORS_HEADERS,
   });
   registerRuntimeHookRoutes(apiRouter, {
     parseJsonRequest,
