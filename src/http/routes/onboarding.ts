@@ -17,6 +17,7 @@ type OnboardingControllerLike = {
   }>;
   getStatus: () => Promise<OnboardingState>;
   submitManualKey: (input: { apiKey: string; userId?: string }) => Promise<OnboardingState>;
+  cancelPairing?: () => Promise<OnboardingState>;
   disconnect: () => Promise<OnboardingState>;
 };
 
@@ -138,6 +139,28 @@ export function registerOnboardingRoutes<TReq, TRes>(
       }
     },
     "Submit manual OrgX API key"
+  );
+
+  router.add(
+    "POST",
+    "onboarding/cancel",
+    async ({ res }) => {
+      try {
+        const state = deps.onboarding.cancelPairing
+          ? await deps.onboarding.cancelPairing()
+          : await deps.onboarding.getStatus();
+        deps.sendJson(res, 200, {
+          ok: true,
+          data: deps.getOnboardingState(state),
+        });
+      } catch (err: unknown) {
+        deps.sendJson(res, 500, {
+          ok: false,
+          error: deps.safeErrorMessage(err),
+        });
+      }
+    },
+    "Cancel onboarding pairing flow"
   );
 
   router.add(

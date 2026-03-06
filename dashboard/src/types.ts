@@ -995,6 +995,10 @@ export interface NextUpQueueResponse {
   generatedAt: string;
   total: number;
   items: NextUpQueueItem[];
+  summary?: {
+    visibleTotal: number;
+    stateCounts: Record<NextUpQueueState, number>;
+  };
   pagination?: {
     offset: number;
     limit: number;

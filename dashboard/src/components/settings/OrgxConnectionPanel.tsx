@@ -199,6 +199,7 @@ export function OrgxConnectionPanel({
   onSelectWorkspace,
   onRefresh,
   onStartPairing,
+  onCancelPairing,
   onSubmitManualKey,
   onBackToPairing,
   onUseManualKey,
@@ -212,6 +213,7 @@ export function OrgxConnectionPanel({
   onSelectWorkspace: (workspaceId: string | null) => void;
   onRefresh: () => Promise<unknown>;
   onStartPairing: () => Promise<void>;
+  onCancelPairing: () => Promise<unknown>;
   onSubmitManualKey: (apiKey: string) => Promise<unknown>;
   onBackToPairing: () => void;
   onUseManualKey: () => void;
@@ -221,18 +223,26 @@ export function OrgxConnectionPanel({
   const phase = derivePhase(state.status, state.connectionVerified);
   const showManual = state.status === 'manual_key';
   const showPairing =
-    state.status === 'awaiting_browser_auth' || state.status === 'pairing' || state.status === 'starting';
+    (state.status === 'awaiting_browser_auth' || state.status === 'pairing' || state.status === 'starting') ||
+    (phase === 'connected' &&
+      typeof state.pairingId === 'string' &&
+      state.pairingId.trim().length > 0 &&
+      typeof state.connectUrl === 'string' &&
+      state.connectUrl.trim().length > 0);
   const hasError = Boolean(state.lastError);
   const friendlyLastError = state.lastError ? humanizeWarning(state.lastError) : null;
   const keyLabel = keySourceHuman(state.keySource);
 
   const subtitle = useMemo(() => {
+    if (phase === 'connected' && showPairing) {
+      return 'A reconnect is pending in the browser. Your current OrgX session stays live until approval completes.';
+    }
     if (phase === 'connected') return 'Live sync is active. Initiatives, tasks, and activity flow in real time.';
     if (phase === 'connecting') return 'Approve the pairing in your browser to finish connecting.';
     if (phase === 'error') return 'Trouble reaching OrgX. Try reconnecting or use a manual API key.';
     if (state.hasApiKey) return 'An API key is present but the connection has not been verified yet.';
     return 'Connect to OrgX to sync initiatives, tasks, activity, and decisions.';
-  }, [phase, state.hasApiKey]);
+  }, [phase, showPairing, state.hasApiKey]);
 
   // Border glow varies by state
   const cardBorder =
@@ -246,7 +256,7 @@ export function OrgxConnectionPanel({
     <div className="flex min-h-0 flex-col gap-4">
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div>
-        <h3 className="text-heading font-semibold text-white">OrgX connection</h3>
+        <h3 className="text-heading font-semibold text-white">Connection state</h3>
         <p className="mt-1 text-body leading-relaxed text-secondary">{subtitle}</p>
       </div>
 
@@ -268,7 +278,7 @@ export function OrgxConnectionPanel({
         <div className={cn('rounded-2xl border bg-white/[0.02] p-5', cardBorder)}>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-4">
             <div>
-              <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/80">Connection status</p>
+              <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/80">Live state</p>
               <div className="mt-1">
                 <StatusHeadline phase={phase} />
               </div>
@@ -295,7 +305,7 @@ export function OrgxConnectionPanel({
 
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3.5 py-3">
-                <p className="text-micro uppercase tracking-[0.12em] text-muted">Credential snapshot</p>
+                <p className="text-micro uppercase tracking-[0.12em] text-muted">Credentials</p>
                 <div className="mt-2.5 grid gap-1.5">
                   <ConnectionMetaRow
                     label="API key"
@@ -313,7 +323,7 @@ export function OrgxConnectionPanel({
               </div>
 
               <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3.5 py-3">
-                <p className="text-micro uppercase tracking-[0.12em] text-muted">Workspace scope</p>
+                <p className="text-micro uppercase tracking-[0.12em] text-muted">Scope</p>
                 {phase === 'connected' ? (
                   <div className="mt-2">
                     <label htmlFor="settings-workspace-scope" className="sr-only">
@@ -365,7 +375,9 @@ export function OrgxConnectionPanel({
               <div className="rounded-xl border border-[#BFFF00]/20 bg-[#BFFF00]/[0.06] px-4 py-3">
                 <p className="text-caption uppercase tracking-[0.1em] text-[#D8FFA1]">Pairing pending</p>
                 <p className="mt-1 text-body leading-relaxed text-secondary">
-                  A browser tab should have opened. Approve the connection to finish.
+                  {phase === 'connected'
+                    ? 'Approve the reconnect in your browser. Your current connection remains active until approval completes.'
+                    : 'A browser tab should have opened. Approve the connection to finish.'}
                 </p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <a
@@ -381,6 +393,13 @@ export function OrgxConnectionPanel({
                       Expires {new Date(state.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => { void onCancelPairing(); }}
+                    className="rounded-full border border-strong bg-white/[0.03] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.06]"
+                  >
+                    Cancel pairing
+                  </button>
                 </div>
               </div>
             )}
@@ -402,10 +421,10 @@ export function OrgxConnectionPanel({
                 <button
                   type="button"
                   onClick={() => { void onStartPairing(); }}
-                  disabled={isStarting}
+                  disabled={isStarting || showPairing}
                   className="rounded-full border border-strong bg-white/[0.03] px-4 py-2 text-body font-semibold text-primary transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Reconnect
+                  {showPairing ? 'Reconnect pending' : 'Reconnect'}
                 </button>
                 <button
                   type="button"
@@ -461,7 +480,7 @@ export function OrgxConnectionPanel({
       {phase !== 'connected' && (
         <p className="text-caption leading-relaxed text-muted">
           Prefer user-scoped keys (<code className="rounded bg-black/40 px-1">oxk_...</code>).
-          They don't require a separate userId header.
+          They activate cleanly without requiring a separate userId header.
         </p>
       )}
     </div>

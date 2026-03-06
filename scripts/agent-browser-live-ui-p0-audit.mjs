@@ -42,6 +42,8 @@ const SNAPSHOT_LIMITS = {
     : 120,
 };
 
+const SELECTED_WORKSPACE_ID_KEY = "orgx.selected_workspace_id";
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -138,6 +140,85 @@ function hasPositiveDecisionBadge(values) {
   return false;
 }
 
+function extractFirstInteger(value) {
+  const match = String(value || "").match(/(\d+)/);
+  if (!match) return null;
+  const parsed = Number.parseInt(match[1], 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function trimmed(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function buildScopeKey(initiativeId, workstreamId) {
+  const initiative = trimmed(initiativeId);
+  const workstream = trimmed(workstreamId);
+  if (!initiative || !workstream) return null;
+  return `${initiative}:${workstream}`;
+}
+
+function dedupedNeedsAttentionCount(decisions, needsInputItems) {
+  const coveredRunIds = new Set();
+  const coveredScopeKeys = new Set();
+
+  for (const item of Array.isArray(needsInputItems) ? needsInputItems : []) {
+    const runId = trimmed(item?.runId);
+    if (runId) coveredRunIds.add(runId);
+    const sliceRunId = trimmed(item?.sliceRunId);
+    if (sliceRunId) coveredRunIds.add(sliceRunId);
+    const scoped = buildScopeKey(item?.initiativeId, item?.workstreamId);
+    if (scoped) coveredScopeKeys.add(scoped);
+  }
+
+  let uncoveredDecisions = 0;
+  for (const decision of Array.isArray(decisions) ? decisions : []) {
+    const sourceRunId = trimmed(decision?.sourceRunId);
+    if (sourceRunId && coveredRunIds.has(sourceRunId)) continue;
+    const sourceSessionId = trimmed(decision?.sourceSessionId);
+    if (sourceSessionId && coveredRunIds.has(sourceSessionId)) continue;
+    const scoped = buildScopeKey(decision?.initiativeId, decision?.workstreamId);
+    if (scoped && coveredScopeKeys.has(scoped)) continue;
+    uncoveredDecisions += 1;
+  }
+
+  return (Array.isArray(needsInputItems) ? needsInputItems.length : 0) + uncoveredDecisions;
+}
+
+async function readWorkspaceIdFromPage(page, liveUrl) {
+  if (WORKSPACE_ID_ENV) return WORKSPACE_ID_ENV;
+  const fromCurrentUrl = resolveWorkspaceId(parseLiveUrl(page.url() || liveUrl.toString()));
+  if (fromCurrentUrl) return fromCurrentUrl;
+  const fromStorage = await page
+    .evaluate((storageKey) => {
+      try {
+        const raw = window.localStorage.getItem(storageKey);
+        return typeof raw === "string" ? raw.trim() : "";
+      } catch {
+        return "";
+      }
+    }, SELECTED_WORKSPACE_ID_KEY)
+    .catch(() => "");
+  return trimmed(fromStorage);
+}
+
+async function readButtonCount(page, pattern) {
+  const buttons = page.getByRole("button", { name: pattern });
+  const count = await buttons.count().catch(() => 0);
+  if (count === 0) return null;
+  let best = null;
+  for (let index = 0; index < count; index += 1) {
+    const button = buttons.nth(index);
+    const visible = await button.isVisible().catch(() => false);
+    if (!visible) continue;
+    const text = await button.textContent().catch(() => "");
+    const parsed = extractFirstInteger(text);
+    if (parsed === null) continue;
+    best = best === null ? parsed : Math.max(best, parsed);
+  }
+  return best;
+}
+
 async function run() {
   if (DRY_RUN) {
     process.stdout.write(`[live-ui-p0] dry-run output dir: ${RESULT_DIR}\n`);
@@ -149,46 +230,28 @@ async function run() {
 
   const startedAt = nowIso();
   const liveUrl = parseLiveUrl(LIVE_URL_BASE);
-  const workspaceId = resolveWorkspaceId(liveUrl);
-  const scopedLiveUrl = applyWorkspaceScope(liveUrl, workspaceId);
-
-  const snapshotUrl = applyWorkspaceScope(
-    new URL(
-      `${BASE_URL}/orgx/api/live/snapshot?sessionsLimit=${SNAPSHOT_LIMITS.sessions}&activityLimit=${SNAPSHOT_LIMITS.activity}&decisionsLimit=${SNAPSHOT_LIMITS.decisions}`
-    ),
-    workspaceId
-  ).toString();
-  const initiativesUrl = applyWorkspaceScope(
-    new URL(`${BASE_URL}/orgx/api/live/initiatives?limit=400&offset=0`),
-    workspaceId
-  ).toString();
-  const decisionsUrl = applyWorkspaceScope(
-    new URL(`${BASE_URL}/orgx/api/live/decisions?status=pending&limit=200`),
-    workspaceId
-  ).toString();
-  const nextUpUrl = applyWorkspaceScope(
-    new URL(`${BASE_URL}/orgx/api/mission-control/next-up?limit=120`),
-    workspaceId
-  ).toString();
+  const initialWorkspaceId = resolveWorkspaceId(liveUrl);
+  const scopedLiveUrl = applyWorkspaceScope(liveUrl, initialWorkspaceId);
 
   const report = {
     startedAt,
     finishedAt: null,
     baseUrl: BASE_URL,
     liveUrl: scopedLiveUrl.toString(),
-    workspaceId: workspaceId || null,
+    workspaceId: initialWorkspaceId || null,
     urls: {
-      snapshot: snapshotUrl,
-      initiatives: initiativesUrl,
-      decisions: decisionsUrl,
-      nextUp: nextUpUrl,
+      snapshot: null,
+      initiatives: null,
+      decisions: null,
+      nextUp: null,
     },
     api: {
-      snapshotSessions: 0,
-      snapshotActivity: 0,
+      inProgressCount: 0,
+      needsAttentionCount: 0,
       liveInitiatives: 0,
       pendingDecisions: 0,
       nextUpItems: 0,
+      nextUpCount: 0,
       nextUpMissingInitiativeIds: [],
     },
     ui: {
@@ -203,6 +266,11 @@ async function run() {
       decisionsPositiveBadgeVisible: false,
       needsInputSignalVisible: false,
       nextUpActionVisible: false,
+      counts: {
+        inProgress: null,
+        nextUp: null,
+        needsAttention: null,
+      },
     },
     checks: [],
     screenshots: {},
@@ -210,30 +278,6 @@ async function run() {
     passed: false,
     resultPath: null,
   };
-
-  const [snapshot, initiatives, decisions, nextUp] = await Promise.all([
-    fetchJson(snapshotUrl),
-    fetchJson(initiativesUrl),
-    fetchJson(decisionsUrl),
-    fetchJson(nextUpUrl),
-  ]);
-
-  const snapshotSessions = Array.isArray(snapshot?.sessions) ? snapshot.sessions : [];
-  const snapshotActivity = Array.isArray(snapshot?.activity) ? snapshot.activity : [];
-  const initiativesRows = Array.isArray(initiatives?.initiatives) ? initiatives.initiatives : [];
-  const decisionRows = Array.isArray(decisions?.decisions) ? decisions.decisions : [];
-  const nextUpItems = Array.isArray(nextUp?.items) ? nextUp.items : [];
-
-  report.api.snapshotSessions = snapshotSessions.length;
-  report.api.snapshotActivity = snapshotActivity.length;
-  report.api.liveInitiatives = initiativesRows.length;
-  report.api.pendingDecisions = decisionRows.length;
-  report.api.nextUpItems = nextUpItems.length;
-
-  const liveInitiativeIds = collectInitiativeIds(initiativesRows, ["id", "initiativeId"]);
-  const nextUpInitiativeIds = collectInitiativeIds(nextUpItems, ["initiativeId", "initiative_id"]);
-  const missingIds = Array.from(nextUpInitiativeIds).filter((id) => !liveInitiativeIds.has(id));
-  report.api.nextUpMissingInitiativeIds = missingIds;
 
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
@@ -243,11 +287,75 @@ async function run() {
     await dismissFirstRunChecklist(page);
     await page.waitForTimeout(600);
 
+    const pageWorkspaceId = await readWorkspaceIdFromPage(page, liveUrl);
+    if (pageWorkspaceId) {
+      report.workspaceId = pageWorkspaceId;
+    }
+
+    const snapshotUrl = applyWorkspaceScope(
+      new URL(
+        `${BASE_URL}/orgx/api/live/snapshot-v2?sessionsLimit=${SNAPSHOT_LIMITS.sessions}&activityLimit=${SNAPSHOT_LIMITS.activity}&decisionsLimit=${SNAPSHOT_LIMITS.decisions}`
+      ),
+      pageWorkspaceId
+    ).toString();
+    const initiativesUrl = applyWorkspaceScope(
+      new URL(`${BASE_URL}/orgx/api/live/initiatives?limit=400&offset=0`),
+      pageWorkspaceId
+    ).toString();
+    const decisionsUrl = applyWorkspaceScope(
+      new URL(`${BASE_URL}/orgx/api/live/decisions?status=pending&limit=200`),
+      pageWorkspaceId
+    ).toString();
+    const nextUpUrl = applyWorkspaceScope(
+      new URL(`${BASE_URL}/orgx/api/mission-control/next-up?limit=120`),
+      pageWorkspaceId
+    ).toString();
+
+    report.urls.snapshot = snapshotUrl;
+    report.urls.initiatives = initiativesUrl;
+    report.urls.decisions = decisionsUrl;
+    report.urls.nextUp = nextUpUrl;
+
+    const [snapshot, initiatives, decisions, nextUp] = await Promise.all([
+      fetchJson(snapshotUrl),
+      fetchJson(initiativesUrl),
+      fetchJson(decisionsUrl),
+      fetchJson(nextUpUrl),
+    ]);
+
+    const snapshotInProgress = Array.isArray(snapshot?.inProgress) ? snapshot.inProgress : [];
+    const snapshotNeedsInput = Array.isArray(snapshot?.needsInputItems) ? snapshot.needsInputItems : [];
+    const initiativesRows = Array.isArray(initiatives?.initiatives) ? initiatives.initiatives : [];
+    const decisionRows = Array.isArray(decisions?.decisions) ? decisions.decisions : [];
+    const nextUpItems = Array.isArray(nextUp?.items) ? nextUp.items : [];
+    const nextUpVisibleCount =
+      typeof nextUp?.summary?.visibleTotal === "number" &&
+      Number.isFinite(nextUp.summary.visibleTotal)
+        ? Math.max(0, Math.floor(nextUp.summary.visibleTotal))
+        : nextUpItems.filter((item) => {
+            const state = String(item?.queueState || "").trim().toLowerCase();
+            return state !== "running" && state !== "completed";
+          }).length;
+
+    report.api.inProgressCount = snapshotInProgress.length;
+    report.api.needsAttentionCount = dedupedNeedsAttentionCount(decisionRows, snapshotNeedsInput);
+    report.api.liveInitiatives = initiativesRows.length;
+    report.api.pendingDecisions = decisionRows.length;
+    report.api.nextUpItems = nextUpItems.length;
+    report.api.nextUpCount = nextUpVisibleCount;
+
+    const liveInitiativeIds = collectInitiativeIds(initiativesRows, ["id", "initiativeId"]);
+    const nextUpInitiativeIds = collectInitiativeIds(nextUpItems, ["initiativeId", "initiative_id"]);
+    const missingIds = Array.from(nextUpInitiativeIds).filter((id) => !liveInitiativeIds.has(id));
+    report.api.nextUpMissingInitiativeIds = missingIds;
+
     report.ui.panes.agents = await page.getByText(/^Agents\b/i).first().isVisible().catch(() => false);
     report.ui.panes.activity = await page.getByText(/^Activity\b/i).first().isVisible().catch(() => false);
     const inProgressVisible = await page.getByRole("button", { name: /^In Progress\b/i }).first().isVisible().catch(() => false);
     const nextUpVisible = await page.getByRole("button", { name: /^Next Up\b/i }).first().isVisible().catch(() => false);
     report.ui.panes.rightRail = inProgressVisible || nextUpVisible;
+    report.ui.counts.inProgress = await readButtonCount(page, /^In Progress\b/i);
+    report.ui.counts.nextUp = await readButtonCount(page, /^Next Up\b/i);
 
     const autopilotControl = page
       .locator("button:visible")
@@ -287,9 +395,10 @@ async function run() {
       await nextUpTab.click({ timeout: 4_000 }).catch(() => {});
       await page.waitForTimeout(400);
     }
+    report.ui.counts.nextUp = await readButtonCount(page, /^Next Up\b/i);
     const nextUpActionButtons = page.getByRole("button", { name: /^(Start|Pause|Resume|Running)$/i });
     report.ui.nextUpActionVisible = false;
-    if (report.api.nextUpItems > 0) {
+    if (report.api.nextUpCount > 0) {
       const startedAtMs = Date.now();
       while (Date.now() - startedAtMs < 8_000) {
         const count = await nextUpActionButtons.count().catch(() => 0);
@@ -302,7 +411,7 @@ async function run() {
     } else {
       report.ui.nextUpActionVisible = (await nextUpActionButtons.count().catch(() => 0)) > 0;
     }
-    if (!report.ui.nextUpActionVisible && report.api.nextUpItems > 0) {
+    if (!report.ui.nextUpActionVisible && report.api.nextUpCount > 0) {
       const missionControlTab = page.getByRole("button", { name: /Mission Control/i }).first();
       if (await missionControlTab.count()) {
         await missionControlTab.click({ timeout: 4_000 }).catch(() => {});
@@ -319,6 +428,14 @@ async function run() {
       }
       report.ui.nextUpActionVisible = (await nextUpActionButtons.count().catch(() => 0)) > 0;
     }
+
+    const inProgressTab = page.getByRole("button", { name: /^In Progress\b/i }).first();
+    if (await inProgressTab.count()) {
+      await inProgressTab.click({ timeout: 4_000 }).catch(() => {});
+      await page.waitForTimeout(350);
+    }
+    report.ui.counts.inProgress = await readButtonCount(page, /^In Progress\b/i);
+    report.ui.counts.needsAttention = await readButtonCount(page, /Needs attention/i);
 
     const screenshotPath = join(RESULT_DIR, `live-ui-p0-${Date.now()}.png`);
     await page.screenshot({ path: screenshotPath, fullPage: false });
@@ -340,23 +457,33 @@ async function run() {
     },
     {
       id: "P0-3",
-      ok: report.api.snapshotSessions === 0 ? true : report.ui.sessionRowVisible,
-      detail: `apiSessions=${report.api.snapshotSessions} sessionRowVisible=${report.ui.sessionRowVisible}`,
+      ok:
+        typeof report.ui.counts.inProgress === "number"
+          ? report.api.inProgressCount === report.ui.counts.inProgress
+          : report.api.inProgressCount === 0
+            ? true
+            : report.ui.sessionRowVisible,
+      detail: `apiInProgress=${report.api.inProgressCount} uiInProgress=${report.ui.counts.inProgress} sessionRowVisible=${report.ui.sessionRowVisible}`,
     },
     {
       id: "P0-4",
-      ok: report.api.nextUpItems === 0 ? true : report.ui.nextUpActionVisible,
-      detail: `apiNextUpItems=${report.api.nextUpItems} nextUpActionVisible=${report.ui.nextUpActionVisible}`,
+      ok:
+        report.api.nextUpCount === 0
+          ? true
+          : report.ui.nextUpActionVisible &&
+            report.ui.counts.nextUp === report.api.nextUpCount,
+      detail: `apiNextUp=${report.api.nextUpCount} uiNextUp=${report.ui.counts.nextUp} nextUpActionVisible=${report.ui.nextUpActionVisible}`,
     },
     {
       id: "P0-5",
       ok:
-        report.api.pendingDecisions === 0
+        report.api.needsAttentionCount === 0
           ? report.ui.decisionsLabelVisible
-          : report.ui.decisionsPositiveBadgeVisible ||
-            report.ui.needsInputSignalVisible ||
-            (report.ui.decisionsLabelVisible && report.ui.decisionsPositiveBadgeVisible),
-      detail: `apiPending=${report.api.pendingDecisions} decisionsLabelVisible=${report.ui.decisionsLabelVisible} decisionsPositiveBadgeVisible=${report.ui.decisionsPositiveBadgeVisible} needsInputSignalVisible=${report.ui.needsInputSignalVisible}`,
+          : (report.ui.counts.needsAttention === report.api.needsAttentionCount) &&
+            (report.ui.decisionsPositiveBadgeVisible ||
+              report.ui.needsInputSignalVisible ||
+              report.ui.decisionsLabelVisible),
+      detail: `apiNeedsAttention=${report.api.needsAttentionCount} uiNeedsAttention=${report.ui.counts.needsAttention} apiPending=${report.api.pendingDecisions} decisionsLabelVisible=${report.ui.decisionsLabelVisible} decisionsPositiveBadgeVisible=${report.ui.decisionsPositiveBadgeVisible} needsInputSignalVisible=${report.ui.needsInputSignalVisible}`,
     },
     {
       id: "P0-6",

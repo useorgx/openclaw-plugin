@@ -124,13 +124,11 @@ function SettingsSubspace({
   children: ReactNode;
 }) {
   return (
-    <section className="grid gap-3">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/80">{step}</p>
-          <h4 className="mt-1 text-heading font-semibold text-white">{title}</h4>
-          <p className="mt-1 text-caption leading-relaxed text-secondary">{description}</p>
-        </div>
+    <section className="grid gap-4 border-t border-white/[0.06] pt-6 first:border-t-0 first:pt-0">
+      <div className="max-w-3xl">
+        <p className="text-micro uppercase tracking-[0.16em] text-[#D8FFA1]/72">{step}</p>
+        <h4 className="mt-2 text-[18px] font-semibold leading-tight text-white">{title}</h4>
+        <p className="mt-1.5 text-body leading-relaxed text-secondary">{description}</p>
       </div>
       {children}
     </section>
@@ -175,6 +173,7 @@ export function SettingsModal({
     isSubmittingManual: boolean;
     refreshStatus: () => Promise<unknown>;
     startPairing: () => Promise<void>;
+    cancelPairing: () => Promise<unknown>;
     submitManualKey: (apiKey: string) => Promise<unknown>;
     backToPairing: () => void;
     setManualMode: () => void;
@@ -191,7 +190,7 @@ export function SettingsModal({
       return (
         <motion.div key="orgx" {...tabCrossFade} className="grid gap-8">
           <SettingsSubspace
-            step="Subspace 01"
+            step="Identity"
             title="Operator identity"
             description="Name, avatar signature, and live workspace connection context."
           >
@@ -212,19 +211,29 @@ export function SettingsModal({
           </SettingsSubspace>
 
           <SettingsSubspace
-            step="Subspace 02"
+            step="Controls"
             title="Environment controls"
             description="Debug and rehearsal switches that shape what appears in mission control."
           >
-            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4 sm:p-5">
-              <div className="grid gap-1 border-t border-white/[0.04] pt-1">
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 sm:p-5">
+              {!devMode ? (
+                <div className="mb-4 rounded-xl border border-white/[0.08] bg-black/20 px-3.5 py-3">
+                  <p className="text-caption font-semibold text-primary">Developer mode unlocks rehearsal controls.</p>
+                  <p className="mt-1 text-caption leading-relaxed text-secondary">
+                    Keep runtime details hidden during normal operation. Enable Developer mode when you need demo data
+                    or synthetic entities for QA and walkthroughs.
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="grid gap-1">
                 <PreferenceToggle
                   label="Developer mode"
                   description="Show technical details, config paths, and raw data in session inspectors."
                   enabled={devMode}
                   onToggle={(next) => onToggleDevMode?.(next)}
                 />
-                <div className={cn('border-t border-white/[0.04]', devMode ? '' : 'pointer-events-none opacity-40')}>
+                <div className={cn('border-t border-white/[0.06]', devMode ? '' : 'pointer-events-none opacity-45')}>
                   <PreferenceToggle
                     label="Demo mode"
                     description="Load local demo data for walkthroughs."
@@ -232,7 +241,7 @@ export function SettingsModal({
                     onToggle={onToggleDemoMode}
                   />
                 </div>
-                <div className={cn('border-t border-white/[0.04]', devMode ? '' : 'pointer-events-none opacity-40')}>
+                <div className={cn('border-t border-white/[0.06]', devMode ? '' : 'pointer-events-none opacity-45')}>
                   <PreferenceToggle
                     label="Show synthetic entities"
                     description="Include QA/test initiative IDs in the agent column."
@@ -245,7 +254,7 @@ export function SettingsModal({
           </SettingsSubspace>
 
           <SettingsSubspace
-            step="Subspace 03"
+            step="Connection"
             title="OrgX connection lifecycle"
             description="Credentialing, verification, and workspace scope selection."
           >
@@ -258,6 +267,7 @@ export function SettingsModal({
               onSelectWorkspace={onSelectWorkspace}
               onRefresh={onboarding.refreshStatus}
               onStartPairing={onboarding.startPairing}
+              onCancelPairing={onboarding.cancelPairing}
               onSubmitManualKey={onboarding.submitManualKey}
               onBackToPairing={onboarding.backToPairing}
               onUseManualKey={onboarding.setManualMode}
@@ -266,7 +276,7 @@ export function SettingsModal({
           </SettingsSubspace>
 
           <SettingsSubspace
-            step="Subspace 04"
+            step="Suite"
             title="Agent suite operations"
             description="Install, validate, and tune default execution policy across the local suite."
           >
@@ -279,7 +289,7 @@ export function SettingsModal({
           </SettingsSubspace>
 
           <SettingsSubspace
-            step="Subspace 05"
+            step="Usage"
             title="Usage telemetry"
             description="Budget, token, and runtime risk visibility for the active billing window."
           >
@@ -297,7 +307,7 @@ export function SettingsModal({
       return (
         <motion.div key="agents" {...tabCrossFade} className="grid gap-3">
           <SettingsSubspace
-            step="Subspace 01"
+            step="Runtime policy"
             title="Per-agent runtime policy"
             description="Select an agent, tune guardrails, then persist all draft behavior changes."
           >
@@ -306,6 +316,7 @@ export function SettingsModal({
               embedMode={embedMode}
               enabled={open && !demoMode}
               initialDomain={agentBehaviorInitialDomain}
+              onOpenSuiteOps={() => onChangeTab('orgx')}
             />
           </SettingsSubspace>
         </motion.div>
@@ -315,7 +326,7 @@ export function SettingsModal({
     return (
       <motion.div key="providers" {...tabCrossFade} className="grid gap-3">
         <SettingsSubspace
-          step="Subspace 01"
+          step="Credentials"
           title="Provider credentials"
           description="Provision keys, validate provider readiness, and lock in routing confidence."
         >
@@ -348,14 +359,17 @@ export function SettingsModal({
         />
 
         <div className="relative z-[1] flex h-full min-h-0 flex-1 flex-col px-5 pb-3 pt-5 sm:px-7 sm:pt-6">
-          <div className="flex items-start justify-between gap-4 border-b border-white/[0.06] pb-4">
-            <div className="min-w-0">
-              <p className="text-micro uppercase tracking-[0.14em] text-[#D8FFA1]/85">
+          <div className="flex items-start justify-between gap-4 border-b border-white/[0.06] pb-5">
+            <div className="min-w-0 max-w-3xl">
+              <p className="text-micro uppercase tracking-[0.18em] text-[#D8FFA1]/75">
                 Control Surfaces
               </p>
-              <h3 className="mt-1 text-title font-semibold text-white">Settings</h3>
-              <p className="mt-1.5 text-body text-secondary">
-                Tuned for clarity: connection, execution policy, and provider readiness in one place.
+              <h3 className="mt-2 text-[32px] font-semibold leading-none tracking-[-0.03em] text-white sm:text-[36px]">
+                Settings
+              </h3>
+              <p className="mt-3 max-w-2xl text-body leading-relaxed text-secondary">
+                A single surface for identity, connection, execution policy, and provider readiness. The chrome stays
+                quiet so the control you need is always the first thing you see.
               </p>
             </div>
             <button
@@ -380,10 +394,10 @@ export function SettingsModal({
             </button>
           </div>
 
-          <div className="mt-4 min-h-0 flex-1 gap-4 lg:grid lg:grid-cols-[250px_minmax(0,1fr)]">
-            <aside className="hidden min-h-0 flex-col gap-3 lg:flex">
+          <div className="mt-5 min-h-0 flex-1 gap-5 lg:grid lg:grid-cols-[220px_minmax(0,1fr)]">
+            <aside className="hidden min-h-0 lg:block">
               <nav
-                className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-2"
+                className="sticky top-0 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-2.5"
                 role="tablist"
                 aria-label="Settings tabs"
               >
@@ -400,7 +414,7 @@ export function SettingsModal({
                       whileTap={{ scale: 0.985 }}
                       transition={{ duration: 0.16 }}
                       className={cn(
-                        'relative mt-1.5 flex w-full items-start gap-2 rounded-xl px-3 py-2.5 text-left first:mt-0',
+                        'relative mt-1.5 flex w-full items-center gap-3 rounded-xl px-3.5 py-3 text-left first:mt-0',
                         selected ? 'text-white' : 'text-secondary hover:text-primary'
                       )}
                     >
@@ -423,34 +437,17 @@ export function SettingsModal({
                         <TabGlyph id={tab.id} />
                       </span>
                       <span className="relative z-[1] min-w-0">
-                        <span className="block truncate text-caption font-semibold">
-                          {tab.label}
-                        </span>
-                        <span className="mt-0.5 block text-caption leading-relaxed text-secondary/85">
-                          {tab.subtitle}
-                        </span>
+                        <span className="block truncate text-body font-semibold">{tab.label}</span>
                       </span>
                     </motion.button>
                   );
                 })}
               </nav>
-
-              <div className="rounded-2xl border border-white/[0.08] bg-black/25 px-4 py-3.5">
-                <p className="text-micro uppercase tracking-[0.14em] text-secondary">Current focus</p>
-                <p className="mt-1 text-body font-semibold text-white">{activeMeta.label}</p>
-                <p className="mt-1 text-caption leading-relaxed text-secondary">
-                  {activeMeta.subtitle}
-                </p>
-                <div className="mt-3 flex items-center gap-1.5 text-micro text-[#D8FFA1]/85">
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-lime/80" />
-                  <span>Live configuration surface</span>
-                </div>
-              </div>
             </aside>
 
             <section className="mt-4 min-h-0 lg:mt-0">
               <div
-                className="mb-3 flex items-center gap-2 overflow-x-auto border-b border-white/[0.07] pb-2 lg:hidden"
+                className="mb-4 flex items-center gap-2 overflow-x-auto border-b border-white/[0.07] pb-3 lg:hidden"
                 role="tablist"
                 aria-label="Settings tabs"
               >
@@ -476,16 +473,27 @@ export function SettingsModal({
                 })}
               </div>
 
-              <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#06080f]/70">
-                <div className="border-b border-white/[0.08] px-4 py-3 sm:px-6">
-                  <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/85">
-                    {activeMeta.label}
-                  </p>
-                  <p className="mt-1 text-caption leading-relaxed text-secondary">
-                    {activeMeta.subtitle}
-                  </p>
+              <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#05070d]/75">
+                <div className="border-b border-white/[0.08] px-4 py-4 sm:px-6 sm:py-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="max-w-2xl">
+                      <p className="text-micro uppercase tracking-[0.16em] text-[#D8FFA1]/72">
+                        Control area
+                      </p>
+                      <h4 className="mt-2 text-[24px] font-semibold leading-tight tracking-[-0.02em] text-white">
+                        {activeMeta.label}
+                      </h4>
+                      <p className="mt-2 text-body leading-relaxed text-secondary">
+                        {activeMeta.subtitle}
+                      </p>
+                    </div>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-lime/15 bg-lime/[0.08] px-3 py-1.5 text-caption font-medium text-[#D8FFA1]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-lime/80" />
+                      Live configuration surface
+                    </div>
+                  </div>
                 </div>
-                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-6">
                   <AnimatePresence mode="wait">{renderTabContent()}</AnimatePresence>
                 </div>
               </div>

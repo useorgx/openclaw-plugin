@@ -42,7 +42,7 @@ function resolveState(props: ContextualStatusProps): {
   }
 
   if (blocked > 0 && decisionsCount > 0) {
-    const blockedLabel = blocked > 20 ? '20+ blocked' : `${blocked} blocked`;
+    const blockedLabel = `${blocked} blocked`;
     return {
       key: `blocked-decisions-${blocked}-${decisionsCount}-${running}`,
       segments: [
@@ -55,7 +55,7 @@ function resolveState(props: ContextualStatusProps): {
   }
 
   if (blocked > 0) {
-    const blockedLabel = blocked > 20 ? '20+ blocked' : `${blocked} blocked`;
+    const blockedLabel = `${blocked} blocked`;
     return {
       key: `blocked-${blocked}-${running}`,
       segments: [

@@ -6,6 +6,7 @@ import {
   type InfiniteData,
 } from '@tanstack/react-query';
 import type {
+  AutoContinueRun,
   MissionControlSliceItem,
   MissionControlSlicesResponse,
   NextUpQueueItem,
@@ -83,7 +84,7 @@ interface StartAutoContinueInput {
   parallelMode?: 'iwmt';
 }
 
-interface NextUpPlayResponse {
+export interface NextUpPlayResponse {
   ok: boolean;
   initiativeId?: string;
   workstreamId?: string;
@@ -106,6 +107,15 @@ interface NextUpPlayResponse {
   error?: string;
   message?: string;
   code?: string;
+}
+
+export interface StartAutoContinueResponse {
+  ok: boolean;
+  initiativeId?: string;
+  workstreamIds?: string[];
+  run?: AutoContinueRun | null;
+  error?: string;
+  message?: string;
 }
 
 const LIVE_DATA_INVALIDATE_DEBOUNCE_MS = 750;
@@ -664,6 +674,24 @@ function normalizeQueueResponse(response: NextUpQueueResponse): NextUpQueueRespo
     ...response,
     items,
     total,
+    summary: response.summary
+      ? {
+          visibleTotal:
+            typeof response.summary.visibleTotal === 'number' &&
+            Number.isFinite(response.summary.visibleTotal)
+              ? Math.max(0, Math.floor(response.summary.visibleTotal))
+              : items.filter(
+                  (item) => item.queueState !== 'running' && item.queueState !== 'completed'
+                ).length,
+          stateCounts: {
+            queued: Math.max(0, Math.floor(response.summary.stateCounts?.queued ?? 0)),
+            running: Math.max(0, Math.floor(response.summary.stateCounts?.running ?? 0)),
+            blocked: Math.max(0, Math.floor(response.summary.stateCounts?.blocked ?? 0)),
+            idle: Math.max(0, Math.floor(response.summary.stateCounts?.idle ?? 0)),
+            completed: Math.max(0, Math.floor(response.summary.stateCounts?.completed ?? 0)),
+          },
+        }
+      : undefined,
     pagination: {
       offset,
       limit,
@@ -1010,82 +1038,10 @@ export function useNextUpQueue({
       const visibleItems = normalized.items.filter(
         (item) => !isSyntheticInitiativeId(item.initiativeId)
       );
-      let responsePayload = normalizeQueueResponse({
+      const responsePayload = normalizeQueueResponse({
         ...normalized,
         items: visibleItems,
       });
-
-      if (responsePayload.items.length > 0) {
-        return responsePayload;
-      }
-
-      const sliceParams = new URLSearchParams();
-      if (initiativeId) sliceParams.set('initiative_id', initiativeId);
-      appendWorkspaceScopeParams(sliceParams, projectId, {
-        allTokenWhenMissing: true,
-      });
-      sliceParams.set('level', 'workstream');
-      sliceParams.set('include_completed', '0');
-      sliceParams.set('offset', String(targetOffset));
-      sliceParams.set('limit', String(Math.max(targetLimit, 24)));
-
-      try {
-        const slicesRes = await fetch(`/orgx/api/mission-control/slices?${sliceParams.toString()}`, {
-          headers: buildOrgxHeaders({ authToken, embedMode }),
-        });
-        const slicesBody = await readResponseJson<MissionControlSlicesResponse>(slicesRes);
-        if (slicesRes.ok && slicesBody?.ok && Array.isArray(slicesBody.items)) {
-          const sliceItems = slicesBody.items
-            .map((slice) => mapSliceToQueueItem(slice))
-            .filter((item): item is NextUpQueueItem => Boolean(item))
-            .filter((item) => !isSyntheticInitiativeId(item.initiativeId));
-          if (sliceItems.length > 0) {
-            responsePayload = normalizeQueueResponse({
-              ok: true,
-              generatedAt: new Date().toISOString(),
-              total:
-                typeof slicesBody.total === 'number' && Number.isFinite(slicesBody.total)
-                  ? Math.max(slicesBody.total, sliceItems.length)
-                  : sliceItems.length,
-              items: sliceItems,
-              pagination:
-                slicesBody.pagination && typeof slicesBody.pagination === 'object'
-                  ? {
-                      offset:
-                        typeof slicesBody.pagination.offset === 'number'
-                          ? Math.max(0, Math.floor(slicesBody.pagination.offset))
-                          : targetOffset,
-                      limit:
-                        typeof slicesBody.pagination.limit === 'number'
-                          ? Math.max(1, Math.floor(slicesBody.pagination.limit))
-                          : Math.max(targetLimit, 24),
-                      total:
-                        typeof slicesBody.pagination.total === 'number'
-                          ? Math.max(0, Math.floor(slicesBody.pagination.total))
-                          : sliceItems.length,
-                      nextCursor:
-                        typeof slicesBody.pagination.nextCursor === 'string'
-                          ? slicesBody.pagination.nextCursor
-                          : null,
-                      hasMore:
-                        typeof slicesBody.pagination.hasMore === 'boolean'
-                          ? slicesBody.pagination.hasMore
-                          : false,
-                    }
-                  : undefined,
-              degraded: Array.from(
-                new Set([
-                  ...(normalized.degraded ?? []),
-                  'Queue derived from slices while live queue stabilizes.',
-                ])
-              ),
-            });
-          }
-        }
-      } catch {
-        // best effort fallback only
-      }
-
       return responsePayload;
   };
 
@@ -1157,7 +1113,16 @@ export function useNextUpQueue({
           'Failed to dispatch queued workstream'
         );
       }
-      return body;
+      return (
+        body ?? {
+          ok: true,
+          initiativeId: input.initiativeId,
+          workstreamId: input.workstreamId,
+          agentId: input.agentId ?? undefined,
+          dispatchMode: 'none',
+          sessionId: null,
+        }
+      );
     },
     onMutate: async (input: NextUpActionInput) => {
       await queryClient.cancelQueries({ queryKey });
@@ -1222,7 +1187,7 @@ export function useNextUpQueue({
         body: JSON.stringify(payload),
       });
 
-      const body = await readResponseJson<unknown>(response);
+      const body = await readResponseJson<StartAutoContinueResponse>(response);
       if (!response.ok) {
         const upgradeError = parseUpgradeRequiredError(body);
         if (upgradeError) throw upgradeError;
@@ -1232,6 +1197,7 @@ export function useNextUpQueue({
           'Failed to start auto-continue'
         );
       }
+      return body ?? { ok: true, initiativeId: input.initiativeId, workstreamIds: [input.workstreamId], run: null };
     },
     onSuccess: () => {
       void invalidate({ includeGraph: false });
@@ -1323,6 +1289,37 @@ export function useNextUpQueue({
   ]);
 
   const combinedGeneratedAt = query.data?.pages[0]?.generatedAt ?? null;
+  const combinedSummary = useMemo(() => {
+    const pages = query.data?.pages ?? [];
+    if (pages.length === 0) return null;
+    let bestVisibleTotal = 0;
+    const stateCounts = {
+      queued: 0,
+      running: 0,
+      blocked: 0,
+      idle: 0,
+      completed: 0,
+    } satisfies Record<NextUpQueueState, number>;
+    let sawSummary = false;
+    for (const page of pages) {
+      if (!page.summary) continue;
+      sawSummary = true;
+      bestVisibleTotal = Math.max(bestVisibleTotal, page.summary.visibleTotal ?? 0);
+      stateCounts.queued = Math.max(stateCounts.queued, page.summary.stateCounts?.queued ?? 0);
+      stateCounts.running = Math.max(stateCounts.running, page.summary.stateCounts?.running ?? 0);
+      stateCounts.blocked = Math.max(stateCounts.blocked, page.summary.stateCounts?.blocked ?? 0);
+      stateCounts.idle = Math.max(stateCounts.idle, page.summary.stateCounts?.idle ?? 0);
+      stateCounts.completed = Math.max(
+        stateCounts.completed,
+        page.summary.stateCounts?.completed ?? 0
+      );
+    }
+    if (!sawSummary) return null;
+    return {
+      visibleTotal: bestVisibleTotal,
+      stateCounts,
+    } satisfies NonNullable<NextUpQueueResponse['summary']>;
+  }, [query.data?.pages]);
   const combinedDegraded = useMemo(() => {
     const pages = query.data?.pages ?? [];
     const deduped = new Set<string>();
@@ -1349,6 +1346,7 @@ export function useNextUpQueue({
   return {
     items: allItems,
     total: combinedTotal,
+    summary: combinedSummary,
     pagination: combinedPagination,
     generatedAt: combinedGeneratedAt,
     degraded: combinedDegraded,
@@ -1376,6 +1374,7 @@ export type { NextUpQueueItem };
 export interface UseNextUpQueueResult {
   items: NextUpQueueItem[];
   total: number;
+  summary?: NextUpQueueResponse['summary'] | null;
   pagination?: NextUpQueueResponse['pagination'] | null;
   generatedAt: string | null;
   degraded: string[];
@@ -1386,8 +1385,8 @@ export interface UseNextUpQueueResult {
   error: string | null;
   refetch: () => Promise<unknown>;
   fetchNextPage: () => Promise<unknown>;
-  playWorkstream: (input: NextUpActionInput) => Promise<unknown>;
-  startWorkstreamAutoContinue: (input: StartAutoContinueInput) => Promise<unknown>;
+  playWorkstream: (input: NextUpActionInput) => Promise<NextUpPlayResponse>;
+  startWorkstreamAutoContinue: (input: StartAutoContinueInput) => Promise<StartAutoContinueResponse | undefined>;
   stopInitiativeAutoContinue: (input: { initiativeId: string }) => Promise<unknown>;
   isPlaying: boolean;
   isStartingAutoContinue: boolean;

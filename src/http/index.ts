@@ -1465,6 +1465,7 @@ interface OnboardingController {
     apiKey: string;
     userId?: string;
   }) => Promise<OnboardingState>;
+  cancelPairing?: () => Promise<OnboardingState>;
   disconnect: () => Promise<OnboardingState>;
 }
 

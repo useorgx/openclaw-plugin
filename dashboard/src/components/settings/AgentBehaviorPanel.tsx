@@ -142,11 +142,11 @@ function BehaviorSubspace({
   children: ReactNode;
 }) {
   return (
-    <section className="grid gap-3">
+    <section className="grid gap-4 border-t border-white/[0.06] pt-5 first:border-t-0 first:pt-0">
       <div>
-        <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/80">{step}</p>
-        <h4 className="mt-1 text-heading font-semibold text-white">{title}</h4>
-        <p className="mt-1 text-caption leading-relaxed text-secondary">{description}</p>
+        <p className="text-micro uppercase tracking-[0.16em] text-[#D8FFA1]/72">{step}</p>
+        <h4 className="mt-2 text-[18px] font-semibold leading-tight text-white">{title}</h4>
+        <p className="mt-1.5 text-body leading-relaxed text-secondary">{description}</p>
       </div>
       {children}
     </section>
@@ -158,11 +158,13 @@ export function AgentBehaviorPanel({
   embedMode = false,
   enabled = true,
   initialDomain = null,
+  onOpenSuiteOps,
 }: {
   authToken?: string | null;
   embedMode?: boolean;
   enabled?: boolean;
   initialDomain?: AgentSuiteDomain | null;
+  onOpenSuiteOps?: () => void;
 }) {
   const suite = useAgentSuite({ authToken, embedMode, enabled });
   const suiteAgents = suite.status?.ok ? suite.status.data.agents : [];
@@ -398,11 +400,51 @@ export function AgentBehaviorPanel({
 
   if (agents.length === 0 || !activeAgent || !activeDraft) {
     return (
-      <section className="rounded-xl border border-subtle bg-white/[0.02] p-4">
-        <h3 className="text-body font-semibold text-primary">No agents configured</h3>
-        <p className="mt-1 text-caption leading-relaxed text-secondary">
-          Install the agent suite first, then runtime settings will appear here.
-        </p>
+      <section className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5">
+        <div className="max-w-2xl">
+          <p className="text-micro uppercase tracking-[0.16em] text-[#D8FFA1]/72">Runtime policy</p>
+          <h3 className="mt-2 text-[22px] font-semibold leading-tight text-white">No agent suite is installed yet.</h3>
+          <p className="mt-2 text-body leading-relaxed text-secondary">
+            Per-agent controls only become useful after the local suite is installed and linked to OrgX agent IDs. Set
+            up the suite first, then come back here to tune decision policy and run behavior.
+          </p>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3.5 py-3">
+            <p className="text-micro uppercase tracking-[0.14em] text-muted">1</p>
+            <p className="mt-2 text-body font-semibold text-primary">Install the suite</p>
+            <p className="mt-1 text-caption leading-relaxed text-secondary">
+              Scaffold domain agents and managed workspace files.
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3.5 py-3">
+            <p className="text-micro uppercase tracking-[0.14em] text-muted">2</p>
+            <p className="mt-2 text-body font-semibold text-primary">Link live identities</p>
+            <p className="mt-1 text-caption leading-relaxed text-secondary">
+              Confirm each runtime maps cleanly to its OrgX agent record.
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3.5 py-3">
+            <p className="text-micro uppercase tracking-[0.14em] text-muted">3</p>
+            <p className="mt-2 text-body font-semibold text-primary">Tune policy</p>
+            <p className="mt-1 text-caption leading-relaxed text-secondary">
+              Apply guardrails, question policy, and custom run instructions per agent.
+            </p>
+          </div>
+        </div>
+
+        {onOpenSuiteOps ? (
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onOpenSuiteOps}
+              className="inline-flex min-h-[44px] items-center rounded-full bg-[#BFFF00] px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42]"
+            >
+              Open suite setup
+            </button>
+          </div>
+        ) : null}
       </section>
     );
   }
@@ -443,18 +485,18 @@ export function AgentBehaviorPanel({
             )}
           </div>
         </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
-            <p className="text-micro uppercase tracking-[0.12em] text-muted">Step 1</p>
-            <p className="mt-1 text-caption font-semibold text-primary">Select agent</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3.5 py-3">
+            <p className="text-micro uppercase tracking-[0.14em] text-muted">Roster</p>
+            <p className="mt-2 text-body font-semibold text-primary">Choose the agent you’re shaping.</p>
           </div>
-          <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
-            <p className="text-micro uppercase tracking-[0.12em] text-muted">Step 2</p>
-            <p className="mt-1 text-caption font-semibold text-primary">Tune decision policy</p>
+          <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3.5 py-3">
+            <p className="text-micro uppercase tracking-[0.14em] text-muted">Guardrails</p>
+            <p className="mt-2 text-body font-semibold text-primary">Tune approvals, evidence, and questions.</p>
           </div>
-          <div className="rounded-lg border border-white/[0.08] bg-black/20 px-3 py-2">
-            <p className="text-micro uppercase tracking-[0.12em] text-muted">Step 3</p>
-            <p className="mt-1 text-caption font-semibold text-primary">Save all changes</p>
+          <div className="rounded-xl border border-white/[0.08] bg-black/20 px-3.5 py-3">
+            <p className="text-micro uppercase tracking-[0.14em] text-muted">Commit</p>
+            <p className="mt-2 text-body font-semibold text-primary">Save every draft change in one pass.</p>
           </div>
         </div>
       </header>
@@ -485,7 +527,7 @@ export function AgentBehaviorPanel({
 
       <div className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
         <BehaviorSubspace
-          step="Subspace 01"
+          step="Roster"
           title="Agent roster"
           description="Select the runtime identity to edit. Draft state is scoped per agent."
         >
@@ -536,7 +578,7 @@ export function AgentBehaviorPanel({
         </BehaviorSubspace>
 
         <BehaviorSubspace
-          step="Subspace 02"
+          step="Policy"
           title="Policy surfaces"
           description="Tune decision pipeline and persistent instructions for the selected agent."
         >

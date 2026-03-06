@@ -271,16 +271,16 @@ export function AgentSuitePanel({
     <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/[0.06] pb-4">
         <div>
-          <h3 className="text-heading font-semibold text-white">OrgX agent suite</h3>
+          <h3 className="text-heading font-semibold text-white">Suite operations</h3>
           <p className="mt-1 text-body leading-relaxed text-secondary">
-            Installs domain agents into your workspace (workspaces + guardrails + managed/local overlay).
+            Install domain agents, validate the write plan, and manage the shared behavior policy.
           </p>
         </div>
       </div>
 
       <div className="mt-4 grid gap-6">
         <SuiteSection
-          step="Subspace 01"
+          step="Operations"
           title="Execution controls"
           description="Refresh status, run a deterministic dry-run, then apply suite updates."
         >
@@ -345,17 +345,26 @@ export function AgentSuitePanel({
               )}
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-3">
-              <div className="rounded-lg border border-white/[0.08] bg-black/30 px-3 py-2">
-                <p className="text-micro uppercase tracking-[0.12em] text-muted">Sequence 1</p>
-                <p className="mt-1 text-caption font-semibold text-primary">Run Test This Config</p>
+              <div className="rounded-lg border border-white/[0.08] bg-black/30 px-3 py-2.5">
+                <p className="text-micro uppercase tracking-[0.12em] text-muted">Agents</p>
+                <p className="mt-1 text-[18px] font-semibold leading-tight text-white">{totalAgents}</p>
+                <p className="mt-1 text-caption text-secondary">
+                  {missingAgents === 0 ? 'All configured in OpenClaw.' : `${missingAgents} pending install.`}
+                </p>
               </div>
-              <div className="rounded-lg border border-white/[0.08] bg-black/30 px-3 py-2">
-                <p className="text-micro uppercase tracking-[0.12em] text-muted">Sequence 2</p>
-                <p className="mt-1 text-caption font-semibold text-primary">Apply preset or refresh skills</p>
+              <div className="rounded-lg border border-white/[0.08] bg-black/30 px-3 py-2.5">
+                <p className="text-micro uppercase tracking-[0.12em] text-muted">Managed writes</p>
+                <p className="mt-1 text-[18px] font-semibold leading-tight text-white">{changedFiles}</p>
+                <p className="mt-1 text-caption text-secondary">
+                  {changedFiles === 0 ? 'No file updates queued.' : `${createdFiles} create · ${updatedFiles} update`}
+                </p>
               </div>
-              <div className="rounded-lg border border-white/[0.08] bg-black/30 px-3 py-2">
-                <p className="text-micro uppercase tracking-[0.12em] text-muted">Sequence 3</p>
-                <p className="mt-1 text-caption font-semibold text-primary">Install / Update with confidence</p>
+              <div className="rounded-lg border border-white/[0.08] bg-black/30 px-3 py-2.5">
+                <p className="text-micro uppercase tracking-[0.12em] text-muted">Review status</p>
+                <p className="mt-1 text-[18px] font-semibold leading-tight text-white">{conflictFiles}</p>
+                <p className="mt-1 text-caption text-secondary">
+                  {conflictFiles === 0 ? 'No file conflicts detected.' : 'Conflicts require operator review.'}
+                </p>
               </div>
             </div>
           </div>
@@ -389,7 +398,7 @@ export function AgentSuitePanel({
       {plan && (
         <div className="mt-4 grid gap-6">
           <SuiteSection
-            step="Subspace 02"
+            step="Simulation"
             title="Draft simulation"
             description="Inspect expected execution trace, risk flags, and outputs before applying."
           >
@@ -484,7 +493,7 @@ export function AgentSuitePanel({
           </SuiteSection>
 
           <SuiteSection
-            step="Subspace 03"
+            step="Internals"
             title="Suite internals"
             description="Inspect policy state, agent roster, and managed/local file write plan."
           >

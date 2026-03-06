@@ -34,10 +34,7 @@ function toEpoch(value: string | null | undefined): number {
 }
 
 function dedupeKey(item: SliceRunProjection): string {
-  const initiativeId = item.initiativeId ?? item.initiativeIds?.[0] ?? 'none';
-  const workstreamId = item.workstreamId ?? item.workstreamIds?.[0] ?? 'none';
-  const explainer = (item.statusExplainer ?? '').trim().toLowerCase();
-  return [initiativeId, workstreamId, item.status, item.primaryAction, explainer].join('|');
+  return item.sliceRunId;
 }
 
 export function selectNeedsInputRows(sliceRuns: SliceRunProjection[]): NeedsInputRow[] {

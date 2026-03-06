@@ -530,18 +530,9 @@ export function NextUpPanel({
     [prefersReducedMotion]
   );
 
-  // Default behavior preserves an existing fallback (show running when queue is otherwise empty).
-  // Mission Control can opt out to keep running work exclusive to the In Progress pane.
   const queueItems = useMemo(
-    () => {
-      if (excludeRunning) {
-        return items.filter((item) => item.queueState !== QueueState.RUNNING);
-      }
-      const actionable = items.filter((item) => item.queueState !== QueueState.RUNNING);
-      if (actionable.length > 0) return actionable;
-      return items;
-    },
-    [excludeRunning, items]
+    () => items.filter((item) => item.queueState !== QueueState.RUNNING),
+    [items]
   );
   const queueDisplayMode = useMemo<'queued' | 'blocked' | 'running' | 'empty'>(() => {
     if (queueItems.length === 0) return 'empty';
@@ -948,12 +939,11 @@ export function NextUpPanel({
   // Count items filtered out as running to distinguish "all running" from "truly empty"
   const runningItemCount = useMemo(
     () => {
-      if (!excludeRunning) return 0;
       let count = 0;
       for (const item of items) if (item.queueState === QueueState.RUNNING) count++;
       return count;
     },
-    [excludeRunning, items]
+    [items]
   );
   const emptyStateMessage =
     zoomLevel === 'initiative'
@@ -961,7 +951,7 @@ export function NextUpPanel({
       : zoomLevel === 'milestone'
         ? 'No milestone slices in the queue right now.'
         : runningItemCount > 0
-          ? `All queued work is in progress (${runningItemCount} running).`
+          ? 'No queued workstreams right now. Active execution has moved to In Progress.'
           : degraded.length > 0 && primaryDegradedMessage
             ? 'Queue signal is delayed right now.'
             : 'No queued workstreams right now.';

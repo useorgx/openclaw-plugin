@@ -72,6 +72,10 @@ type SliceRunnerAgent = {
 type NextUpQueue = {
   items: NextUpQueueItem[];
   degraded: string[];
+  summary?: {
+    visibleTotal: number;
+    stateCounts: Record<NextUpQueueItem["queueState"], number>;
+  };
 };
 
 type SliceViewScope = "initiative" | "workstream" | "milestone" | "task";
@@ -835,6 +839,30 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
   });
 }
 
+function summarizeQueueItems(items: NextUpQueueItem[]): {
+  visibleTotal: number;
+  stateCounts: Record<NextUpQueueItem["queueState"], number>;
+} {
+  const stateCounts = {
+    queued: 0,
+    running: 0,
+    blocked: 0,
+    idle: 0,
+    completed: 0,
+  } satisfies Record<NextUpQueueItem["queueState"], number>;
+
+  for (const item of items) {
+    stateCounts[item.queueState] += 1;
+  }
+
+  return {
+    visibleTotal: items.filter(
+      (item) => item.queueState !== "running" && item.queueState !== "completed"
+    ).length,
+    stateCounts,
+  };
+}
+
 function isHighSeverityQueueItem(item: NextUpQueueItem): boolean {
   if (item.scoringTier === "urgent") return true;
   if (typeof item.nextTaskPriority === "number" && item.nextTaskPriority <= 2) {
@@ -894,163 +922,6 @@ function applyQueueNoiseControls(
     deduped.push(item);
   }
   return deduped;
-}
-
-function mapCanonicalSlicesToQueueItems(input: unknown[]): NextUpQueueItem[] {
-  const queueLike: Record<string, unknown>[] = [];
-
-  for (const entry of input) {
-    const record = asRecord(entry);
-    if (!record) continue;
-    const sliceKind =
-      (asString(record.sliceKind) ?? asString(record.slice_kind) ?? "")
-        .trim()
-        .toLowerCase();
-    if (sliceKind && sliceKind !== "work_slice") continue;
-    const initiativeId = asString(record.initiativeId) ?? asString(record.initiative_id);
-    const workstreamId = asString(record.workstreamId) ?? asString(record.workstream_id);
-    if (!initiativeId || !workstreamId) continue;
-
-    const dispatch = asRecord(record.dispatch) ?? {};
-    const lineage = asRecord(record.lineage) ?? {};
-    const taskId = asString(record.taskId) ?? asString(record.task_id);
-    const sliceTaskIds = dedupeStrings([
-      ...asStringArray(record.sliceTaskIds),
-      ...asStringArray(record.slice_task_ids),
-      ...asStringArray(lineage.taskIds),
-      ...asStringArray(lineage.task_ids),
-      ...(taskId ? [taskId] : []),
-    ]);
-    const rawStatus = asString(record.status) ?? "active";
-    const normalizedStatus = normalizeStatus(rawStatus);
-    const runnable = Boolean(dispatch.runnable);
-
-    let queueState: NextUpQueueItem["queueState"];
-    if (isDoneStatus(rawStatus)) {
-      queueState = "completed";
-    } else if (normalizedStatus === "running" || normalizedStatus === "in_progress") {
-      queueState = "running";
-    } else if (
-      normalizedStatus === "blocked" ||
-      normalizedStatus === "waiting_dependency" ||
-      normalizedStatus === "needs_decision" ||
-      normalizedStatus === "waiting_on_decision" ||
-      normalizedStatus === "paused" ||
-      !runnable
-    ) {
-      queueState = "blocked";
-    } else if (
-      normalizedStatus === "idle" ||
-      normalizedStatus === "not_started" ||
-      normalizedStatus === "draft"
-    ) {
-      queueState = "idle";
-    } else {
-      queueState = "queued";
-    }
-
-    const runnerAgentIdRaw =
-      normalizeRunnerValue(record.runnerAgentId) ?? normalizeRunnerValue(record.runner_agent_id);
-    const runnerAgentNameRaw =
-      normalizeRunnerValue(record.runnerAgentName) ?? normalizeRunnerValue(record.runner_agent_name);
-    const runnerAgents = mergeRunnerAgents(
-      normalizeRunnerAgents(record.runnerAgents),
-      normalizeRunnerAgents(record.runner_agents),
-      runnerAgentIdRaw || runnerAgentNameRaw
-        ? [
-            {
-              id: runnerAgentIdRaw ?? runnerAgentNameRaw ?? "Unassigned",
-              name: runnerAgentNameRaw ?? runnerAgentIdRaw ?? "Unassigned",
-            },
-          ]
-        : []
-    );
-    const runnerSourceHint =
-      normalizeRunnerSource(record.runnerSource) ?? normalizeRunnerSource(record.runner_source);
-    const runnerSource = runnerAgents.length > 0 ? runnerSourceHint ?? "inferred" : "fallback";
-
-    const suggestedScope = normalizeStatus(
-      asString(dispatch.suggestedScope) ??
-        asString(dispatch.suggested_scope) ??
-        asString(record.level)
-    );
-    const sliceScope =
-      suggestedScope === "task" ||
-      suggestedScope === "milestone" ||
-      suggestedScope === "workstream"
-        ? (suggestedScope as "task" | "milestone" | "workstream")
-        : null;
-    const order = asRecord(record.order) ?? {};
-    const manualRank = asNumber(order.manualRank ?? order.manual_rank);
-    const iwmt = asRecord(record.iwmt);
-    const objective = asRecord(record.objective);
-
-    queueLike.push({
-      initiativeId,
-      initiativeTitle:
-        asString(record.initiativeTitle) ??
-        asString(record.initiative_title) ??
-        initiativeId,
-      initiativeStatus:
-        asString(record.initiativeStatus) ??
-        asString(record.initiative_status) ??
-        "active",
-      initiativePriority:
-        asString(record.initiativePriority) ?? asString(record.initiative_priority),
-      initiativePriorityNum: asNumber(
-        record.initiativePriorityNum ?? record.initiative_priority_num
-      ),
-      workstreamId,
-      workstreamTitle:
-        asString(record.workstreamTitle) ??
-        asString(record.workstream_title) ??
-        asString(record.title) ??
-        workstreamId,
-      workstreamStatus:
-        asString(record.workstreamStatus) ??
-        asString(record.workstream_status) ??
-        rawStatus,
-      nextTaskId: taskId ?? sliceTaskIds[0] ?? null,
-      nextTaskTitle: asString(record.nextTaskTitle) ?? asString(record.next_task_title),
-      nextTaskPriority: asNumber(
-        record.priorityNum ??
-          record.priority_num ??
-          record.nextTaskPriority ??
-          record.next_task_priority
-      ),
-      nextTaskDueAt:
-        asString(record.dueAt) ??
-        asString(record.due_at) ??
-        asString(record.nextTaskDueAt) ??
-        asString(record.next_task_due_at),
-      nextTaskMilestoneId: asString(record.milestoneId) ?? asString(record.milestone_id),
-      runnerAgentId: runnerAgentIdRaw,
-      runnerAgentName: runnerAgentNameRaw,
-      runnerAgents,
-      runnerSource,
-      queueState,
-      blockReason:
-        asString(dispatch.blockReason) ??
-        asString(dispatch.block_reason) ??
-        null,
-      sliceScope,
-      sliceTaskIds,
-      sliceTaskCount: sliceTaskIds.length,
-      sliceMilestoneId: asString(record.milestoneId) ?? asString(record.milestone_id),
-      isPinned: typeof manualRank === "number",
-      pinnedRank: manualRank,
-      compositeScore: asNumber(
-        (iwmt?.mixScore as unknown) ?? (objective?.objectiveScore as unknown)
-      ),
-      objectiveScore: asNumber(objective?.objectiveScore as unknown) ?? undefined,
-      roiPerToken: asNumber(iwmt?.roiPerToken as unknown) ?? undefined,
-      expectedTokens: asNumber(iwmt?.expectedTokens as unknown) ?? undefined,
-      expectedValueUsd: asNumber(iwmt?.expectedValueUsd as unknown) ?? undefined,
-      updatedAt: asString(record.updatedAt) ?? asString(record.updated_at) ?? null,
-    });
-  }
-
-  return normalizeQueueItems(queueLike);
 }
 
 async function loadInitiativeGraphIndex(
@@ -1445,6 +1316,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             asString(canonicalRecord.generatedAt) ?? new Date().toISOString(),
           total: paged ? paged.filtered.length : canonicalPagination.total,
           items: paged ? paged.paged : canonicalItems,
+          summary: summarizeQueueItems(canonicalItems),
           pagination: paged ? paged.pagination : canonicalPagination,
           source: "canonical",
           degraded,
@@ -1527,91 +1399,6 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
           return;
         }
         canonicalFallbackReason = `canonical next-up unavailable (${deps.safeErrorMessage(err)})`;
-        if (projectId || useAllScope) {
-          try {
-            const bridgeParams = new URLSearchParams();
-            if (initiativeId) bridgeParams.set("initiative_id", initiativeId);
-            if (projectId) {
-              bridgeParams.set("workspace_id", projectId);
-              bridgeParams.set("command_center_id", projectId);
-            } else if (useAllScope) {
-              bridgeParams.set("workspace_id", "all");
-              bridgeParams.set("command_center_id", "all");
-            }
-            bridgeParams.set("level", "workstream");
-            bridgeParams.set("offset", String(Math.max(0, offset)));
-            bridgeParams.set(
-              "limit",
-              String(Math.min(300, Math.max(pageSize, offset + pageSize)))
-            );
-            bridgeParams.set(
-              "include_completed",
-              includeCompleted ? "1" : "0"
-            );
-            bridgeParams.set("noise_threshold", noiseThreshold);
-            bridgeParams.set("dedup_window", String(dedupWindowMs));
-            bridgeParams.set("mix_policy", requestedMixPolicy ?? "iwmt_v1");
-            if (requestedOrderMode) {
-              bridgeParams.set("order_mode", requestedOrderMode);
-            }
-            const canonicalSlices = await requestCanonicalWithLegacyFallback(deps, {
-              timeoutMs: CANONICAL_SLICES_TIMEOUT_MS,
-              label: "canonical slices bridge",
-              modernPath: `/api/client/mission-control/slices?${bridgeParams.toString()}`,
-              legacyPath: `/api/mission-control/slices?${bridgeParams.toString()}`,
-            });
-            const canonicalSlicesRecord = asRecord(canonicalSlices);
-            if (!canonicalSlicesRecord || !Array.isArray(canonicalSlicesRecord.items)) {
-              throw new Error("invalid canonical slices payload");
-            }
-            if (isCanonicalAllScopeMismatch(canonicalSlicesRecord, useAllScope)) {
-              throw new Error("canonical slices all-workspaces scope mismatch");
-            }
-            const bridgedItems = await enrichWithMilestoneBreakdown(
-              applyQueueNoiseControls(
-                mapCanonicalSlicesToQueueItems(canonicalSlicesRecord.items).filter((item) =>
-                  includeCompleted ? true : item.queueState !== "completed"
-                ),
-                { noiseThreshold, dedupWindowMs }
-              ),
-              deps
-            );
-            if (bridgedItems.length > 0) {
-              const paged = applySliceSearchAndPagination({
-                items: bridgedItems,
-                searchTerm: "",
-                offset,
-                limit: pageSize,
-              });
-              const degraded = dedupeStrings([
-                ...(Array.isArray(canonicalSlicesRecord.degraded)
-                  ? canonicalSlicesRecord.degraded
-                  : []),
-                ...(canonicalFallbackReason ? [canonicalFallbackReason] : []),
-                "Next Up derived from canonical slices.",
-              ]);
-              const responsePayload = {
-                ok: true,
-                generatedAt:
-                  asString(canonicalSlicesRecord.generatedAt) ??
-                  new Date().toISOString(),
-                total: paged.filtered.length,
-                items: paged.paged,
-                pagination: paged.pagination,
-                source: "canonical_slices_bridge",
-                degraded,
-              };
-              writeCanonicalReadCache(nextUpCanonicalCacheKey, responsePayload);
-              deps.sendJson(res, 200, responsePayload);
-              return;
-            }
-          } catch (bridgeErr: unknown) {
-            canonicalFallbackReason = dedupeStrings([
-              canonicalFallbackReason ?? "",
-              `canonical slices bridge unavailable (${deps.safeErrorMessage(bridgeErr)})`,
-            ]).join(" | ");
-          }
-        }
 
         // Continue to local fallback.
         try {
@@ -1643,6 +1430,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             generatedAt: new Date().toISOString(),
             total: paged.filtered.length,
             items: paged.paged,
+            summary: summarizeQueueItems(items),
             pagination: paged.pagination,
             source: "local_fallback",
             degraded,
@@ -1690,6 +1478,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
         generatedAt: new Date().toISOString(),
         total: paged.filtered.length,
         items: paged.paged,
+        summary: summarizeQueueItems(items),
         pagination: paged.pagination,
         source: "local",
         degraded: dedupeStrings(degraded),
