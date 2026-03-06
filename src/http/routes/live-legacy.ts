@@ -4,6 +4,7 @@ import type {
   AgentLaunchContext,
   RunLaunchContext,
 } from "../../agent-context-store.js";
+import { resolveWorkspaceScope } from "../helpers/workspace-scope.js";
 import type { Router } from "../router.js";
 
 type LocalSnapshot = Awaited<
@@ -104,6 +105,11 @@ type RegisterLiveLegacyRoutesDeps<TReq extends RouteReqLike, TRes extends RouteR
     sessionKey: string | null;
     runId: string | null;
   }) => Promise<Record<string, unknown> | null>;
+  summarizeActivityHeadline: (input: {
+    text: string;
+    title: string | null;
+    type: string | null;
+  }) => Promise<{ headline: string; source: string; model: string | null }>;
   sendJson: (res: TRes, status: number, payload: unknown) => void;
   safeErrorMessage: (err: unknown) => string;
 
@@ -157,25 +163,6 @@ export function registerLiveLegacyRoutes<
     };
   }
 
-  function parseWorkspaceScope(query: URLSearchParams): string | null {
-    const candidates = [
-      query.get("workspace_id"),
-      query.get("workspaceId"),
-      query.get("command_center_id"),
-      query.get("commandCenterId"),
-      query.get("center"),
-      query.get("project_id"),
-      query.get("projectId"),
-    ];
-    for (const candidate of candidates) {
-      if (typeof candidate !== "string") continue;
-      const normalized = candidate.trim();
-      if (!normalized || normalized.toLowerCase() === "all") continue;
-      return normalized;
-    }
-    return null;
-  }
-
   const sendDeprecated = (
     res: TRes,
     endpoint: string,
@@ -212,7 +199,9 @@ export function registerLiveLegacyRoutes<
     const since = query.get("since");
     const until = query.get("until");
     const cursor = query.get("cursor");
-    const projectId = parseWorkspaceScope(query);
+    const projectId =
+      resolveWorkspaceScope(query, null, { allowProjectScope: true }).workspaceId ??
+      null;
     const limitRaw = query.get("limit") ? Number(query.get("limit")) : undefined;
     const limit = Number.isFinite(limitRaw)
       ? Math.max(1, Math.floor(Number(limitRaw)))
@@ -310,13 +299,45 @@ export function registerLiveLegacyRoutes<
   );
 
   async function renderLiveActivityDetail(query: URLSearchParams, res: TRes): Promise<void> {
-    sendDeprecated(
-      res,
-      "/orgx/api/live/activity/detail",
-      "/orgx/api/live/snapshot-v2"
-    );
-    void query;
-    return;
+    try {
+      const turnId = (query.get("turnId") ?? "").trim();
+      if (!turnId) {
+        deps.sendJson(res, 400, { error: "turnId is required" });
+        return;
+      }
+
+      const sessionKey = (query.get("sessionKey") ?? "").trim() || null;
+      const runId = (query.get("run") ?? query.get("runId") ?? "").trim() || null;
+      const detail = await deps.loadLocalTurnDetail({ turnId, sessionKey, runId });
+      if (!detail) {
+        deps.sendJson(res, 404, { error: "activity detail not found" });
+        return;
+      }
+
+      const summary =
+        typeof detail.summary === "string" && detail.summary.trim().length > 0
+          ? detail.summary.trim()
+          : null;
+      if (!summary) {
+        deps.sendJson(res, 200, { detail, headline: null, headlineSource: null, headlineModel: null });
+        return;
+      }
+
+      const headline = await deps.summarizeActivityHeadline({
+        text: summary,
+        title: null,
+        type: "activity",
+      });
+
+      deps.sendJson(res, 200, {
+        detail,
+        headline: headline.headline,
+        headlineSource: headline.source,
+        headlineModel: headline.model,
+      });
+    } catch (err: unknown) {
+      deps.sendJson(res, 500, { error: deps.safeErrorMessage(err) });
+    }
   }
 
   router.add(

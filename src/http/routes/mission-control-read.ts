@@ -4,6 +4,10 @@ import {
   workspaceScopeFromHeaders,
 } from "../helpers/workspace-scope.js";
 import {
+  isDoneStatus,
+  normalizeMissionControlStatus,
+} from "../helpers/mission-control.js";
+import {
   asRecord,
   asString,
   asNumber,
@@ -580,7 +584,7 @@ async function requestCanonicalWithLegacyFallback(
 }
 
 function normalizeQueueState(value: unknown): NextUpQueueItem["queueState"] {
-  const normalized = normalizeStatus(asString(value));
+  const normalized = normalizeMissionControlStatus(asString(value));
   if (normalized === "running" || normalized === "in_progress") {
     return "running";
   }
@@ -605,23 +609,6 @@ function normalizeQueueState(value: unknown): NextUpQueueItem["queueState"] {
   }
   if (normalized === "completed" || normalized === "done") return "completed";
   return "idle";
-}
-
-function normalizeStatus(value: string | null | undefined): string {
-  return (value ?? "").trim().toLowerCase().replace(/[\s-]+/g, "_");
-}
-
-function isDoneStatus(value: string | null | undefined): boolean {
-  const normalized = normalizeStatus(value);
-  return (
-    normalized === "done" ||
-    normalized === "completed" ||
-    normalized === "resolved" ||
-    normalized === "cancelled" ||
-    normalized === "canceled" ||
-    normalized === "archived" ||
-    normalized === "closed"
-  );
 }
 
 function queueStateRank(state: NextUpQueueItem["queueState"]): number {
@@ -746,7 +733,7 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
       ? runnerSourceHint ?? "inferred"
       : "fallback";
     const queueState = normalizeQueueState(record.queueState ?? record.queue_state);
-    const normalizedSliceScope = normalizeStatus(
+    const normalizedSliceScope = normalizeMissionControlStatus(
       asString(record.sliceScope) ?? asString(record.slice_scope)
     );
     const sliceScope =
@@ -861,6 +848,18 @@ function summarizeQueueItems(items: NextUpQueueItem[]): {
     ).length,
     stateCounts,
   };
+}
+
+function dedupeQueueItemsByLineage(items: NextUpQueueItem[]): NextUpQueueItem[] {
+  const seen = new Set<string>();
+  const deduped: NextUpQueueItem[] = [];
+  for (const item of items) {
+    const key = `${item.initiativeId}:${item.workstreamId}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(item);
+  }
+  return deduped;
 }
 
 function isHighSeverityQueueItem(item: NextUpQueueItem): boolean {
@@ -1295,6 +1294,44 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
           limit: pageSize,
           total: canonicalTotal,
         });
+        let canonicalSummaryItems = canonicalItems;
+        const summaryPageSize = Math.max(pageSize, Math.min(canonicalTotal, 200));
+        if (canonicalTotal > canonicalItems.length) {
+          const summaryItems: NextUpQueueItem[] = [];
+          for (
+            let summaryOffset = 0;
+            summaryOffset < canonicalTotal;
+            summaryOffset += summaryPageSize
+          ) {
+            const summaryParams = new URLSearchParams(params);
+            summaryParams.set("offset", String(summaryOffset));
+            summaryParams.set("limit", String(summaryPageSize));
+            const summaryPage = await requestCanonicalWithLegacyFallback(deps, {
+              timeoutMs: CANONICAL_NEXT_UP_TIMEOUT_MS,
+              label: "canonical next-up summary",
+              modernPath: `/api/client/mission-control/next-up?${summaryParams.toString()}`,
+              legacyPath: `/api/mission-control/next-up?${summaryParams.toString()}`,
+            });
+            const summaryRecord = asRecord(summaryPage);
+            if (!summaryRecord || !Array.isArray(summaryRecord.items)) {
+              throw new Error("invalid canonical next-up summary payload");
+            }
+            const normalizedSummaryItems = applyQueueNoiseControls(
+              normalizeQueueItems(summaryRecord.items).filter((item) =>
+                includeCompleted ? true : item.queueState !== "completed"
+              ),
+              { noiseThreshold, dedupWindowMs }
+            );
+            summaryItems.push(...normalizedSummaryItems);
+            if (normalizedSummaryItems.length < summaryPageSize) {
+              break;
+            }
+          }
+          canonicalSummaryItems =
+            summaryItems.length > 0
+              ? dedupeQueueItemsByLineage(summaryItems)
+              : canonicalItems;
+        }
         const shouldRepaginateCanonically =
           canonicalItems.length > pageSize ||
           canonicalPagination.offset !== offset ||
@@ -1310,13 +1347,14 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
         const degraded = dedupeStrings(
           asStringArray(canonicalRecord.degraded)
         );
+        const canonicalSummary = summarizeQueueItems(canonicalSummaryItems);
         const responsePayload: Record<string, unknown> = {
           ok: true,
           generatedAt:
             asString(canonicalRecord.generatedAt) ?? new Date().toISOString(),
           total: paged ? paged.filtered.length : canonicalPagination.total,
           items: paged ? paged.paged : canonicalItems,
-          summary: summarizeQueueItems(canonicalItems),
+          summary: canonicalSummary,
           pagination: paged ? paged.pagination : canonicalPagination,
           source: "canonical",
           degraded,
@@ -1940,7 +1978,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
           const taskBuckets = new Map<string, { milestoneId: string | null; taskIds: string[] }>();
           for (const taskId of selectedTaskIds) {
             const task = graphIndex?.tasksById.get(taskId) ?? null;
-            if (!includeCompleted && isDoneStatus(task?.status ?? null)) continue;
+            if (!includeCompleted && isDoneStatus(task?.status ?? "")) continue;
             const milestoneId =
               task?.milestoneId ??
               item.sliceMilestoneId ??
@@ -2021,7 +2059,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
           ]);
           for (const taskId of selectedTaskIds) {
             const task = graphIndex?.tasksById.get(taskId) ?? null;
-            if (!includeCompleted && isDoneStatus(task?.status ?? null)) continue;
+            if (!includeCompleted && isDoneStatus(task?.status ?? "")) continue;
             const taskTitle =
               task?.title ??
               (taskId === item.nextTaskId ? item.nextTaskTitle : null) ??
@@ -2045,7 +2083,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
               taskId,
               taskTitle,
               queueState:
-                isDoneStatus(task?.status ?? null) ? "completed" : item.queueState,
+                isDoneStatus(task?.status ?? "") ? "completed" : item.queueState,
               sourceWorkstreamIds: [item.workstreamId],
               runnerAgentId:
                 (item.runnerAgents ?? [])[0]?.id ?? item.runnerAgentId ?? null,

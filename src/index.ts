@@ -102,6 +102,9 @@ export interface PluginAPI {
         orgx?: {
           config?: Partial<OrgXConfig & { dashboardEnabled: boolean }>;
         };
+        "openclaw-plugin"?: {
+          config?: Partial<OrgXConfig & { dashboardEnabled: boolean }>;
+        };
       };
     };
   };
@@ -414,7 +417,7 @@ export default function register(api: PluginAPI): void {
 
   if (!config.apiKey) {
     api.log?.warn?.(
-      "[orgx] No API key. Set plugins.entries.orgx.config.apiKey, ORGX_API_KEY env, or ~/Code/orgx/orgx/.env.local"
+      "[orgx] No API key. Set plugins.entries.openclaw-plugin.config.apiKey (or plugins.entries.orgx.config.apiKey for legacy setups), ORGX_API_KEY env, or ~/Code/orgx/orgx/.env.local"
     );
   }
 

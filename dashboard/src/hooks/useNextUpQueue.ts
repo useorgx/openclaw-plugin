@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import {
   useInfiniteQuery,
   useMutation,
@@ -23,7 +23,10 @@ import { parseUpgradeRequiredError } from '@/lib/upgradeGate';
 import { appendWorkspaceScopeParams } from '@/lib/workspaceScope';
 import { humanizeWarning } from '@/lib/humanize';
 import { parseMissionControlApiError } from '@/lib/missionControlApiError';
-import { LIVE_DATA_INVALIDATE_DEBOUNCE_MS } from '@/lib/missionControlInvalidation';
+import {
+  invalidateMissionControlQueries,
+  LIVE_DATA_INVALIDATE_DEBOUNCE_MS,
+} from '@/lib/missionControlInvalidation';
 
 export type ZoomLevel = 'initiative' | 'workstream' | 'milestone';
 
@@ -819,6 +822,29 @@ export function useNextUpQueue({
     ]
   );
 
+  const setAutoContinueStatusCache = useCallback(
+    (targetInitiativeId: string, run: AutoContinueRun | null) => {
+      const targetKey = queryKeys.autoContinueStatus({
+        initiativeId: targetInitiativeId,
+        authToken,
+        embedMode,
+      });
+      queryClient.setQueryData(targetKey, (current: unknown) => {
+        const existing =
+          current && typeof current === 'object'
+            ? (current as { defaults?: { tokenBudget?: number | null; maxParallelSlices?: number; tickMs?: number } })
+            : null;
+        return {
+          ok: true,
+          initiativeId: targetInitiativeId,
+          run,
+          defaults: existing?.defaults ?? { tokenBudget: null, tickMs: 0 },
+        };
+      });
+    },
+    [authToken, embedMode, queryClient]
+  );
+
   // When the SSE snapshot version bumps, invalidate the cache so the next
   // poll picks up fresh data — but keep the same query key to avoid orphaning
   // in-flight fetches (which caused the perpetual-loading bug).
@@ -854,20 +880,16 @@ export function useNextUpQueue({
     includeGraph?: boolean;
     includeLiveData?: boolean;
   } = {}) => {
-    const operations: Array<Promise<unknown>> = [
-      queryClient.invalidateQueries({ queryKey }),
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.autoContinueStatus({ initiativeId, authToken, embedMode }),
-      }),
-    ];
-    if (includeGraph) {
-      operations.push(
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.missionControlGraph({ initiativeId, authToken, embedMode }),
-        })
-      );
-    }
-    await Promise.all(operations);
+    await invalidateMissionControlQueries(queryClient, {
+      initiativeId,
+      projectId,
+      authToken,
+      embedMode,
+      queueQueryKey: queryKey,
+      includeGraph,
+      includeSlices: false,
+      includeLiveData: false,
+    });
     if (includeLiveData) {
       scheduleLiveDataInvalidate();
     }
@@ -1041,6 +1063,36 @@ export function useNextUpQueue({
       }
     },
     onSuccess: (result, input) => {
+      if (input.initiativeId) {
+        setAutoContinueStatusCache(
+          input.initiativeId,
+          result.dispatchMode === 'none'
+            ? null
+            : ({
+                id: result.sessionId ?? `${input.initiativeId}:${input.workstreamId}:play`,
+                initiativeId: input.initiativeId,
+                agentId: input.agentId ?? 'auto',
+                agentName: null,
+                tokenBudget: null,
+                tokensUsed: 0,
+                status: 'running',
+                stopRequested: false,
+                updatedAt: new Date().toISOString(),
+                startedAt: new Date().toISOString(),
+                stoppedAt: null,
+                lastError: null,
+                lastTaskId: null,
+                lastRunId: result.sessionId ?? null,
+                activeTaskId: null,
+                activeRunId: result.sessionId ?? null,
+                stopReason: null,
+                activeSliceRunIds: result.sessionId ? [result.sessionId] : [],
+                activeTaskIds: [],
+                maxParallelSlices: input.maxParallelSlices ?? 1,
+                parallelMode: input.parallelMode ?? 'iwmt',
+              } as AutoContinueRun)
+        );
+      }
       queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(
         queryKey,
         (current) =>
@@ -1152,6 +1204,7 @@ export function useNextUpQueue({
       }
     },
     onSuccess: (result, input) => {
+      setAutoContinueStatusCache(input.initiativeId, result.run ?? null);
       queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(
         queryKey,
         (current) =>
@@ -1244,6 +1297,7 @@ export function useNextUpQueue({
       }
     },
     onSuccess: (result, input) => {
+      setAutoContinueStatusCache(input.initiativeId, result.run ?? null);
       queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(
         queryKey,
         (current) =>

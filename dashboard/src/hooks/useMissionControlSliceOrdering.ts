@@ -4,6 +4,7 @@ import type {
   MissionControlSlicesResponse,
 } from '@/types';
 import { buildOrgxHeaders } from '@/lib/http';
+import { invalidateMissionControlQueries } from '@/lib/missionControlInvalidation';
 
 interface UseMissionControlSliceOrderingOptions {
   workspaceId?: string | null;
@@ -96,7 +97,15 @@ export function useMissionControlSliceOrdering({
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ['mission-control-slices'] });
+      void invalidateMissionControlQueries(queryClient, {
+        initiativeId,
+        projectId: workspaceId,
+        authToken,
+        embedMode,
+        includeQueue: false,
+        includeGraph: false,
+        includeAutoContinue: false,
+      });
     },
   });
 
@@ -141,7 +150,15 @@ export function useMissionControlSliceOrdering({
       }
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ['mission-control-slices'] });
+      void invalidateMissionControlQueries(queryClient, {
+        initiativeId,
+        projectId: workspaceId,
+        authToken,
+        embedMode,
+        includeQueue: false,
+        includeGraph: false,
+        includeAutoContinue: false,
+      });
     },
   });
 

@@ -37,6 +37,9 @@ export interface PluginApiLike {
         orgx?: {
           config?: Partial<OrgXConfig & { dashboardEnabled: boolean }>;
         };
+        "openclaw-plugin"?: {
+          config?: Partial<OrgXConfig & { dashboardEnabled: boolean }>;
+        };
       };
     };
   };
@@ -137,6 +140,8 @@ export function readOpenClawOrgxConfig(): {
   apiKey: string;
   userId: string;
   baseUrl: string;
+  enabled?: boolean;
+  dashboardEnabled?: boolean;
 } {
   try {
     const configPath = join(homedir(), ".openclaw", "openclaw.json");
@@ -150,10 +155,15 @@ export function readOpenClawOrgxConfig(): {
       plugins.entries && typeof plugins.entries === "object"
         ? (plugins.entries as Record<string, unknown>)
         : {};
-    const orgx =
+    const orgxEntry =
       entries.orgx && typeof entries.orgx === "object"
         ? (entries.orgx as Record<string, unknown>)
         : {};
+    const openclawPluginEntry =
+      entries["openclaw-plugin"] && typeof entries["openclaw-plugin"] === "object"
+        ? (entries["openclaw-plugin"] as Record<string, unknown>)
+        : {};
+    const orgx = Object.keys(orgxEntry).length > 0 ? orgxEntry : openclawPluginEntry;
     const config =
       orgx.config && typeof orgx.config === "object"
         ? (orgx.config as Record<string, unknown>)
@@ -161,7 +171,10 @@ export function readOpenClawOrgxConfig(): {
     const apiKey = typeof config.apiKey === "string" ? config.apiKey.trim() : "";
     const userId = typeof config.userId === "string" ? config.userId.trim() : "";
     const baseUrl = typeof config.baseUrl === "string" ? config.baseUrl.trim() : "";
-    return { apiKey, userId, baseUrl };
+    const enabled = typeof orgx.enabled === "boolean" ? orgx.enabled : undefined;
+    const dashboardEnabled =
+      typeof config.dashboardEnabled === "boolean" ? config.dashboardEnabled : undefined;
+    return { apiKey, userId, baseUrl, enabled, dashboardEnabled };
   } catch {
     return { apiKey: "", userId: "", baseUrl: "" };
   }
@@ -228,7 +241,10 @@ export function resolveConfig(
   api: PluginApiLike,
   input: { installationId: string; persistedApiKey: string | null; persistedUserId: string | null }
 ): ResolvedConfig {
-  const pluginConf = api.config?.plugins?.entries?.orgx?.config ?? {};
+  const pluginConf =
+    api.config?.plugins?.entries?.orgx?.config ??
+    api.config?.plugins?.entries?.["openclaw-plugin"]?.config ??
+    {};
   const openclaw = readOpenClawOrgxConfig();
 
   const apiKeyResolution = resolveApiKey(pluginConf, input.persistedApiKey);
@@ -251,9 +267,9 @@ export function resolveConfig(
     userId,
     baseUrl,
     syncIntervalMs: pluginConf.syncIntervalMs ?? 300_000,
-    enabled: pluginConf.enabled ?? true,
+    enabled: pluginConf.enabled ?? openclaw.enabled ?? true,
     autoInstallAgentSuiteOnConnect: pluginConf.autoInstallAgentSuiteOnConnect ?? true,
-    dashboardEnabled: pluginConf.dashboardEnabled ?? true,
+    dashboardEnabled: pluginConf.dashboardEnabled ?? openclaw.dashboardEnabled ?? true,
     installationId: input.installationId,
     pluginVersion: resolvePluginVersion(),
     docsUrl: resolveDocsUrl(baseUrl),

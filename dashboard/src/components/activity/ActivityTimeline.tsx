@@ -5,6 +5,7 @@ import DatePicker from 'react-datepicker';
 import { cn } from '@/lib/utils';
 import { colors, getAgentColor, getAgentRole } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
+import { buildOrgxHeaders } from '@/lib/http';
 import { humanizeText, humanizeModel, humanizeActorName, humanizeWarning, formatTokens, humanizeStopReason, humanizePath, humanizeId, isOpaqueId, deriveActivityFallbackTitle } from '@/lib/humanize';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { projectRunStatus, type CanonicalRunProjection } from '@/lib/runStatusModel';
@@ -118,6 +119,76 @@ interface DecoratedActivityItem {
   scope?: 'task' | 'milestone' | 'workstream';
 }
 type HeadlineSource = 'llm' | 'heuristic' | null;
+
+interface ActivityIndexCollection {
+  all: DecoratedActivityItem[];
+  byRunId: Map<string, DecoratedActivityItem[]>;
+  byWorkstreamId: Map<string, DecoratedActivityItem[]>;
+  byAgentName: Map<string, DecoratedActivityItem[]>;
+  byUserState: Map<ActivityUserState, DecoratedActivityItem[]>;
+}
+
+const LiveElapsedLabel = memo(function LiveElapsedLabel({
+  startMs,
+  endMs,
+  isTerminal,
+}: {
+  startMs: number | null;
+  endMs: number | null;
+  isTerminal: boolean;
+}) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!startMs || endMs || isTerminal) return undefined;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(id);
+  }, [endMs, isTerminal, startMs]);
+
+  const label = useMemo(() => {
+    if (!startMs) return null;
+    const resolvedEndMs = endMs ?? (isTerminal ? null : nowMs);
+    if (!resolvedEndMs) return null;
+    const elapsed = Math.max(0, resolvedEndMs - startMs);
+    if (elapsed < 60_000) return `${Math.round(elapsed / 1000)}s`;
+    return `${Math.floor(elapsed / 60_000)}m ${Math.round((elapsed % 60_000) / 1000)}s`;
+  }, [endMs, isTerminal, nowMs, startMs]);
+
+  if (!label) return null;
+  return <>{label}</>;
+});
+
+function pushIndexedActivity<TKey extends string>(
+  map: Map<TKey, DecoratedActivityItem[]>,
+  key: TKey | null,
+  item: DecoratedActivityItem
+): void {
+  if (!key) return;
+  const bucket = map.get(key);
+  if (bucket) {
+    bucket.push(item);
+    return;
+  }
+  map.set(key, [item]);
+}
+
+function mergeUniqueDecoratedItems<TKey extends string>(
+  map: Map<TKey, DecoratedActivityItem[]>,
+  keys: Iterable<TKey>
+): DecoratedActivityItem[] {
+  const seen = new Set<string>();
+  const merged: DecoratedActivityItem[] = [];
+  for (const key of keys) {
+    const bucket = map.get(key);
+    if (!bucket) continue;
+    for (const item of bucket) {
+      if (seen.has(item.item.id)) continue;
+      seen.add(item.item.id);
+      merged.push(item);
+    }
+  }
+  return merged;
+}
 
 interface DeduplicatedCluster {
   key: string;
@@ -3556,11 +3627,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   const [detailSummarySource, setDetailSummarySource] = useState<'feed' | 'local' | 'missing'>('feed');
   const [detailHeadlineOverride, setDetailHeadlineOverride] = useState<string | null>(null);
   const [detailHeadlineSource, setDetailHeadlineSource] = useState<HeadlineSource>(null);
-  const [headlineEndpointUnsupported, setHeadlineEndpointUnsupported] = useState(false);
   const [emptyActionPending, setEmptyActionPending] = useState<'play' | 'autopilot' | 'pause' | null>(null);
   const [emptyActionError, setEmptyActionError] = useState<string | null>(null);
-  // Live elapsed-time counter — ticks every second while modal shows a running item
-  const [elapsedTick, setElapsedTick] = useState(0);
 
   const [autoFixPending, setAutoFixPending] = useState(false);
   const [autoFixNotice, setAutoFixNotice] = useState<string | null>(null);
@@ -3908,17 +3976,48 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     });
   }, [activity, runLabelById, sessionSnapshotByRunId, sessionStatusById, sliceSnapshotByRunId]);
 
-  const decoratedByNewest = useMemo(() => {
-    const sorted = [...decoratedActivity];
-    sorted.sort((a, b) => {
+  const activityIndexes = useMemo(() => {
+    const newest = [...decoratedActivity];
+    newest.sort((a, b) => {
       const delta = b.timestampEpoch - a.timestampEpoch;
       if (delta !== 0) return delta;
       return b.item.id.localeCompare(a.item.id);
     });
-    return sorted;
-  }, [decoratedActivity]);
 
-  const decoratedByOldest = useMemo(() => [...decoratedByNewest].reverse(), [decoratedByNewest]);
+    const buildIndexes = (source: DecoratedActivityItem[]): ActivityIndexCollection => {
+      const byRunId = new Map<string, DecoratedActivityItem[]>();
+      const byWorkstreamId = new Map<string, DecoratedActivityItem[]>();
+      const byAgentName = new Map<string, DecoratedActivityItem[]>();
+      const byUserState = new Map<ActivityUserState, DecoratedActivityItem[]>();
+
+      for (const decorated of source) {
+        pushIndexedActivity(byRunId, decorated.runId, decorated);
+        pushIndexedActivity(byUserState, decorated.userState, decorated);
+
+        const workstreamId =
+          extractWorkstreamId(decorated.item) ??
+          (decorated.runId ? sessionWorkstreamByRunId.get(decorated.runId) ?? null : null);
+        pushIndexedActivity(byWorkstreamId, workstreamId, decorated);
+
+        const agentName = resolveAgentIdentity(decorated.item).agentName;
+        pushIndexedActivity(byAgentName, agentName, decorated);
+      }
+
+      return {
+        all: source,
+        byRunId,
+        byWorkstreamId,
+        byAgentName,
+        byUserState,
+      };
+    };
+
+    const oldest = [...newest].reverse();
+    return {
+      newest: buildIndexes(newest),
+      oldest: buildIndexes(oldest),
+    };
+  }, [decoratedActivity, sessionWorkstreamByRunId]);
 
   const isLive = useMemo(() => {
     let newest = 0;
@@ -3970,7 +4069,33 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   );
 
   const { filtered, filteredTotal, hiddenCount, hiddenSyncCount } = useMemo(() => {
-    const source = sortOrder === 'newest' ? decoratedByNewest : decoratedByOldest;
+    const sourceIndex = sortOrder === 'newest' ? activityIndexes.newest : activityIndexes.oldest;
+    const candidatePools: DecoratedActivityItem[][] = [];
+    if (hasSessionFilter) {
+      candidatePools.push(
+        mergeUniqueDecoratedItems(sourceIndex.byRunId, selectedRunIdSet)
+      );
+    }
+    if (selectedWorkstreamId) {
+      candidatePools.push(sourceIndex.byWorkstreamId.get(selectedWorkstreamId) ?? []);
+    }
+    if (agentFilter) {
+      candidatePools.push(sourceIndex.byAgentName.get(agentFilter) ?? []);
+    }
+    if (activeFilter === 'completed') {
+      candidatePools.push(sourceIndex.byUserState.get('completed') ?? []);
+    } else if (activeFilter === 'in_progress') {
+      candidatePools.push(sourceIndex.byUserState.get('in_progress') ?? []);
+    } else if (activeFilter === 'needs_attention') {
+      candidatePools.push([
+        ...(sourceIndex.byUserState.get('needs_input') ?? []),
+        ...(sourceIndex.byUserState.get('issue') ?? []),
+      ]);
+    }
+    const source =
+      candidatePools.length > 0
+        ? [...candidatePools].sort((left, right) => left.length - right.length)[0]
+        : sourceIndex.all;
     const matched: DecoratedActivityItem[] = [];
     let overflow = 0;
     let filteredSyncEvents = 0;
@@ -4055,6 +4180,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         'color:#7dd3c0;font-weight:600',
         {
           inputCount: decoratedActivity.length,
+          candidateCount: source.length,
           matchedCount: matched.length,
           skippedBySession,
           skippedByWorkstream,
@@ -4086,8 +4212,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   }, [
     activeFilter,
     agentFilter,
-    decoratedByNewest,
-    decoratedByOldest,
+    activityIndexes,
     hasSessionFilter,
     query,
     renderCount,
@@ -4148,14 +4273,18 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         const itemMeta = metadataForItem(decorated.item);
         const eventName = metadataString(itemMeta, ['event', 'event_name', 'eventName']);
         const isAutopilotEvent = eventName?.startsWith('autopilot_') || eventName?.startsWith('auto_continue_');
-        const isAutopilotStopEvent = eventName === 'auto_continue_stopped' ||
-          eventName === 'autopilot_transition' ||
-          eventName === 'auto_continue_completed';
+        const isAutopilotLifecycleEvent =
+          typeof eventName === 'string' &&
+          /(transition|started|stopped|completed|blocked|paused|resumed|failed|decision|dispatch)/i.test(
+            eventName
+          );
         const workstreamId = extractWorkstreamId(decorated.item);
         const clusterKey = syncReplayKey
           ? `${decorated.item.type}::sync::${syncReplayKey}`
-          : isAutopilotEvent && workstreamId
-            ? `autopilot::${workstreamId}::${isAutopilotStopEvent ? 'stop' : Math.floor(decorated.timestampEpoch / 300_000)}`
+          : isAutopilotEvent && workstreamId && !isAutopilotLifecycleEvent
+            ? `autopilot::${workstreamId}::${Math.floor(decorated.timestampEpoch / 300_000)}`
+            : isAutopilotLifecycleEvent
+              ? `autopilot-lifecycle::${decorated.item.id}`
             : `${decorated.item.type}::${normalizedClusterTitle}`;
         const existing = clusterMap.get(clusterKey);
         if (existing) {
@@ -4406,21 +4535,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   }, [activeItemId, filtered]);
 
   const activeDecorated = activeIndex >= 0 ? filtered[activeIndex] : null;
-
-  // Tick elapsed counter every second while modal shows a non-terminal item
-  const activeIsRunning = useMemo(() => {
-    if (!activeDecorated) return false;
-    const meta = metadataForItem(activeDecorated.item);
-    const status = metadataString(meta, ['parsed_status', 'status']);
-    return !!status && status !== 'completed' && status !== 'success';
-  }, [activeDecorated]);
-  useEffect(() => {
-    if (!activeIsRunning) return;
-    const id = setInterval(() => setElapsedTick((t) => t + 1), 1_000);
-    return () => clearInterval(id);
-  }, [activeIsRunning]);
-  // Reset tick when active item changes
-  useEffect(() => { setElapsedTick(0); }, [activeDecorated?.item.id]);
 
   const narrativeBySliceRunId = useMemo(() => {
     const map = new Map<string, SliceTimelineNarrativeProjectionV2>();
@@ -4977,6 +5091,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
   useEffect(() => {
     setDetailSummaryOverride(null);
     setDetailSummarySource('feed');
+    setDetailHeadlineOverride(null);
+    setDetailHeadlineSource(null);
 
     const reference = getLocalTurnReference(activeDecorated?.item ?? null);
     if (!reference) return;
@@ -4990,6 +5106,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
 
     fetch(`/orgx/api/live/activity/detail?${query.toString()}`, {
       method: 'GET',
+      headers: buildOrgxHeaders({ workspaceId }),
       signal: controller.signal,
     })
       .then(async (response) => {
@@ -5001,15 +5118,23 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         }
         const payload = (await response.json()) as {
           detail?: { summary?: string | null };
+          headline?: string | null;
+          headlineSource?: HeadlineSource | null;
         };
-        return payload.detail?.summary ?? null;
+        return payload;
       })
-      .then((summary) => {
+      .then((payload) => {
+        const summary = payload?.detail?.summary ?? null;
         if (typeof summary === 'string' && summary.trim().length > 0) {
           setDetailSummaryOverride(summary);
           setDetailSummarySource('local');
         } else {
           setDetailSummarySource('missing');
+        }
+        const headline = payload?.headline;
+        if (typeof headline === 'string' && headline.trim().length > 0) {
+          setDetailHeadlineOverride(headline.trim());
+          setDetailHeadlineSource(payload?.headlineSource ?? null);
         }
       })
       .catch((error: unknown) => {
@@ -5018,64 +5143,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       });
 
     return () => controller.abort();
-  }, [activeDecorated]);
-
-  useEffect(() => {
-    setDetailHeadlineOverride(null);
-    setDetailHeadlineSource(null);
-
-    const item = activeDecorated?.item;
-    if (!item || headlineEndpointUnsupported) return;
-
-    const headlineInputText = (
-      detailSummaryOverride ??
-      item.summary ??
-      item.description ??
-      item.title ??
-      ''
-    ).trim();
-    if (!headlineInputText) return;
-    if (isDemoModeEnabled()) return;
-
-    const controller = new AbortController();
-
-    fetch('/orgx/api/live/activity/headline', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        text: headlineInputText,
-        title: item.title ?? null,
-        type: item.type,
-      }),
-    })
-      .then(async (response) => {
-        if (!response.ok) {
-          if (response.status === 404 || response.status === 405) {
-            setHeadlineEndpointUnsupported(true);
-          }
-          return null;
-        }
-        const payload = (await response.json()) as {
-          headline?: string | null;
-          source?: 'llm' | 'heuristic' | null;
-        };
-        return payload;
-      })
-      .then((payload) => {
-        const headline = payload?.headline;
-        if (typeof headline === 'string' && headline.trim().length > 0) {
-          setHeadlineEndpointUnsupported(false);
-          setDetailHeadlineOverride(headline.trim());
-          setDetailHeadlineSource(payload?.source ?? null);
-        }
-      })
-      .catch((error: unknown) => {
-        if (error instanceof DOMException && error.name === 'AbortError') return;
-      });
-
-    return () => controller.abort();
-  }, [activeDecorated, detailSummaryOverride, headlineEndpointUnsupported]);
+  }, [activeDecorated, workspaceId]);
 
   const navigateDetail = useCallback(
     (direction: 1 | -1) => {
@@ -6743,23 +6811,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           const activeRunId = resolveRunId(activeDecorated.item);
                           const timing = activeRunId ? sliceTimingByRunId.get(activeRunId) : null;
                           const startMs = timing?.startedAt ? new Date(timing.startedAt).getTime() : null;
-                          // elapsedTick forces re-render every second for live elapsed counter
-                          void elapsedTick;
                           const endMs = timing?.completedAt
                             ? new Date(timing.completedAt).getTime()
-                            : (isTerminal ? null : Date.now());
-                          let elapsedLabel: string | null = null;
-                          if (startMs && endMs) {
-                            const elapsed = endMs - startMs;
-                            elapsedLabel = elapsed < 60_000
-                              ? `${Math.round(elapsed / 1000)}s`
-                              : `${Math.floor(elapsed / 60_000)}m ${Math.round((elapsed % 60_000) / 1000)}s`;
-                          } else if (startMs && !isTerminal) {
-                            const elapsed = Date.now() - startMs;
-                            elapsedLabel = elapsed < 60_000
-                              ? `${Math.round(elapsed / 1000)}s`
-                              : `${Math.floor(elapsed / 60_000)}m ${Math.round((elapsed % 60_000) / 1000)}s`;
-                          }
+                            : null;
                           return (
                             <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-3.5">
                               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -6771,9 +6825,14 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                     <span className="rounded-full border border-lime/30 bg-lime/[0.08] px-2 py-0.5 text-micro font-semibold text-lime/85">
                                       {humanizeStopReason(activeAutopilotContext.event) ?? humanizeText(activeAutopilotContext.event)}
                                     </span>
-                                    {elapsedLabel && (
+                                    {startMs && (
                                       <span className="rounded-full border border-white/[0.12] bg-black/20 px-2 py-0.5 text-micro text-secondary">
-                                        {elapsedLabel} elapsed
+                                        <LiveElapsedLabel
+                                          startMs={startMs}
+                                          endMs={endMs}
+                                          isTerminal={isTerminal}
+                                        />{' '}
+                                        elapsed
                                       </span>
                                     )}
                                   </div>

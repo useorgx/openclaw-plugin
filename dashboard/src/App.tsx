@@ -15,7 +15,14 @@ import { cn } from '@/lib/utils';
 import { colors, normalizeStatus } from '@/lib/tokens';
 import { formatWaitingDuration } from '@/lib/time';
 import { appendWorkspaceScopeParams as appendCanonicalWorkspaceScopeParams } from '@/lib/workspaceScope';
+import { buildOrgxHeaders } from '@/lib/http';
 import { isSyntheticInitiativeId } from '@/lib/initiativeIds';
+import {
+  DEMO_MODE_STORAGE_KEY,
+  DEV_MODE_STORAGE_KEY,
+  SELECTED_WORKSPACE_ID_STORAGE_KEY,
+  SHOW_SYNTHETIC_ENTITIES_STORAGE_KEY,
+} from '@/lib/storageKeys';
 import { cutoffEpochForActivityFilter } from '@/lib/activityTimeFilters';
 import { humanizeWarning } from '@/lib/humanize';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
@@ -135,11 +142,6 @@ const CONNECTION_COLOR: Record<string, string> = {
   reconnecting: colors.amber,
   disconnected: colors.red,
 };
-
-const DEMO_MODE_KEY = 'orgx.demo_mode';
-const DEV_MODE_KEY = 'orgx.dev_mode';
-const SHOW_SYNTHETIC_ENTITIES_KEY = 'orgx.show_synthetic_entities';
-const SELECTED_WORKSPACE_ID_KEY = 'orgx.selected_workspace_id';
 
 const SESSION_PRIORITY: Record<string, number> = {
   blocked: 0,
@@ -532,7 +534,7 @@ function parseWorkspaceIdFromLocation(): string | null {
     // ignore
   }
   try {
-    const stored = window.localStorage.getItem(SELECTED_WORKSPACE_ID_KEY);
+    const stored = window.localStorage.getItem(SELECTED_WORKSPACE_ID_STORAGE_KEY);
     if (stored && stored.trim().length > 0) {
       return stored.trim();
     }
@@ -633,7 +635,7 @@ function DashboardShell({
     const params = new URLSearchParams(window.location.search);
     if (params.get('demo') === '1') return true;
     try {
-      return window.localStorage.getItem(DEMO_MODE_KEY) === '1';
+      return window.localStorage.getItem(DEMO_MODE_STORAGE_KEY) === '1';
     } catch {
       return false;
     }
@@ -641,7 +643,7 @@ function DashboardShell({
   const [showSyntheticEntities, setShowSyntheticEntities] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try {
-      return window.localStorage.getItem(SHOW_SYNTHETIC_ENTITIES_KEY) === '1';
+      return window.localStorage.getItem(SHOW_SYNTHETIC_ENTITIES_STORAGE_KEY) === '1';
     } catch {
       return false;
     }
@@ -649,7 +651,7 @@ function DashboardShell({
   const [devMode, setDevMode] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try {
-      return window.localStorage.getItem(DEV_MODE_KEY) === '1';
+      return window.localStorage.getItem(DEV_MODE_STORAGE_KEY) === '1';
     } catch {
       return false;
     }
@@ -680,10 +682,23 @@ function DashboardShell({
   }, []);
 
   const { data: workspaceOptions = [] } = useQuery<WorkspaceOption[]>({
-    queryKey: ['workspace-options', demoMode ? 'demo' : 'live'],
+    queryKey: [
+      'workspace-options',
+      demoMode ? 'demo' : 'live',
+      onboarding.state.hasApiKey ? 'auth' : 'anon',
+      onboarding.state.connectionVerified ? 'verified' : 'unverified',
+      selectedWorkspaceId ?? '__all__',
+    ],
     queryFn: async () => {
       if (demoMode) return [];
-      const response = await fetch('/orgx/api/entities?type=command_center&limit=50');
+      const params = new URLSearchParams();
+      params.set('type', 'command_center');
+      params.set('limit', '50');
+      const response = await fetch(`/orgx/api/entities?${params.toString()}`, {
+        headers: buildOrgxHeaders({
+          workspaceId: selectedWorkspaceId,
+        }),
+      });
       if (!response.ok) return [];
       const json = (await response.json().catch(() => null)) as {
         data?: Array<Record<string, unknown>>;
@@ -1152,9 +1167,9 @@ function DashboardShell({
     if (typeof window === 'undefined') return;
     try {
       if (demoMode) {
-        window.localStorage.setItem(DEMO_MODE_KEY, '1');
+        window.localStorage.setItem(DEMO_MODE_STORAGE_KEY, '1');
       } else {
-        window.localStorage.removeItem(DEMO_MODE_KEY);
+        window.localStorage.removeItem(DEMO_MODE_STORAGE_KEY);
       }
     } catch {
       // ignore
@@ -1165,9 +1180,9 @@ function DashboardShell({
     if (typeof window === 'undefined') return;
     try {
       if (showSyntheticEntities) {
-        window.localStorage.setItem(SHOW_SYNTHETIC_ENTITIES_KEY, '1');
+        window.localStorage.setItem(SHOW_SYNTHETIC_ENTITIES_STORAGE_KEY, '1');
       } else {
-        window.localStorage.removeItem(SHOW_SYNTHETIC_ENTITIES_KEY);
+        window.localStorage.removeItem(SHOW_SYNTHETIC_ENTITIES_STORAGE_KEY);
       }
     } catch {
       // ignore
@@ -1178,9 +1193,9 @@ function DashboardShell({
     if (typeof window === 'undefined') return;
     try {
       if (devMode) {
-        window.localStorage.setItem(DEV_MODE_KEY, '1');
+        window.localStorage.setItem(DEV_MODE_STORAGE_KEY, '1');
       } else {
-        window.localStorage.removeItem(DEV_MODE_KEY);
+        window.localStorage.removeItem(DEV_MODE_STORAGE_KEY);
       }
     } catch {
       // ignore
@@ -1196,9 +1211,9 @@ function DashboardShell({
     if (typeof window === 'undefined') return;
     try {
       if (selectedWorkspaceId) {
-        window.localStorage.setItem(SELECTED_WORKSPACE_ID_KEY, selectedWorkspaceId);
+        window.localStorage.setItem(SELECTED_WORKSPACE_ID_STORAGE_KEY, selectedWorkspaceId);
       } else {
-        window.localStorage.removeItem(SELECTED_WORKSPACE_ID_KEY);
+        window.localStorage.removeItem(SELECTED_WORKSPACE_ID_STORAGE_KEY);
       }
     } catch {
       // ignore
@@ -1560,8 +1575,8 @@ function DashboardShell({
   const activeSessionCount = inProgressCount;
 
   const blockedCount = useMemo(
-    () => selectNeedsInputRows(actionableSliceRuns).length,
-    [actionableSliceRuns]
+    () => Math.max(0, needsInputCount - uncoveredDecisionCount),
+    [needsInputCount, uncoveredDecisionCount]
   );
 
   const failedCount = useMemo(
@@ -2014,11 +2029,11 @@ function DashboardShell({
       const name = (node.agentName ?? '').trim() || (node.agentId ?? '').trim();
       if (!name) continue;
 
-      const lastActiveIso = node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? new Date().toISOString();
+      const lastActiveIso = node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? 'unknown';
       const lastActiveEpoch = toEpoch(lastActiveIso);
       const lastActiveMinutes = lastActiveEpoch
         ? Math.max(0, Math.floor((Date.now() - lastActiveEpoch) / 60_000))
-        : 0;
+        : Number.MAX_SAFE_INTEGER;
 
       const existing = byAgentId.get(id);
       const candidate: Agent = {

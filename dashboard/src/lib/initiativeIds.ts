@@ -1,10 +1,13 @@
+import {
+  DEMO_MODE_STORAGE_KEY,
+  SHOW_SYNTHETIC_ENTITIES_STORAGE_KEY,
+} from '@/lib/storageKeys';
+
 const SYNTHETIC_INITIATIVE_IDS = new Set([
   'ungrouped',
   'unscoped',
   'unknown',
 ]);
-export const DEMO_MODE_STORAGE_KEY = 'orgx.demo_mode';
-export const SHOW_SYNTHETIC_ENTITIES_STORAGE_KEY = 'orgx.show_synthetic_entities';
 
 export function isSyntheticInitiativeId(value: string | null | undefined): boolean {
   const normalized = (value ?? '').trim().toLowerCase();
