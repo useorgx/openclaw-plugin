@@ -4,7 +4,11 @@ import { useQuery } from '@tanstack/react-query';
 import { useLiveData } from '@/hooks/useLiveData';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { useOnboarding } from '@/hooks/useOnboarding';
-import { useNextUpQueue } from '@/hooks/useNextUpQueue';
+import {
+  useNextUpQueue,
+  type NextUpPlayResponse,
+  type StartAutoContinueResponse,
+} from '@/hooks/useNextUpQueue';
 import { useNextUpQueueActions } from '@/hooks/useNextUpQueueActions';
 import { useTriageQueue } from '@/hooks/useTriageQueue';
 import { cn } from '@/lib/utils';
@@ -20,6 +24,7 @@ import type {
   AgentSuiteDomain,
   Initiative,
   LiveActivityItem,
+  LiveDecision,
   NextUpQueueItem,
   SessionTreeNode,
   SliceRunProjection,
@@ -147,15 +152,6 @@ const SESSION_PRIORITY: Record<string, number> = {
   archived: 7,
 };
 
-const ACTIVE_SESSION_METRIC_STATUSES = new Set([
-  'running',
-  'active',
-  'queued',
-  'pending',
-  'in_progress',
-  'working',
-  'planning',
-]);
 const CONFIGURE_ENGINEERING_AGENT_INTENT_RE =
   /^\s*configure\s+engineering\s+agent(?:\s*[.!?])?\s*$/i;
 
@@ -318,6 +314,50 @@ function resolveActivityInitiativeId(item: LiveActivityItem): string | null {
   return readActivityMetadataString(metadata, ['initiative_id', 'initiativeId']);
 }
 
+function scopeKey(initiativeId: string | null | undefined, workstreamId: string | null | undefined): string | null {
+  const initiative = typeof initiativeId === 'string' ? initiativeId.trim() : '';
+  const workstream = typeof workstreamId === 'string' ? workstreamId.trim() : '';
+  if (!initiative || !workstream) return null;
+  return `${initiative}:${workstream}`;
+}
+
+function decisionNeedsAttentionCount(
+  decisions: LiveDecision[],
+  sliceRuns: SliceRunProjection[]
+): number {
+  const coveredRunIds = new Set<string>();
+  const coveredScopeKeys = new Set<string>();
+
+  for (const slice of sliceRuns) {
+    const runId = typeof slice.runId === 'string' ? slice.runId.trim() : '';
+    if (runId) coveredRunIds.add(runId);
+    const sliceRunId = typeof slice.sliceRunId === 'string' ? slice.sliceRunId.trim() : '';
+    if (sliceRunId) coveredRunIds.add(sliceRunId);
+    const scoped = scopeKey(slice.initiativeId, slice.workstreamId);
+    if (scoped) coveredScopeKeys.add(scoped);
+  }
+
+  let uncoveredCount = 0;
+  for (const decision of decisions) {
+    const sourceRunId = typeof decision.sourceRunId === 'string' ? decision.sourceRunId.trim() : '';
+    if (sourceRunId && coveredRunIds.has(sourceRunId)) continue;
+    const sourceSessionId =
+      typeof decision.sourceSessionId === 'string' ? decision.sourceSessionId.trim() : '';
+    if (sourceSessionId && coveredRunIds.has(sourceSessionId)) continue;
+    const scoped = scopeKey(decision.initiativeId, decision.workstreamId);
+    if (scoped && coveredScopeKeys.has(scoped)) continue;
+    uncoveredCount += 1;
+  }
+
+  return uncoveredCount;
+}
+
+function visibleNextUpCount(items: NextUpQueueItem[]): number {
+  return items.filter(
+    (item) => item.queueState !== 'running' && item.queueState !== 'completed'
+  ).length;
+}
+
 function compareSessionPriority(a: SessionTreeNode, b: SessionTreeNode): number {
   const aPriority = SESSION_PRIORITY[a.status] ?? 99;
   const bPriority = SESSION_PRIORITY[b.status] ?? 99;
@@ -334,8 +374,23 @@ function selectStartableQueueItem(
 ): NextUpQueueItem | null {
   if (!Array.isArray(items) || items.length === 0) return null;
   const pick = (pool: NextUpQueueItem[]) =>
-    pool.find((item) => item.queueState !== 'blocked' && item.queueState !== 'running') ??
-    pool.find((item) => item.queueState !== 'blocked') ??
+    pool.find((item) => {
+      const queueState = item.queueState;
+      const playbackState = item.playbackState ?? null;
+      const autoStatus = item.autoContinue?.status ?? null;
+      if (queueState === 'blocked' || queueState === 'running' || queueState === 'completed') {
+        return false;
+      }
+      if (
+        playbackState === 'blocked' ||
+        playbackState === 'running' ||
+        playbackState === 'completed'
+      ) {
+        return false;
+      }
+      if (autoStatus === 'running' || autoStatus === 'stopping') return false;
+      return queueState === 'queued' || queueState === 'idle';
+    }) ??
     null;
 
   if (preferredInitiativeId && preferredInitiativeId.trim().length > 0) {
@@ -345,6 +400,20 @@ function selectStartableQueueItem(
   }
 
   return pick(items);
+}
+
+function resolveAutoContinueRunId(response: StartAutoContinueResponse | undefined): string | null {
+  const run = response?.run;
+  if (!run) return null;
+  const activeRunId = typeof run.activeRunId === 'string' ? run.activeRunId.trim() : '';
+  if (activeRunId) return activeRunId;
+  if (Array.isArray(run.activeSliceRunIds)) {
+    for (const value of run.activeSliceRunIds) {
+      if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+    }
+  }
+  const lastRunId = typeof run.lastRunId === 'string' ? run.lastRunId.trim() : '';
+  return lastRunId || null;
 }
 
 function autoContinueUpdatedEpoch(item: NextUpQueueItem): number {
@@ -734,6 +803,7 @@ function DashboardShell({
   const [activityFilterSessionId, setActivityFilterSessionId] = useState<string | null>(null);
   const [activityFilterWorkstreamId, setActivityFilterWorkstreamId] = useState<string | null>(null);
   const [activityFilterWorkstreamLabel, setActivityFilterWorkstreamLabel] = useState<string | null>(null);
+  const [pendingFocusRunId, setPendingFocusRunId] = useState<string | null>(null);
   const [activityTimeFilterId, setActivityTimeFilterId] =
     useState<ActivityTimeFilterId>('24h');
   const [activityCustomTimeRange, setActivityCustomTimeRange] = useState<{
@@ -797,20 +867,6 @@ function DashboardShell({
     () => (Array.isArray(data.sliceRuns) ? data.sliceRuns : []),
     [data.sliceRuns]
   );
-  const inProgressRows = useMemo(
-    () =>
-      selectInProgressRows({
-        sessions: sessionNodesInScope,
-        sliceRuns: actionableSliceRuns,
-      }),
-    [actionableSliceRuns, sessionNodesInScope]
-  );
-  const inProgressCount = inProgressRows.length;
-  const needsInputRows = useMemo(
-    () => selectNeedsInputRows(actionableSliceRuns),
-    [actionableSliceRuns]
-  );
-  const needsInputCount = needsInputRows.length + (decisionsVisible ? data.decisions.length : 0);
   const completedRows = useMemo<CompletedWorkRow[]>(() => {
     const completedSlices = actionableSliceRuns.filter((slice) => {
       const status = normalizeStatus(slice.status);
@@ -992,6 +1048,12 @@ function DashboardShell({
   }, [triageDetailIndex, triageDiagnosticsItems]);
 
   const activityNextUpQueue = sharedNextUpQueue;
+  const activityNextUpCount = useMemo(
+    () =>
+      activityNextUpQueue.summary?.visibleTotal ??
+      visibleNextUpCount(activityNextUpQueue.items),
+    [activityNextUpQueue.items, activityNextUpQueue.summary?.visibleTotal]
+  );
   const activityAutopilotContext = useMemo<{
     item: NextUpQueueItem;
     state: 'running' | 'stopping' | 'blocked';
@@ -1258,6 +1320,17 @@ function DashboardShell({
     setActivityFilterWorkstreamLabel(null);
   }, []);
 
+  useEffect(() => {
+    if (!pendingFocusRunId) return;
+    const target =
+      sessionNodesInScope.find(
+        (node) => node.id === pendingFocusRunId || node.runId === pendingFocusRunId
+      ) ?? null;
+    if (!target) return;
+    handleSelectSession(target.id);
+    setPendingFocusRunId(null);
+  }, [handleSelectSession, pendingFocusRunId, sessionNodesInScope]);
+
   const openInterventionComposer = useCallback((session: SessionTreeNode) => {
     void import('@/components/sessions/SessionInspector');
     setSelectedSessionId(session.id);
@@ -1438,35 +1511,43 @@ function DashboardShell({
     [sessionNodesInScope, selectedSessionId]
   );
 
+  const inProgressRows = useMemo(
+    () =>
+      selectInProgressRows({
+        sessions: sessionNodesInScope,
+        sliceRuns: actionableSliceRuns,
+      }),
+    [actionableSliceRuns, sessionNodesInScope]
+  );
+  const inProgressCount = inProgressRows.length;
+  const needsInputRows = useMemo(
+    () => selectNeedsInputRows(actionableSliceRuns),
+    [actionableSliceRuns]
+  );
+  const uncoveredDecisionCount = useMemo(
+    () =>
+      decisionsVisible
+        ? decisionNeedsAttentionCount(
+            data.decisions,
+            needsInputRows.map((row) => row.item)
+          )
+        : 0,
+    [data.decisions, decisionsVisible, needsInputRows]
+  );
+  const needsInputCount = needsInputRows.length + uncoveredDecisionCount;
+
   const activeSessionCount = useMemo(
     () =>
-      sessionNodesInScope.filter((node) => ACTIVE_SESSION_METRIC_STATUSES.has(node.status)).length,
-    [sessionNodesInScope]
+      selectInProgressRows({
+        sessions: sessionNodesInScope,
+        sliceRuns: actionableSliceRuns,
+      }).length,
+    [actionableSliceRuns, sessionNodesInScope]
   );
 
   const blockedCount = useMemo(
-    () => {
-      if (actionableSliceRuns.length > 0) {
-        return needsInputRows.length;
-      }
-      return sessionNodesInScope.filter((node) => {
-        const status = normalizeStatus(node.status);
-        const phase = normalizeStatus(node.phase ?? '');
-        const state = normalizeStatus(node.state ?? '');
-        if (status === 'completed' || status === 'cancelled' || status === 'archived') {
-          return false;
-        }
-
-        if (status === 'blocked' || status === 'failed' || phase === 'blocked' || state === 'error') {
-          return true;
-        }
-        if (ACTIVE_SESSION_METRIC_STATUSES.has(status) || status === 'handoff' || status === 'review') {
-          return false;
-        }
-        return node.blockers.length > 0;
-      }).length;
-    },
-    [actionableSliceRuns.length, needsInputRows.length, sessionNodesInScope]
+    () => selectNeedsInputRows(actionableSliceRuns).length,
+    [actionableSliceRuns]
   );
 
   const failedCount = useMemo(
@@ -1480,7 +1561,7 @@ function DashboardShell({
   );
 
   const compactMetrics = useMemo(() => {
-    const needsAttention = (decisionsVisible ? data.decisions.length : 0) + blockedCount;
+    const needsAttention = needsInputCount;
     const metrics: Array<{
       id: string;
       label: string;
@@ -1513,11 +1594,8 @@ function DashboardShell({
     return metrics;
   }, [
     activeSessionCount,
-    blockedCount,
     completedToday,
-    data.decisions.length,
-    sessionNodesInScope,
-    decisionsVisible,
+    needsInputCount,
   ]);
 
   const longestWaitMinutes = useMemo(
@@ -1592,7 +1670,7 @@ function DashboardShell({
       ),
     [dismissedNotificationIds, headerNotifications]
   );
-  const notificationDecisionCount = decisionsVisible ? data.decisions.length : 0;
+  const notificationDecisionCount = uncoveredDecisionCount;
   const notificationAttentionCount =
     activeSessionCount + blockedCount + notificationDecisionCount;
 
@@ -2000,18 +2078,28 @@ function DashboardShell({
       return;
     }
 
-    await sharedNextUpQueue.playWorkstream({
+    const result = (await sharedNextUpQueue.playWorkstream({
       initiativeId: candidate.initiativeId,
       workstreamId: candidate.workstreamId,
       agentId: candidate.runnerAgentId,
-    });
+    })) as NextUpPlayResponse;
 
+    setInitiativesSidebarTab('in_progress');
+    setInProgressSubFilter('all');
+    setExpandedRightPanel('initiatives');
     setActivityFilterSessionId(null);
     setActivityFilterWorkstreamId(candidate.workstreamId);
     setActivityFilterWorkstreamLabel(candidate.workstreamTitle);
     setAgentFilter(null);
-    showOpsNotice(`Dispatched Next Up: ${candidate.workstreamTitle}`);
     await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
+    if (typeof result.sessionId === 'string' && result.sessionId.trim().length > 0) {
+      setPendingFocusRunId(result.sessionId.trim());
+    }
+    showOpsNotice(
+      result.dispatchMode === 'pending'
+        ? `Dispatching ${candidate.workstreamTitle}…`
+        : `Started ${candidate.workstreamTitle}.`
+    );
   }, [refetch, sharedNextUpQueue, switchDashboardView]);
 
   const startAutopilotFromActivity = useCallback(
@@ -2031,21 +2119,33 @@ function DashboardShell({
         workstreamId: candidate.workstreamId,
         placement: 'top',
       });
-      await sharedNextUpQueue.startWorkstreamAutoContinue({
+      const result = (await sharedNextUpQueue.startWorkstreamAutoContinue({
         initiativeId: candidate.initiativeId,
         workstreamId: candidate.workstreamId,
         agentId: candidate.runnerAgentId,
         scope: 'initiative',
-      });
+      })) as StartAutoContinueResponse | undefined;
 
       // Preserve existing activity filters so the feed doesn't flash empty
       // while autopilot initializes. Only clear session filter since the
       // user is starting a new run, not viewing a prior session.
+      setInitiativesSidebarTab('in_progress');
+      setInProgressSubFilter('all');
+      setExpandedRightPanel('initiatives');
       setActivityFilterSessionId(null);
-      showOpsNotice(
-        `Autopilot started for ${candidate.initiativeTitle}; queued from ${candidate.workstreamTitle}.`
-      );
+      const startedRunId = resolveAutoContinueRunId(result);
       await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
+      if (startedRunId) {
+        setPendingFocusRunId(startedRunId);
+      } else {
+        setActivityFilterWorkstreamId(candidate.workstreamId);
+        setActivityFilterWorkstreamLabel(candidate.workstreamTitle);
+      }
+      showOpsNotice(
+        startedRunId
+          ? `Autopilot started for ${candidate.initiativeTitle}.`
+          : `Autopilot started for ${candidate.initiativeTitle}; dispatching from ${candidate.workstreamTitle}.`
+      );
     },
     [refetch, sharedNextUpActions, sharedNextUpQueue, switchDashboardView]
   );
@@ -2087,30 +2187,26 @@ function DashboardShell({
         throw new Error('Missing initiative/workstream metadata for this session.');
       }
 
-      const response = await fetch('/orgx/api/mission-control/next-up/play', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          initiativeId,
-          workstreamId,
-          agentId: session.agentId ?? undefined,
-          fastAck: true,
-          ignoreSpawnGuardRateLimit: true,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(
-          await readApiErrorMessage(response, 'Failed to dispatch workstream from In Progress')
-        );
-      }
+      const result = (await sharedNextUpQueue.playWorkstream({
+        initiativeId,
+        workstreamId,
+        agentId: session.agentId ?? undefined,
+      })) as NextUpPlayResponse;
 
       setActivityFilterSessionId(null);
       setActivityFilterWorkstreamId(workstreamId);
       setActivityFilterWorkstreamLabel(session.title);
-      showOpsNotice(`Dispatched ${session.title}.`);
       await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
+      if (typeof result.sessionId === 'string' && result.sessionId.trim().length > 0) {
+        setPendingFocusRunId(result.sessionId.trim());
+      }
+      showOpsNotice(
+        result.dispatchMode === 'pending'
+          ? `Dispatching ${session.title}…`
+          : `Started ${session.title}.`
+      );
     },
-    [readApiErrorMessage, refetch, sharedNextUpQueue]
+    [refetch, sharedNextUpQueue]
   );
 
   const pauseSessionWorkstream = useCallback(
@@ -2680,7 +2776,7 @@ function DashboardShell({
                 className="hidden md:flex"
                 running={activeSessionCount}
                 blocked={blockedCount}
-                decisionsCount={decisionsVisible ? data.decisions.length : 0}
+                decisionsCount={notificationDecisionCount}
                 completedToday={completedToday}
                 onDecisionsClick={() => {
                   switchDashboardView('activity');
@@ -3188,7 +3284,7 @@ function DashboardShell({
                       )}
                     >
                       <span>Next Up</span>
-                      <span className="text-micro tabular-nums text-muted">{activityNextUpQueue.total}</span>
+                      <span className="text-micro tabular-nums text-muted">{activityNextUpCount}</span>
                       <span
                         className={cn(
                           'pointer-events-none absolute -bottom-px left-0 right-0 h-[2px] rounded-full bg-[#BFFF00] transition-opacity',
@@ -3716,100 +3812,92 @@ function DashboardShell({
 
       {sliceDetailTarget && (
         <Suspense fallback={null}>
-          <LazySliceDetailModal
+            <LazySliceDetailModal
             target={sliceDetailTarget}
             initiatives={initiatives}
             onClose={() => setSliceDetailTarget(null)}
             onPlayWorkstream={async (initiativeId, workstreamId, agentId) => {
-          const response = await fetch('/orgx/api/mission-control/next-up/play', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          try {
+            const result = await sharedNextUpQueue.playWorkstream({
               initiativeId,
               workstreamId,
               agentId: agentId ?? undefined,
-              fastAck: true,
-              ignoreSpawnGuardRateLimit: true,
-            }),
-          });
-          if (!response.ok) {
-            const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+            });
+            await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
+            if (typeof result.sessionId === 'string' && result.sessionId.trim().length > 0) {
+              setPendingFocusRunId(result.sessionId.trim());
+            }
+            showOpsNotice(
+              result.dispatchMode === 'pending'
+                ? 'Dispatching workstream…'
+                : 'Started workstream.'
+            );
+          } catch (error) {
             showOpsNotice(
               formatOpsNoticeError(
-                body?.error ?? body?.message ?? null,
-                `Failed to dispatch workstream (${response.status})`
+                error instanceof Error ? error.message : null,
+                'Failed to dispatch workstream'
               )
             );
-            return;
           }
-          showOpsNotice(`Dispatched workstream.`);
-          void refetch();
         }}
         onStartAutoContinue={async (initiativeId, workstreamId, agentId) => {
-          await fetch('/orgx/api/mission-control/next-up/move', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ initiativeId, workstreamId, placement: 'top' }),
-          });
-          const response = await fetch('/orgx/api/mission-control/auto-continue/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
+          try {
+            await sharedNextUpActions.move({
               initiativeId,
+              workstreamId,
+              placement: 'top',
+            });
+            const result = await sharedNextUpQueue.startWorkstreamAutoContinue({
+              initiativeId,
+              workstreamId,
               agentId: agentId ?? undefined,
-              ignoreSpawnGuardRateLimit: true,
-            }),
-          });
-          if (!response.ok) {
-            const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+              scope: 'initiative',
+            });
+            const startedRunId = resolveAutoContinueRunId(result);
+            await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
+            if (startedRunId) {
+              setPendingFocusRunId(startedRunId);
+            }
+            showOpsNotice(
+              startedRunId ? 'Auto-continue started.' : 'Auto-continue is dispatching now.'
+            );
+          } catch (error) {
             showOpsNotice(
               formatOpsNoticeError(
-                body?.error ?? body?.message ?? null,
-                `Failed to start auto-continue (${response.status})`
+                error instanceof Error ? error.message : null,
+                'Failed to start auto-continue'
               )
             );
-            return;
           }
-          showOpsNotice(`Auto-continue started.`);
-          void refetch();
         }}
         onMoveWorkstream={async (initiativeId, workstreamId, placement) => {
-          const response = await fetch('/orgx/api/mission-control/next-up/move', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ initiativeId, workstreamId, placement }),
-          });
-          if (!response.ok) {
-            const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+          try {
+            await sharedNextUpActions.move({ initiativeId, workstreamId, placement });
+            showOpsNotice(`Moved workstream to ${placement}.`);
+            void refetch();
+          } catch (error) {
             showOpsNotice(
               formatOpsNoticeError(
-                body?.error ?? body?.message ?? null,
-                `Move failed (${response.status})`
+                error instanceof Error ? error.message : null,
+                'Move failed'
               )
             );
-            return;
           }
-          showOpsNotice(`Moved workstream to ${placement}.`);
-          void refetch();
         }}
             onRemoveFromQueue={async (initiativeId, workstreamId) => {
-          const response = await fetch('/orgx/api/mission-control/next-up/remove', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ initiativeId, workstreamId }),
-          });
-          if (!response.ok) {
-            const body = (await response.json().catch(() => null)) as { error?: string; message?: string } | null;
+          try {
+            await sharedNextUpActions.remove({ initiativeId, workstreamId });
+            showOpsNotice('Removed workstream from queue.');
+            void refetch();
+          } catch (error) {
             showOpsNotice(
               formatOpsNoticeError(
-                body?.error ?? body?.message ?? null,
-                `Remove failed (${response.status})`
+                error instanceof Error ? error.message : null,
+                'Remove failed'
               )
             );
-            return;
           }
-          showOpsNotice(`Removed workstream from queue.`);
-          void refetch();
         }}
             onOpenSession={handleSelectSession}
             onFocusRunId={focusActivityRunId}

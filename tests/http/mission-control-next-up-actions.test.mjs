@@ -140,6 +140,7 @@ function createClientHarness({
   blockedQueueForWs1 = false,
   dependencyBlockedForWs1 = false,
   taskDependencyOverrides = null,
+  listEntitiesImpl = null,
   rawRequestImpl = null,
 } = {}) {
   const calls = {
@@ -230,6 +231,9 @@ function createClientHarness({
     getBaseUrl: () => "https://www.useorgx.com",
     listEntities: async (type, filters = {}) => {
       calls.listEntities.push({ type, filters });
+      if (typeof listEntitiesImpl === "function") {
+        return await listEntitiesImpl(type, filters);
+      }
       if (type === "initiative") {
         return {
           data: [{ id: "init-1", title: "Initiative 1", status: "active", priority: "high" }],
@@ -1367,7 +1371,7 @@ test("mission-control next-up normalizes blocked_by_dependency canonical queue s
   );
 });
 
-test("mission-control next-up bridges empty local fallback from canonical slices payload", async () => {
+test("mission-control next-up falls back to local queue when canonical next-up is unavailable", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-slices-bridge-"));
   await withEnv(
     {
@@ -1376,51 +1380,13 @@ test("mission-control next-up bridges empty local fallback from canonical slices
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
     },
     async () => {
-      const { handler } = await createHandler({
+      const { handler, calls } = await createHandler({
         rawRequestImpl: async (method, path) => {
           assert.equal(method, "GET");
           if (path.startsWith("/api/client/mission-control/next-up?")) {
             throw new Error("canonical next-up unavailable");
           }
-          if (!path.startsWith("/api/client/mission-control/slices?")) {
-            throw new Error(`unexpected canonical path: ${path}`);
-          }
-          return {
-            ok: true,
-            generatedAt: new Date().toISOString(),
-            total: 1,
-            items: [
-              {
-                initiative_id: "init-1",
-                initiative_title: "Initiative 1",
-                initiative_status: "active",
-                workstream_id: "ws-bridge",
-                workstream_title: "Bridge Workstream",
-                status: "running",
-                task_id: "task-bridge",
-                title: "Bridge Slice",
-                dueAt: "2026-02-25T10:00:00.000Z",
-                runner_agent_id: "agent-bridge",
-                runner_agent_name: "Bridge Agent",
-                runner_source: "assigned",
-                runner_agents: [{ id: "agent-bridge", name: "Bridge Agent" }],
-                dispatch: {
-                  runnable: true,
-                  suggested_scope: "WORKSTREAM",
-                },
-                lineage: {
-                  task_ids: ["task-bridge", "task-bridge-extra"],
-                },
-                order: {
-                  manual_rank: 2,
-                },
-                iwmt: {
-                  mixScore: 0.88,
-                },
-                updated_at: "2026-02-25T10:30:00.000Z",
-              },
-            ],
-          };
+          throw new Error(`unexpected canonical path: ${path}`);
         },
       });
 
@@ -1432,30 +1398,27 @@ test("mission-control next-up bridges empty local fallback from canonical slices
       assert.equal(res.status, 200);
       const body = JSON.parse(res.body);
       assert.equal(body.ok, true);
-      assert.equal(body.source, "canonical_slices_bridge");
-      assert.equal(body.total, 1);
-      assert.equal(body.items[0]?.workstreamId, "ws-bridge");
-      assert.equal(body.items[0]?.queueState, "running");
-      assert.equal(body.items[0]?.sliceScope, "workstream");
-      assert.deepEqual(body.items[0]?.sliceTaskIds, ["task-bridge", "task-bridge-extra"]);
-      assert.equal(body.items[0]?.runnerAgentId, "agent-bridge");
-      assert.equal(body.items[0]?.runnerAgentName, "Bridge Agent");
-      assert.equal(body.items[0]?.runnerSource, "assigned");
-      assert.equal(body.items[0]?.isPinned, true);
-      assert.equal(body.items[0]?.pinnedRank, 2);
-      assert.equal(body.items[0]?.compositeScore, 0.88);
-      assert.equal(body.items[0]?.updatedAt, "2026-02-25T10:30:00.000Z");
+      assert.equal(body.source, "local_fallback");
+      assert.ok(Array.isArray(body.items));
+      assert.ok(body.items.every((item) => item.queueState !== "completed"));
       assert.ok(Array.isArray(body.degraded));
       assert.ok(
         body.degraded.some((entry) =>
-          String(entry).includes("Next Up derived from canonical slices.")
+          String(entry).includes("canonical next-up unavailable")
+        )
+      );
+      assert.ok(
+        calls.rawRequest.every(
+          ([, requestPath]) =>
+            typeof requestPath === "string" &&
+            !requestPath.startsWith("/api/client/mission-control/slices?")
         )
       );
     }
   );
 });
 
-test("mission-control next-up bridges from canonical slices when canonical next-up and local queue are unavailable", async () => {
+test("mission-control next-up surfaces local queue failure when canonical next-up is unavailable", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-next-up-slices-bridge-"));
   await withEnv(
     {
@@ -1470,29 +1433,10 @@ test("mission-control next-up bridges from canonical slices when canonical next-
           if (path.startsWith("/api/client/mission-control/next-up?")) {
             throw new Error("401 unauthorized");
           }
-          if (path.startsWith("/api/client/mission-control/slices?")) {
-            return {
-              ok: true,
-              total: 1,
-              items: [
-                {
-                  initiative_id: "init-1",
-                  initiative_title: "Initiative 1",
-                  initiative_status: "active",
-                  workstream_id: "ws-bridge",
-                  workstream_title: "Bridge Workstream",
-                  status: "in_progress",
-                  task_id: "task-bridge",
-                  runner_agent_id: "agent-bridge",
-                  runner_agent_name: "Agent Bridge",
-                  runner_source: "assigned",
-                  runner_agents: [{ id: "agent-bridge", name: "Agent Bridge" }],
-                  dispatch: { runnable: true, suggested_scope: "workstream" },
-                },
-              ],
-            };
-          }
           throw new Error(`unexpected canonical path: ${path}`);
+        },
+        listEntitiesImpl: async () => {
+          throw new Error("local queue unavailable");
         },
       });
 
@@ -1504,22 +1448,23 @@ test("mission-control next-up bridges from canonical slices when canonical next-
       assert.equal(res.status, 200);
       const body = JSON.parse(res.body);
       assert.equal(body.ok, true);
-      assert.equal(body.source, "canonical_slices_bridge");
-      assert.equal(body.total, 1);
-      assert.equal(body.items[0]?.workstreamId, "ws-bridge");
-      assert.equal(body.items[0]?.nextTaskId, "task-bridge");
-      assert.equal(body.items[0]?.queueState, "running");
-      assert.equal(body.items[0]?.runnerAgentId, "agent-bridge");
-      assert.equal(body.items[0]?.runnerAgentName, "Agent Bridge");
+      assert.equal(body.source, "local_fallback");
+      assert.equal(body.total, 0);
+      assert.deepEqual(body.items, []);
       assert.ok(Array.isArray(body.degraded));
-      assert.ok(
-        body.degraded.some((entry) => String(entry).includes("Next Up derived from canonical slices."))
-      );
+      assert.ok(body.degraded.length > 0);
       assert.ok(
         calls.rawRequest.some(
           ([, requestPath]) =>
             typeof requestPath === "string" &&
-            requestPath.startsWith("/api/client/mission-control/slices?")
+            requestPath.startsWith("/api/client/mission-control/next-up?")
+        )
+      );
+      assert.ok(
+        calls.rawRequest.every(
+          ([, requestPath]) =>
+            typeof requestPath === "string" &&
+            !requestPath.startsWith("/api/client/mission-control/slices?")
         )
       );
     }

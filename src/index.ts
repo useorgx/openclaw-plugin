@@ -1544,11 +1544,12 @@ export default function register(api: PluginAPI): void {
     };
 
     const state = updateOnboardingState({
-      status: "awaiting_browser_auth",
-      hasApiKey: false,
-      connectionVerified: false,
+      status: config.apiKey ? "connected" : "awaiting_browser_auth",
+      hasApiKey: Boolean(config.apiKey),
+      connectionVerified: Boolean(config.apiKey),
+      workspaceName: onboardingState.workspaceName,
       lastError: null,
-      nextAction: "wait_for_browser",
+      nextAction: config.apiKey ? "reconnect" : "wait_for_browser",
       connectUrl: started.data.connectUrl,
       pairingId: started.data.pairingId,
       expiresAt: started.data.expiresAt,
@@ -1598,11 +1599,16 @@ export default function register(api: PluginAPI): void {
     const status = polled.data.status;
     if (status === "pending" || status === "authorized") {
       return updateOnboardingState({
-        status: "pairing",
-        hasApiKey: false,
-        connectionVerified: false,
+        status: config.apiKey ? "connected" : "pairing",
+        hasApiKey: Boolean(config.apiKey),
+        connectionVerified: Boolean(config.apiKey),
+        workspaceName: onboardingState.workspaceName,
         lastError: null,
-        nextAction: "wait_for_browser",
+        nextAction: config.apiKey ? "reconnect" : "wait_for_browser",
+        connectUrl: activePairing.connectUrl,
+        pairingId: activePairing.pairingId,
+        expiresAt: activePairing.expiresAt,
+        pollIntervalMs: activePairing.pollIntervalMs,
       });
     }
 
@@ -1675,6 +1681,33 @@ export default function register(api: PluginAPI): void {
       connectionVerified: false,
       lastError: polled.data.errorMessage ?? "Pairing failed or expired.",
       nextAction: "retry",
+    });
+  }
+
+  async function cancelPairingOnboarding(): Promise<OnboardingState> {
+    if (!activePairing) {
+      return { ...onboardingState };
+    }
+
+    await fetchOrgxJson(
+      "POST",
+      `/api/plugin/openclaw/pairings/${encodeURIComponent(
+        activePairing.pairingId
+      )}/cancel`,
+      {
+        pollToken: activePairing.pollToken,
+        reason: "user_cancelled",
+      }
+    );
+
+    clearPairingState();
+    return updateOnboardingState({
+      status: config.apiKey ? "connected" : "idle",
+      hasApiKey: Boolean(config.apiKey),
+      connectionVerified: Boolean(config.apiKey),
+      workspaceName: onboardingState.workspaceName,
+      lastError: null,
+      nextAction: config.apiKey ? "open_dashboard" : "connect",
     });
   }
 
@@ -1886,6 +1919,7 @@ export default function register(api: PluginAPI): void {
       startPairing,
       getStatus: getPairingStatus,
       submitManualKey,
+      cancelPairing: cancelPairingOnboarding,
       disconnect: disconnectOnboarding,
     },
     {

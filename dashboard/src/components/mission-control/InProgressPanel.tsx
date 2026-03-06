@@ -15,10 +15,8 @@ import { resolveAgentPersona } from './AgentInference';
 
 const IN_PROGRESS_STATUSES = new Set([
   'running',
-  'active',
   'in_progress',
   'working',
-  'planning',
   'dispatching',
 ]);
 const SLICE_RUNNING_STATUSES = new Set(['running', 'dispatching']);
@@ -37,7 +35,21 @@ export function isInProgressSession(session: SessionTreeNode): boolean {
   if (runtimeState === 'stale' || status === 'stale') return false;
   if (runtimeState === 'stopped' && status !== 'blocked') return false;
   if (IN_PROGRESS_STATUSES.has(status)) return true;
-  if (status === 'queued' || status === 'pending' || status === 'paused' || status === 'completed') return false;
+  if (
+    status === 'active' ||
+    runtimeState === 'active'
+  ) {
+    return isFreshHeartbeat(session.lastHeartbeatAt);
+  }
+  if (
+    status === 'queued' ||
+    status === 'pending' ||
+    status === 'planning' ||
+    status === 'paused' ||
+    status === 'completed'
+  ) {
+    return false;
+  }
   if (session.lastHeartbeatAt) return isFreshHeartbeat(session.lastHeartbeatAt);
   return false;
 }
@@ -277,20 +289,21 @@ export function selectInProgressRows({
   }
 
   runningSliceRows.sort((a, b) => toEpoch(b.updatedAt) - toEpoch(a.updatedAt));
-  if (runningSliceRows.length > 0) {
-    const dedupedRunningRows: InProgressRow[] = [];
-    const seenRunningKeys = new Set<string>();
-    for (const row of runningSliceRows) {
-      const scopeInitiativeId = row.initiativeId ?? row.initiativeIds?.[0] ?? 'none';
-      const scopeKey = row.workstreamId
-        ? `scope:${scopeInitiativeId}:${row.workstreamId}`
-        : null;
-      const dedupeKey = scopeKey ?? (row.runId ? `run:${row.runId}` : row.key);
-      if (seenRunningKeys.has(dedupeKey)) continue;
-      seenRunningKeys.add(dedupeKey);
-      dedupedRunningRows.push(row);
-    }
-    return dedupedRunningRows;
+  const dedupedRunningRows: InProgressRow[] = [];
+  const seenRunningKeys = new Set<string>();
+  const coveredRunIds = new Set<string>();
+  const coveredScopeKeys = new Set<string>();
+  for (const row of runningSliceRows) {
+    const scopeInitiativeId = row.initiativeId ?? row.initiativeIds?.[0] ?? 'none';
+    const scopeKey = row.workstreamId
+      ? `scope:${scopeInitiativeId}:${row.workstreamId}`
+      : null;
+    const dedupeKey = scopeKey ?? (row.runId ? `run:${row.runId}` : row.key);
+    if (seenRunningKeys.has(dedupeKey)) continue;
+    seenRunningKeys.add(dedupeKey);
+    if (row.runId) coveredRunIds.add(row.runId);
+    if (scopeKey) coveredScopeKeys.add(scopeKey);
+    dedupedRunningRows.push(row);
   }
 
   const fallbackSessions = sessions.filter((session) => {
@@ -298,7 +311,10 @@ export function selectInProgressRows({
     const initiativeId = (session.initiativeId ?? '').trim();
     const workstreamId = (session.workstreamId ?? '').trim();
     // In-progress should reflect dispatchable work slices, not unscoped reporting/control runs.
-    return initiativeId.length > 0 && workstreamId.length > 0;
+    if (initiativeId.length === 0 || workstreamId.length === 0) return false;
+    const runId = (session.runId ?? '').trim();
+    if (runId && coveredRunIds.has(runId)) return false;
+    return !coveredScopeKeys.has(`scope:${initiativeId}:${workstreamId}`);
   });
   fallbackSessions.sort((a, b) => {
     const safeA = toEpoch(a.updatedAt ?? a.lastEventAt ?? a.startedAt);
@@ -318,9 +334,9 @@ export function selectInProgressRows({
     deduped.push(session);
   }
 
-  return deduped.map((session) => ({
+  const fallbackRows: InProgressRow[] = deduped.map((session) => ({
     key: `session:${session.id}`,
-    source: 'session',
+    source: 'session' as const,
     session,
     runId: session.runId,
     status: normalizeStatus(session.status ?? ''),
@@ -343,6 +359,10 @@ export function selectInProgressRows({
     decisionCount: 0,
     updatedAt: session.updatedAt ?? session.lastEventAt ?? session.startedAt ?? null,
   }));
+
+  return [...dedupedRunningRows, ...fallbackRows].sort(
+    (a, b) => toEpoch(b.updatedAt) - toEpoch(a.updatedAt)
+  );
 }
 
 interface InProgressPanelProps {

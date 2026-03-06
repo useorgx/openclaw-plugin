@@ -351,7 +351,13 @@ export function useOnboarding() {
 
   useEffect(() => {
     const shouldPoll =
-      state.status === 'awaiting_browser_auth' || state.status === 'pairing';
+      state.status === 'awaiting_browser_auth' ||
+      state.status === 'pairing' ||
+      (state.status === 'connected' &&
+        typeof state.pairingId === 'string' &&
+        state.pairingId.trim().length > 0 &&
+        typeof state.connectUrl === 'string' &&
+        state.connectUrl.trim().length > 0);
     if (!shouldPoll) return undefined;
 
     const intervalMs = Math.max(900, state.pollIntervalMs ?? DEFAULT_POLL_MS);
@@ -570,6 +576,30 @@ export function useOnboarding() {
     return fallback;
   }, []);
 
+  const cancelPairing = useCallback(async () => {
+    if (isDemoModeEnabled()) {
+      const demoState = buildDemoOnboardingState();
+      setState(demoState);
+      return demoState;
+    }
+
+    const payload = await readJson<OnboardingState>(
+      fetch('/orgx/api/onboarding/cancel', {
+        method: 'POST',
+      })
+    );
+
+    if (payload.ok && payload.data) {
+      maybeIdentify(payload.data.installationId ?? null);
+      setState(payload.data);
+      return payload.data;
+    }
+
+    const next = await refreshStatus();
+    setState(next);
+    return next;
+  }, [refreshStatus]);
+
   const backToPairing = useCallback(() => {
     setState((previous) => ({
       ...previous,
@@ -598,6 +628,7 @@ export function useOnboarding() {
     refreshStatus,
     startPairing,
     submitManualKey,
+    cancelPairing,
     disconnect,
     skipGate: () => setIsGateSkipped(true),
     resumeGate: () => setIsGateSkipped(false),

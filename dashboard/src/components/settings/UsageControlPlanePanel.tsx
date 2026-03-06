@@ -83,9 +83,9 @@ export function UsageControlPlanePanel({
     <div className="rounded-2xl border border-white/[0.07] bg-white/[0.02] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-heading font-semibold text-white">Usage control plane</h3>
+          <h3 className="text-heading font-semibold text-white">Usage telemetry</h3>
           <p className="mt-1 text-body leading-relaxed text-secondary">
-            Actual vs predicted token, runtime, and cost usage for this billing period.
+            Actual versus predicted token, runtime, and cost usage for the active billing window.
           </p>
         </div>
         <button
@@ -119,7 +119,7 @@ export function UsageControlPlanePanel({
         <>
           <div className="mt-4 grid gap-6">
             <UsageSubspace
-              step="Subspace 01"
+              step="Overview"
               title="Risk + volume overview"
               description="Current period usage against plan limits with forecast deltas."
             >
@@ -178,7 +178,7 @@ export function UsageControlPlanePanel({
             </UsageSubspace>
 
             <UsageSubspace
-              step="Subspace 02"
+              step="Diagnostics"
               title="Utilization diagnostics"
               description="Percent utilization plus source-client composition and warnings."
             >

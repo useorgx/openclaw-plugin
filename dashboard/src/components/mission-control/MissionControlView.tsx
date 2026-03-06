@@ -103,6 +103,18 @@ function initiativeStatusSortRank(status: Initiative['status']): number {
   return 3;
 }
 
+function isDoneTaskStatus(status: string | null | undefined): boolean {
+  const normalized = toStatusKey(status);
+  return (
+    normalized === 'completed' ||
+    normalized === 'done' ||
+    normalized === 'resolved' ||
+    normalized === 'success' ||
+    normalized === 'succeeded' ||
+    normalized === 'archived'
+  );
+}
+
 function groupInitiatives(
   initiatives: Initiative[],
   groupBy: GroupByOption,
@@ -807,13 +819,27 @@ function MissionControlInner({
   const allExpanded =
     pagedInitiatives.length > 0 &&
     pagedInitiatives.every((initiative) => expandedInitiatives.has(initiative.id));
-  const fallbackNextActionInitiative = useMemo(
-    () =>
-      sortedInitiatives.find((initiative) => initiative.status !== 'completed') ??
-      sortedInitiatives[0] ??
-      null,
-    [sortedInitiatives]
-  );
+  const focusedInitiativeId = useMemo(() => {
+    if (modalTarget) {
+      return modalTarget.type === 'initiative'
+        ? modalTarget.entity.id
+        : modalTarget.initiative.id;
+    }
+    if (selectedInitiativeIds.size === 1) {
+      return Array.from(selectedInitiativeIds)[0] ?? null;
+    }
+    if (expandedInitiatives.size === 1) {
+      return Array.from(expandedInitiatives)[0] ?? null;
+    }
+    if (initialInitiativeId) return initialInitiativeId;
+    return null;
+  }, [expandedInitiatives, initialInitiativeId, modalTarget, selectedInitiativeIds]);
+  const fallbackNextActionInitiative = useMemo(() => {
+    if (!focusedInitiativeId) return null;
+    return (
+      sortedInitiatives.find((initiative) => initiative.id === focusedInitiativeId) ?? null
+    );
+  }, [focusedInitiativeId, sortedInitiatives]);
   const internalNextActionQueue = useNextUpQueue({
     projectId: workspaceInitiativeId,
     limit: 40,
@@ -839,13 +865,35 @@ function MissionControlInner({
         activeAgents: agg.activeAgents,
       };
     }
-    // Fallback to client-side computation when summary is loading/unavailable
-    const totalTasks = initiatives.reduce((sum, init) => sum + (init.workstreams?.length ?? 0), 0);
-    const doneTasks = initiatives.reduce(
-      (sum, init) => sum + (init.workstreams?.filter((ws) => ws.status === 'completed' || ws.status === 'done').length ?? 0),
-      0
-    );
-    const completionPercent = totalTasks > 0 ? (doneTasks / totalTasks) * 100 : 0;
+    // Only derive task totals from explicit task collections. If task detail is
+    // unavailable, show 0/0 instead of mislabeling workstream counts as tasks.
+    let totalTasks = 0;
+    let doneTasks = 0;
+    for (const initiative of initiatives) {
+      for (const workstream of (initiative.workstreams ?? []) as Array<Record<string, unknown>>) {
+        const workstreamTasks = Array.isArray(workstream.tasks)
+          ? (workstream.tasks as Array<Record<string, unknown>>)
+          : [];
+        totalTasks += workstreamTasks.length;
+        doneTasks += workstreamTasks.filter((task) => isDoneTaskStatus(String(task.status ?? ''))).length;
+        const milestones = Array.isArray(workstream.milestones)
+          ? (workstream.milestones as Array<Record<string, unknown>>)
+          : [];
+        for (const milestone of milestones) {
+          const milestoneTasks = Array.isArray(milestone.tasks)
+            ? (milestone.tasks as Array<Record<string, unknown>>)
+            : [];
+          totalTasks += milestoneTasks.length;
+          doneTasks += milestoneTasks.filter((task) => isDoneTaskStatus(String(task.status ?? ''))).length;
+        }
+      }
+    }
+    const completionPercent =
+      totalTasks > 0
+        ? (doneTasks / totalTasks) * 100
+        : initiatives.length > 0
+          ? initiatives.reduce((sum, init) => sum + Math.max(0, init.health), 0) / initiatives.length
+          : 0;
     const blockedCount = initiatives.filter((init) => init.status === 'blocked').length;
     const activeAgents = initiatives.reduce((sum, init) => sum + init.activeAgents, 0);
     return { completionPercent, totalTasks, doneTasks, blockedCount, activeAgents };
@@ -1781,7 +1829,7 @@ function MissionControlInner({
               ref={stickyToolbarRef}
               className="sticky top-0 z-40 relative -mx-4 border-b border-subtle bg-[#02040A]/78 px-4 pb-2.5 pt-3.5 backdrop-blur-xl sm:-mx-6 sm:px-6"
             >
-              <div className="pointer-events-none absolute right-4 top-2.5 z-50 sm:right-6">
+              <div className="pointer-events-none absolute right-4 top-2.5 z-50 hidden sm:block sm:right-6">
                 <InlineToast
                   open={hasConnectivityIssue && !connectivityToastDismissed}
                   tone={hintTone === 'critical' ? 'error' : 'warning'}
@@ -1806,6 +1854,28 @@ function MissionControlInner({
                   }
                 />
               </div>
+
+              {hasConnectivityIssue && !connectivityToastDismissed ? (
+                <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 sm:hidden">
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      hintTone === 'critical' ? 'bg-red-400' : 'bg-amber-300'
+                    }`}
+                    aria-hidden
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-micro font-semibold text-white/88">{hintLabel}</p>
+                    <p className="truncate text-micro text-white/56">{hintDetail}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setConnectivityToastDismissed(true)}
+                    className="control-pill h-7 px-2 text-micro font-semibold"
+                  >
+                    Hide
+                  </button>
+                </div>
+              ) : null}
 
               <div className="toolbar-shell flex flex-col gap-2.5 md:flex-row md:items-center">
                 <div className="min-w-0 flex-1">
@@ -1968,7 +2038,7 @@ function MissionControlInner({
                   {/* Autopilot Rail - persistent status banner */}
                   {autopilot.isRunning && (
                     <div
-                      className="autopilot-rail autopilot-rail-pulse flex items-center gap-2 rounded-lg px-3 py-1.5 mt-1.5"
+                      className="autopilot-rail autopilot-rail-pulse mt-1.5 hidden items-center gap-2 rounded-lg px-3 py-1.5 sm:flex"
                       data-state={
                         autopilot.run?.lastError ? 'error' :
                         autopilot.run?.stopReason === 'blocked' ? 'blocked' : 'running'
