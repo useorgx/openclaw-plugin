@@ -358,6 +358,17 @@ function visibleNextUpCount(items: NextUpQueueItem[]): number {
   ).length;
 }
 
+function isSameLocalDay(iso: string | null | undefined, now = new Date()): boolean {
+  if (!iso) return false;
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return false;
+  return (
+    parsed.getFullYear() === now.getFullYear() &&
+    parsed.getMonth() === now.getMonth() &&
+    parsed.getDate() === now.getDate()
+  );
+}
+
 function compareSessionPriority(a: SessionTreeNode, b: SessionTreeNode): number {
   const aPriority = SESSION_PRIORITY[a.status] ?? 99;
   const bPriority = SESSION_PRIORITY[b.status] ?? 99;
@@ -1009,7 +1020,11 @@ function DashboardShell({
     enabled: true,
     snapshotVersion: data.snapshotVersion,
   });
-  const sharedNextUpActions = useNextUpQueueActions({ authToken: null, embedMode: false });
+  const sharedNextUpActions = useNextUpQueueActions({
+    authToken: null,
+    embedMode: false,
+    projectId: selectedWorkspaceId,
+  });
 
   // Triage queue
   const { model: triageModel, actions: triageActions } = useTriageQueue({
@@ -1519,7 +1534,10 @@ function DashboardShell({
       }),
     [actionableSliceRuns, sessionNodesInScope]
   );
-  const inProgressCount = inProgressRows.length;
+  const inProgressCount =
+    typeof data.runningWorkSlices === 'number' && Number.isFinite(data.runningWorkSlices)
+      ? Math.max(0, Math.floor(data.runningWorkSlices))
+      : inProgressRows.length;
   const needsInputRows = useMemo(
     () => selectNeedsInputRows(actionableSliceRuns),
     [actionableSliceRuns]
@@ -1534,16 +1552,12 @@ function DashboardShell({
         : 0,
     [data.decisions, decisionsVisible, needsInputRows]
   );
-  const needsInputCount = needsInputRows.length + uncoveredDecisionCount;
+  const needsInputCount =
+    typeof data.needsInputTotal === 'number' && Number.isFinite(data.needsInputTotal)
+      ? Math.max(0, Math.floor(data.needsInputTotal))
+      : needsInputRows.length + uncoveredDecisionCount;
 
-  const activeSessionCount = useMemo(
-    () =>
-      selectInProgressRows({
-        sessions: sessionNodesInScope,
-        sliceRuns: actionableSliceRuns,
-      }).length,
-    [actionableSliceRuns, sessionNodesInScope]
-  );
+  const activeSessionCount = inProgressCount;
 
   const blockedCount = useMemo(
     () => selectNeedsInputRows(actionableSliceRuns).length,
@@ -1555,10 +1569,20 @@ function DashboardShell({
     [sessionNodesInScope]
   );
 
-  const completedToday = useMemo(
-    () => sessionNodesInScope.filter((n) => n.status === 'completed').length,
-    [sessionNodesInScope]
-  );
+  const completedToday = useMemo(() => {
+    if (
+      typeof data.completedTodayTotal === 'number' &&
+      Number.isFinite(data.completedTodayTotal)
+    ) {
+      return Math.max(0, Math.floor(data.completedTodayTotal));
+    }
+    const now = new Date();
+    return sessionNodesInScope.filter(
+      (node) =>
+        node.status === 'completed' &&
+        isSameLocalDay(node.updatedAt ?? node.lastEventAt ?? node.startedAt, now)
+    ).length;
+  }, [data.completedTodayTotal, sessionNodesInScope]);
 
   const compactMetrics = useMemo(() => {
     const needsAttention = needsInputCount;
@@ -1671,8 +1695,7 @@ function DashboardShell({
     [dismissedNotificationIds, headerNotifications]
   );
   const notificationDecisionCount = uncoveredDecisionCount;
-  const notificationAttentionCount =
-    activeSessionCount + blockedCount + notificationDecisionCount;
+  const notificationAttentionCount = needsInputCount;
 
   const dismissNotification = useCallback((id: string) => {
     setDismissedNotificationIds((previous) =>
@@ -2017,34 +2040,6 @@ function DashboardShell({
     return Array.from(byAgentId.values());
   }, [sessionNodesInScope]);
 
-  const continueHighestPriority = useCallback(async () => {
-    if (sessionNodesInScope.length === 0) {
-      showOpsNotice('No sessions available to continue.');
-      return;
-    }
-
-    const target = [...sessionNodesInScope].sort(compareSessionPriority)[0];
-    setSelectedSessionId(target.id);
-    setActivityFilterSessionId(target.id);
-    setActivityFilterWorkstreamId(null);
-    setActivityFilterWorkstreamLabel(null);
-
-    if (['blocked', 'pending', 'queued'].includes(target.status)) {
-      try {
-        await fetch(`/orgx/api/runs/${encodeURIComponent(target.runId)}/actions/resume`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ reason: 'continue_from_dashboard' }),
-        });
-      } catch {
-        // Non-blocking: focusing the session is still useful even if resume fails.
-      }
-    }
-
-    showOpsNotice(`Focused highest priority session: ${target.title}`);
-    await refetch();
-  }, [sessionNodesInScope, refetch]);
-
   const readApiErrorMessage = useCallback(
     async (response: Response, fallback: string): Promise<string> => {
       const body = (await response.json().catch(() => null)) as
@@ -2061,6 +2056,35 @@ function DashboardShell({
     },
     []
   );
+
+  const continueHighestPriority = useCallback(async () => {
+    if (sessionNodesInScope.length === 0) {
+      showOpsNotice('No sessions available to continue.');
+      return;
+    }
+
+    const target = [...sessionNodesInScope].sort(compareSessionPriority)[0];
+    setSelectedSessionId(target.id);
+    setActivityFilterSessionId(target.id);
+    setActivityFilterWorkstreamId(null);
+    setActivityFilterWorkstreamLabel(null);
+
+    if (['blocked', 'pending', 'queued'].includes(target.status)) {
+      const response = await fetch(`/orgx/api/runs/${encodeURIComponent(target.runId)}/actions/resume`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'continue_from_dashboard' }),
+      });
+      if (!response.ok) {
+        throw new Error(
+          await readApiErrorMessage(response, `Failed to resume ${target.title}`)
+        );
+      }
+    }
+
+    showOpsNotice(`Focused highest priority session: ${target.title}`);
+    await refetch();
+  }, [readApiErrorMessage, refetch, sessionNodesInScope]);
 
   const formatOpsNoticeError = useCallback(
     (raw: string | null | undefined, fallback: string): string => {
@@ -2091,7 +2115,6 @@ function DashboardShell({
     setActivityFilterWorkstreamId(candidate.workstreamId);
     setActivityFilterWorkstreamLabel(candidate.workstreamTitle);
     setAgentFilter(null);
-    await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
     if (typeof result.sessionId === 'string' && result.sessionId.trim().length > 0) {
       setPendingFocusRunId(result.sessionId.trim());
     }
@@ -2100,6 +2123,7 @@ function DashboardShell({
         ? `Dispatching ${candidate.workstreamTitle}…`
         : `Started ${candidate.workstreamTitle}.`
     );
+    await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
   }, [refetch, sharedNextUpQueue, switchDashboardView]);
 
   const startAutopilotFromActivity = useCallback(
@@ -2134,7 +2158,6 @@ function DashboardShell({
       setExpandedRightPanel('initiatives');
       setActivityFilterSessionId(null);
       const startedRunId = resolveAutoContinueRunId(result);
-      await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
       if (startedRunId) {
         setPendingFocusRunId(startedRunId);
       } else {
@@ -2146,6 +2169,7 @@ function DashboardShell({
           ? `Autopilot started for ${candidate.initiativeTitle}.`
           : `Autopilot started for ${candidate.initiativeTitle}; dispatching from ${candidate.workstreamTitle}.`
       );
+      await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
     },
     [refetch, sharedNextUpActions, sharedNextUpQueue, switchDashboardView]
   );
@@ -2196,7 +2220,6 @@ function DashboardShell({
       setActivityFilterSessionId(null);
       setActivityFilterWorkstreamId(workstreamId);
       setActivityFilterWorkstreamLabel(session.title);
-      await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
       if (typeof result.sessionId === 'string' && result.sessionId.trim().length > 0) {
         setPendingFocusRunId(result.sessionId.trim());
       }
@@ -2205,6 +2228,7 @@ function DashboardShell({
           ? `Dispatching ${session.title}…`
           : `Started ${session.title}.`
       );
+      await Promise.all([sharedNextUpQueue.refetch(), refetch()]);
     },
     [refetch, sharedNextUpQueue]
   );
@@ -2233,23 +2257,7 @@ function DashboardShell({
           response,
           'Failed to pause workstream from In Progress'
         );
-        if (!/running plugin build/i.test(message)) {
-          throw new Error(message);
-        }
-
-        const fallback = await fetch('/orgx/api/mission-control/auto-continue/stop', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ initiativeId }),
-        });
-        if (!fallback.ok) {
-          throw new Error(
-            await readApiErrorMessage(
-              fallback,
-              'Failed to pause workstream using legacy fallback'
-            )
-          );
-        }
+        throw new Error(message);
       }
 
       showOpsNotice(`Paused ${session.title} and sent it to the bottom of queue.`);
@@ -2300,21 +2308,22 @@ function DashboardShell({
       setActivityFilterWorkstreamLabel(null);
 
       if (!['running', 'completed', 'archived'].includes(session.status)) {
-        try {
-          await fetch(`/orgx/api/runs/${encodeURIComponent(session.runId)}/actions/resume`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ reason: 'dispatch_from_dashboard' }),
-          });
-        } catch {
-          // Keep UI responsive even if resume endpoint is unavailable.
+        const response = await fetch(`/orgx/api/runs/${encodeURIComponent(session.runId)}/actions/resume`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'dispatch_from_dashboard' }),
+        });
+        if (!response.ok) {
+          throw new Error(
+            await readApiErrorMessage(response, `Failed to dispatch ${session.title}`)
+          );
         }
       }
 
       showOpsNotice(`Dispatch requested: ${session.title}`);
       await refetch();
     },
-    [refetch]
+    [readApiErrorMessage, refetch]
   );
 
   const runControlAction = useCallback(
@@ -2771,7 +2780,10 @@ function DashboardShell({
             >
               {CONNECTION_LABEL[data.connection] ?? 'Unknown'}
             </Badge>
-            {(activeSessionCount > 0 || blockedCount > 0) && (
+            {(activeSessionCount > 0 ||
+              blockedCount > 0 ||
+              notificationDecisionCount > 0 ||
+              completedToday > 0) && (
               <ContextualStatus
                 className="hidden md:flex"
                 running={activeSessionCount}

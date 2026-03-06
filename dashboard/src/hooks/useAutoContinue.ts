@@ -6,9 +6,11 @@ import { buildOrgxHeaders } from '@/lib/http';
 import { parseUpgradeRequiredError } from '@/lib/upgradeGate';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
 import { parseMissionControlApiError } from '@/lib/missionControlApiError';
+import { invalidateMissionControlQueries } from '@/lib/missionControlInvalidation';
 
 interface UseAutoContinueOptions {
   initiativeId?: string | null;
+  projectId?: string | null;
   authToken?: string | null;
   embedMode?: boolean;
   enabled?: boolean;
@@ -30,6 +32,7 @@ type LaunchSingleInput = {
 
 export function useAutoContinue({
   initiativeId = null,
+  projectId = null,
   authToken = null,
   embedMode = false,
   enabled = true,
@@ -103,12 +106,12 @@ export function useAutoContinue({
   });
 
   const invalidateRelated = async () => {
-    await queryClient.invalidateQueries({ queryKey: statusQueryKey });
-    await queryClient.invalidateQueries({
-      queryKey: queryKeys.missionControlGraph({ initiativeId, authToken, embedMode }),
-    });
-    await queryClient.invalidateQueries({
-      queryKey: queryKeys.liveData({ authToken, embedMode }),
+    await invalidateMissionControlQueries(queryClient, {
+      initiativeId,
+      projectId,
+      authToken,
+      embedMode,
+      includeSlices: false,
     });
   };
 
@@ -144,6 +147,9 @@ export function useAutoContinue({
       const payload: Record<string, unknown> = {};
       if (initiativeId) {
         payload.initiativeId = initiativeId;
+      }
+      if (projectId) {
+        payload.workspaceId = projectId;
       }
       // Explicit user start from UI should bypass soft spawn-guard rate limits.
       payload.ignoreSpawnGuardRateLimit = true;

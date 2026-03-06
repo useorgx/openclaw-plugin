@@ -867,24 +867,54 @@ function MissionControlInner({
     }
     // Only derive task totals from explicit task collections. If task detail is
     // unavailable, show 0/0 instead of mislabeling workstream counts as tasks.
+    const seenTaskIds = new Set<string>();
     let totalTasks = 0;
     let doneTasks = 0;
+    let blockedCount = 0;
+
+    const countTask = (task: Record<string, unknown>, fallbackKey: string) => {
+      const rawId = typeof task.id === 'string' && task.id.trim().length > 0 ? task.id.trim() : fallbackKey;
+      if (seenTaskIds.has(rawId)) return;
+      seenTaskIds.add(rawId);
+      totalTasks += 1;
+      if (isDoneTaskStatus(String(task.status ?? ''))) {
+        doneTasks += 1;
+      }
+      if (String(task.status ?? '').trim().toLowerCase() === 'blocked') {
+        blockedCount += 1;
+      }
+    };
+
     for (const initiative of initiatives) {
+      if (initiative.status === 'blocked') {
+        blockedCount += 1;
+      }
       for (const workstream of (initiative.workstreams ?? []) as Array<Record<string, unknown>>) {
+        if (String(workstream.status ?? '').trim().toLowerCase() === 'blocked') {
+          blockedCount += 1;
+        }
         const workstreamTasks = Array.isArray(workstream.tasks)
           ? (workstream.tasks as Array<Record<string, unknown>>)
           : [];
-        totalTasks += workstreamTasks.length;
-        doneTasks += workstreamTasks.filter((task) => isDoneTaskStatus(String(task.status ?? ''))).length;
+        workstreamTasks.forEach((task, index) =>
+          countTask(task, `${initiative.id}:${String(workstream.id ?? 'workstream')}:task:${index}`)
+        );
         const milestones = Array.isArray(workstream.milestones)
           ? (workstream.milestones as Array<Record<string, unknown>>)
           : [];
         for (const milestone of milestones) {
+          if (String(milestone.status ?? '').trim().toLowerCase() === 'blocked') {
+            blockedCount += 1;
+          }
           const milestoneTasks = Array.isArray(milestone.tasks)
             ? (milestone.tasks as Array<Record<string, unknown>>)
             : [];
-          totalTasks += milestoneTasks.length;
-          doneTasks += milestoneTasks.filter((task) => isDoneTaskStatus(String(task.status ?? ''))).length;
+          milestoneTasks.forEach((task, index) =>
+            countTask(
+              task,
+              `${initiative.id}:${String(workstream.id ?? 'workstream')}:${String(milestone.id ?? 'milestone')}:task:${index}`
+            )
+          );
         }
       }
     }
@@ -894,11 +924,14 @@ function MissionControlInner({
         : initiatives.length > 0
           ? initiatives.reduce((sum, init) => sum + Math.max(0, init.health), 0) / initiatives.length
           : 0;
-    const blockedCount = initiatives.filter((init) => init.status === 'blocked').length;
     const activeAgents = initiatives.reduce((sum, init) => sum + init.activeAgents, 0);
     return { completionPercent, totalTasks, doneTasks, blockedCount, activeAgents };
   }, [initiatives, initiativeSummary.data]);
-  const internalNextUpActions = useNextUpQueueActions({ authToken, embedMode });
+  const internalNextUpActions = useNextUpQueueActions({
+    authToken,
+    embedMode,
+    projectId: workspaceInitiativeId,
+  });
   const nextUpActions = nextUpActionsModel ?? internalNextUpActions;
   const nextActionQueueItem = nextActionQueue.items[0] ?? null;
   const nowWorkingItem = useMemo(
@@ -1125,6 +1158,7 @@ function MissionControlInner({
   );
   const autopilot = useAutoContinue({
     initiativeId: autopilotInitiativeId,
+    projectId: workspaceInitiativeId,
     authToken,
     embedMode,
     enabled: Boolean(autopilotInitiativeId),

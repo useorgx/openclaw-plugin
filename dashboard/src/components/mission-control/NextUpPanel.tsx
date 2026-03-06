@@ -518,7 +518,7 @@ export function NextUpPanel({
     milestoneGroups,
   } = queue;
 
-  const internalNextUpActions = useNextUpQueueActions({ authToken, embedMode });
+  const internalNextUpActions = useNextUpQueueActions({ authToken, embedMode, projectId });
   const nextUpActions = queueActions ?? internalNextUpActions;
   const itemKey = (item: NextUpQueueItem) => `${item.initiativeId}:${item.workstreamId}`;
   const isWorkstreamView = zoomLevel === 'workstream';
