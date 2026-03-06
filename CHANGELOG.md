@@ -2,6 +2,18 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.21 - 2026-03-06
+
+### Release Management
+- Patch release bump for npm package + git tag metadata.
+- Published release tag `v0.7.21`.
+
+### Mission Control + Lifecycle Hardening
+- Unified shell-level live-work counts with canonical Mission Control and live snapshot totals so `In Progress`, `Needs attention`, and `Done today` stay aligned with the panels.
+- Hardened `Next Up` canonical summary recomputation, workspace-scoped queue invalidation, and local fallback behavior to remove synthetic queue drift.
+- Fixed start/auto/reconnect continuity so the UI focuses the actual started run immediately and preserves verified onboarding context during reconnect pairing.
+- Tightened Mission Control fallback health math, blocked-work derivation, and live audit selector logic used by local QA verification.
+
 ## 0.7.15 - 2026-03-04
 
 ### Release Management
