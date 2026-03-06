@@ -7,8 +7,6 @@ import {
 } from '@tanstack/react-query';
 import type {
   AutoContinueRun,
-  MissionControlSliceItem,
-  MissionControlSlicesResponse,
   NextUpQueueItem,
   NextUpQueueResponse,
   NextUpQueueState,
@@ -25,6 +23,7 @@ import { parseUpgradeRequiredError } from '@/lib/upgradeGate';
 import { appendWorkspaceScopeParams } from '@/lib/workspaceScope';
 import { humanizeWarning } from '@/lib/humanize';
 import { parseMissionControlApiError } from '@/lib/missionControlApiError';
+import { LIVE_DATA_INVALIDATE_DEBOUNCE_MS } from '@/lib/missionControlInvalidation';
 
 export type ZoomLevel = 'initiative' | 'workstream' | 'milestone';
 
@@ -118,7 +117,23 @@ export interface StartAutoContinueResponse {
   message?: string;
 }
 
-const LIVE_DATA_INVALIDATE_DEBOUNCE_MS = 750;
+type QueueMutationContext = {
+  previous: InfiniteData<NextUpQueueResponse> | undefined;
+};
+
+function patchInfiniteQueueData(
+  previous: InfiniteData<NextUpQueueResponse> | undefined,
+  updateItem: (item: NextUpQueueItem) => NextUpQueueItem
+): InfiniteData<NextUpQueueResponse> | undefined {
+  if (!previous) return previous;
+  return {
+    ...previous,
+    pages: previous.pages.map((page) => ({
+      ...page,
+      items: page.items.map((item) => updateItem(item)),
+    })),
+  };
+}
 
 async function readResponseJson<T>(response: Response): Promise<T | null> {
   return (await response.json().catch(() => null)) as T | null;
@@ -702,128 +717,6 @@ function normalizeQueueResponse(response: NextUpQueueResponse): NextUpQueueRespo
   };
 }
 
-function normalizeSliceQueueState(item: MissionControlSliceItem): NextUpQueueState {
-  const explicit = (item.queueState ?? '').trim().toLowerCase();
-  if (
-    explicit === 'queued' ||
-    explicit === 'running' ||
-    explicit === 'blocked' ||
-    explicit === 'idle' ||
-    explicit === 'completed'
-  ) {
-    return explicit as NextUpQueueState;
-  }
-
-  const status = item.status.trim().toLowerCase();
-  if (
-    status === 'running' ||
-    status === 'in_progress' ||
-    status === 'dispatching'
-  ) {
-    return 'running';
-  }
-  // 'active' means the workstream is enabled/configured, not that a session
-  // is currently executing. Treat it as queued so the card stays visible.
-  if (status === 'active') {
-    return 'queued';
-  }
-  if (
-    item.runnable === false ||
-    status === 'blocked' ||
-    status === 'failed' ||
-    status === 'error'
-  ) {
-    return 'blocked';
-  }
-  if (status === 'completed' || status === 'done' || status === 'resolved') {
-    return 'completed';
-  }
-  return 'queued';
-}
-
-function toWorkstreamFallbackLabel(workstreamId: string | null): string {
-  if (!workstreamId) return 'Workstream';
-  const trimmed = workstreamId.trim();
-  if (trimmed.length === 0) return 'Workstream';
-  return /^[a-f0-9-]{16,}$/i.test(trimmed)
-    ? `Workstream ${trimmed.slice(0, 8)}`
-    : trimmed;
-}
-
-function mapSliceToQueueItem(item: MissionControlSliceItem): NextUpQueueItem | null {
-  const sliceKind = (item.sliceKind ?? '').trim().toLowerCase();
-  if (sliceKind && sliceKind !== 'work_slice') {
-    return null;
-  }
-
-  const lineageInitiativeIds =
-    item.lineage?.initiativeIds?.filter(
-      (value): value is string => typeof value === 'string' && value.trim().length > 0
-    ) ?? [];
-  const lineageWorkstreamIds =
-    item.lineage?.workstreamIds?.filter(
-      (value): value is string => typeof value === 'string' && value.trim().length > 0
-    ) ?? [];
-
-  const initiativeId = item.initiativeId?.trim() || lineageInitiativeIds[0] || null;
-  const workstreamId =
-    item.workstreamId?.trim() ||
-    item.sourceWorkstreamIds?.find((value) => typeof value === 'string' && value.trim().length > 0)?.trim() ||
-    lineageWorkstreamIds[0] ||
-    null;
-  if (!initiativeId || !workstreamId) return null;
-
-  const taskIds =
-    item.lineage?.taskIds?.filter((taskId): taskId is string => typeof taskId === 'string' && taskId.trim().length > 0) ??
-    [];
-  const scopeFromLevel =
-    item.level === 'workstream' || item.level === 'milestone' || item.level === 'task'
-      ? item.level
-      : null;
-  const fallbackRunnerId = normalizeRunnerId(item.runnerAgentId ?? null);
-  const fallbackRunnerName = normalizeRunnerName(item.runnerAgentName ?? null, fallbackRunnerId);
-  const runnerAgents = normalizeRunnerAgents(
-    item.runnerAgents ?? null,
-    fallbackRunnerId,
-    fallbackRunnerName
-  );
-  const runnerPrimary = runnerAgents[0] ?? null;
-
-  return {
-    initiativeId,
-    initiativeTitle: item.initiativeTitle?.trim() || lineageInitiativeIds[0] || initiativeId,
-    initiativeStatus: 'active',
-    initiativePriority: null,
-    initiativePriorityNum: null,
-    workstreamId,
-    workstreamTitle:
-      item.workstreamTitle?.trim() ||
-      item.title?.trim() ||
-      item.milestoneTitle?.trim() ||
-      item.taskTitle?.trim() ||
-      toWorkstreamFallbackLabel(workstreamId),
-    workstreamStatus: item.status,
-    nextTaskId: item.taskId,
-    nextTaskTitle: item.taskTitle?.trim() || null,
-    nextTaskPriority: typeof item.priorityNum === 'number' ? item.priorityNum : null,
-    nextTaskDueAt: item.dueAt,
-    runnerAgentId: runnerPrimary?.id ?? fallbackRunnerId,
-    runnerAgentName: runnerPrimary?.name ?? fallbackRunnerName,
-    runnerAgents,
-    runnerSource: item.runnerSource ?? (runnerPrimary ? 'inferred' : 'fallback'),
-    queueState: normalizeSliceQueueState(item),
-    blockReason: item.blockReason ?? null,
-    queueOrigin: 'system',
-    sliceScope: scopeFromLevel,
-    sliceTaskIds: taskIds.length > 0 ? taskIds : item.taskId ? [item.taskId] : [],
-    sliceTaskCount:
-      taskIds.length > 0 ? taskIds.length : item.taskId ? 1 : 0,
-    sliceMilestoneId: item.milestoneId,
-    executionPolicy: null,
-    autoContinue: null,
-  };
-}
-
 function groupByInitiative(items: NextUpQueueItem[]): InitiativeGroupItem[] {
   const map = new Map<string, InitiativeGroupItem>();
   for (const item of items) {
@@ -1075,7 +968,7 @@ export function useNextUpQueue({
     },
   });
 
-  const playMutation = useMutation({
+  const playMutation = useMutation<NextUpPlayResponse, Error, NextUpActionInput, QueueMutationContext>({
     mutationFn: async (input: NextUpActionInput) => {
       if (demoMode) {
         return {
@@ -1092,6 +985,7 @@ export function useNextUpQueue({
         body: JSON.stringify({
           initiativeId: input.initiativeId,
           workstreamId: input.workstreamId,
+          workspaceId: projectId ?? undefined,
           agentId: input.agentId ?? undefined,
           scope: input.scope ?? undefined,
           maxParallelSlices:
@@ -1127,28 +1021,18 @@ export function useNextUpQueue({
     onMutate: async (input: NextUpActionInput) => {
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData<InfiniteData<NextUpQueueResponse>>(queryKey);
-      if (!previous) return { previous };
-
-      queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(queryKey, {
-        ...previous,
-        pages: previous.pages.map((page) => ({
-          ...page,
-          items: page.items.map((item) => {
-            if (
-              item.initiativeId === input.initiativeId &&
-              item.workstreamId === input.workstreamId
-            ) {
-              return { ...item, queueState: 'running', playbackState: 'running' };
-            }
-            // Only one workstream can be "running" in the queue UI.
-            if (item.queueState === 'running') {
-              return { ...item, queueState: 'idle', playbackState: 'idle' };
-            }
+      queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(
+        queryKey,
+        patchInfiniteQueueData(previous, (item) => {
+          if (
+            item.initiativeId !== input.initiativeId ||
+            item.workstreamId !== input.workstreamId
+          ) {
             return item;
-          }),
-        })),
-      });
-
+          }
+          return { ...item, queueState: 'running', playbackState: 'running' };
+        })
+      );
       return { previous };
     },
     onError: (_err, _input, ctx) => {
@@ -1156,16 +1040,46 @@ export function useNextUpQueue({
         queryClient.setQueryData(queryKey, ctx.previous);
       }
     },
-    onSuccess: () => {
+    onSuccess: (result, input) => {
+      queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(
+        queryKey,
+        (current) =>
+          patchInfiniteQueueData(current, (item) => {
+            if (
+              item.initiativeId !== input.initiativeId ||
+              item.workstreamId !== input.workstreamId
+            ) {
+              return item;
+            }
+            return {
+              ...item,
+              queueState: result.dispatchMode === 'none' ? item.queueState : 'running',
+              playbackState: result.dispatchMode === 'none' ? item.playbackState : 'running',
+            };
+          })
+      );
       void invalidate({ includeGraph: false });
     },
   });
 
-  const startAutoContinueMutation = useMutation({
+  const startAutoContinueMutation = useMutation<
+    StartAutoContinueResponse,
+    Error,
+    StartAutoContinueInput,
+    QueueMutationContext
+  >({
     mutationFn: async (input: StartAutoContinueInput) => {
-      if (demoMode) return;
+      if (demoMode) {
+        return {
+          ok: true,
+          initiativeId: input.initiativeId,
+          workstreamIds: [input.workstreamId],
+          run: null,
+        };
+      }
       const payload: Record<string, unknown> = {
         initiativeId: input.initiativeId,
+        workspaceId: projectId ?? undefined,
         agentId: input.agentId ?? undefined,
         tokenBudgetTokens: input.tokenBudgetTokens,
         // Explicit user auto-enable should bypass soft spawn-guard rate limits.
@@ -1199,20 +1113,97 @@ export function useNextUpQueue({
       }
       return body ?? { ok: true, initiativeId: input.initiativeId, workstreamIds: [input.workstreamId], run: null };
     },
-    onSuccess: () => {
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<InfiniteData<NextUpQueueResponse>>(queryKey);
+      queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(
+        queryKey,
+        patchInfiniteQueueData(previous, (item) => {
+          if (item.initiativeId !== input.initiativeId) return item;
+          const isTargetWorkstream =
+            item.workstreamId === input.workstreamId || input.scope !== 'workstream';
+          if (!isTargetWorkstream) return item;
+          return {
+            ...item,
+            autoContinue: {
+              ...(item.autoContinue ?? {
+                status: 'running' as const,
+                activeTaskId: null,
+                activeRunId: null,
+                stopReason: null,
+                maxParallelSlices: input.maxParallelSlices ?? 1,
+                parallelMode: input.parallelMode ?? 'iwmt',
+                updatedAt: new Date().toISOString(),
+              }),
+              status: 'running',
+              stopReason: null,
+              maxParallelSlices: input.maxParallelSlices ?? item.autoContinue?.maxParallelSlices ?? 1,
+              parallelMode: input.parallelMode ?? item.autoContinue?.parallelMode ?? 'iwmt',
+              updatedAt: new Date().toISOString(),
+            },
+          };
+        })
+      );
+      return { previous };
+    },
+    onError: (_err, _input, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSuccess: (result, input) => {
+      queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(
+        queryKey,
+        (current) =>
+          patchInfiniteQueueData(current, (item) => {
+            if (item.initiativeId !== input.initiativeId) return item;
+            const isTargetWorkstream =
+              item.workstreamId === input.workstreamId || input.scope !== 'workstream';
+            if (!isTargetWorkstream) return item;
+            return {
+              ...item,
+              autoContinue: result.run
+                ? {
+                    status: result.run.status,
+                    activeTaskId: result.run.activeTaskId ?? null,
+                    activeRunId:
+                      result.run.activeRunId ??
+                      result.run.activeSliceRunIds?.[0] ??
+                      result.run.lastRunId ??
+                      null,
+                    stopReason: result.run.stopReason,
+                    maxParallelSlices: result.run.maxParallelSlices,
+                    parallelMode: result.run.parallelMode,
+                    updatedAt: result.run.updatedAt,
+                  }
+                : item.autoContinue,
+            };
+          })
+      );
       void invalidate({ includeGraph: false });
     },
   });
 
-  const stopAutoContinueMutation = useMutation({
+  const stopAutoContinueMutation = useMutation<
+    StartAutoContinueResponse,
+    Error,
+    { initiativeId: string },
+    QueueMutationContext
+  >({
     mutationFn: async (input: { initiativeId: string }) => {
-      if (demoMode) return;
+      if (demoMode) {
+        return {
+          ok: true,
+          initiativeId: input.initiativeId,
+          run: null,
+        };
+      }
       const response = await fetch('/orgx/api/mission-control/auto-continue/stop', {
         method: 'POST',
         headers: buildOrgxHeaders({ authToken, embedMode, contentTypeJson: true }),
         body: JSON.stringify({ initiativeId: input.initiativeId }),
       });
-      const body = await readResponseJson<{ error?: string; message?: string }>(response);
+      const body = await readResponseJson<StartAutoContinueResponse>(response);
       if (!response.ok) {
         throw parseMissionControlApiError(
           response,
@@ -1220,8 +1211,65 @@ export function useNextUpQueue({
           'Failed to stop auto-continue'
         );
       }
+      return (
+        body ?? {
+          ok: true,
+          initiativeId: input.initiativeId,
+          run: null,
+        }
+      );
     },
-    onSuccess: () => {
+    onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<InfiniteData<NextUpQueueResponse>>(queryKey);
+      queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(
+        queryKey,
+        patchInfiniteQueueData(previous, (item) => {
+          if (item.initiativeId !== input.initiativeId || !item.autoContinue) return item;
+          return {
+            ...item,
+            autoContinue: {
+              ...item.autoContinue,
+              status: 'stopping',
+              updatedAt: new Date().toISOString(),
+            },
+          };
+        })
+      );
+      return { previous };
+    },
+    onError: (_err, _input, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSuccess: (result, input) => {
+      queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(
+        queryKey,
+        (current) =>
+          patchInfiniteQueueData(current, (item) => {
+            if (item.initiativeId !== input.initiativeId) return item;
+            if (!item.autoContinue) return item;
+            return {
+              ...item,
+              autoContinue: result.run
+                ? {
+                    status: result.run.status,
+                    activeTaskId: result.run.activeTaskId ?? null,
+                    activeRunId:
+                      result.run.activeRunId ??
+                      result.run.activeSliceRunIds?.[0] ??
+                      result.run.lastRunId ??
+                      null,
+                    stopReason: result.run.stopReason,
+                    maxParallelSlices: result.run.maxParallelSlices,
+                    parallelMode: result.run.parallelMode,
+                    updatedAt: result.run.updatedAt,
+                  }
+                : null,
+            };
+          })
+      );
       void invalidate({ includeGraph: false });
     },
   });

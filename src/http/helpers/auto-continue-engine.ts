@@ -33,6 +33,7 @@ import {
   detectBehaviorConfigDrift,
   deriveBehaviorAutomationLevel,
   deriveBehaviorConfigContext,
+  deriveInitiativeLifecycleStatus,
   deriveExecutionPolicy,
   evaluateScopeCompletion,
   isDispatchableWorkstreamStatus,
@@ -1072,6 +1073,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 
   type AutoContinueRun = {
     initiativeId: string;
+    workspaceId: string | null;
     agentId: string;
     agentName: string | null;
     includeVerification: boolean;
@@ -1102,6 +1104,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     activeRunId: string | null;
     activeTaskTokenEstimate: number | null;
     workerEnvOverrides: Record<string, string | undefined> | null;
+    lastInitiativeStatus: string | null;
   };
 
   const autoContinueRuns = new Map<string, AutoContinueRun>();
@@ -1155,6 +1158,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       const now = new Date().toISOString();
       const run: AutoContinueRun = {
         initiativeId,
+        workspaceId:
+          typeof meta.workspace_id === "string" && meta.workspace_id.trim().length > 0
+            ? meta.workspace_id.trim()
+            : null,
         agentId: "",
         agentName: null,
         includeVerification: Boolean(meta.auto_continue_include_verification),
@@ -1200,6 +1207,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             ? meta.auto_continue_active_task_token_estimate
             : null,
         workerEnvOverrides: null,
+        lastInitiativeStatus:
+          typeof meta.status === "string" && meta.status.trim().length > 0
+            ? meta.status.trim()
+            : null,
       };
       ensureRunInternals(run);
       syncLegacyRunPointers(run);
@@ -1801,6 +1812,64 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     if (!run.workerEnvOverrides || typeof run.workerEnvOverrides !== "object") {
       run.workerEnvOverrides = null;
     }
+    run.workspaceId =
+      typeof run.workspaceId === "string" && run.workspaceId.trim().length > 0
+        ? run.workspaceId.trim()
+        : null;
+    run.lastInitiativeStatus =
+      typeof run.lastInitiativeStatus === "string" && run.lastInitiativeStatus.trim().length > 0
+        ? run.lastInitiativeStatus.trim()
+        : null;
+  };
+
+  const laneStateToChildStatus = (laneState: AutoContinueLaneState): string => {
+    if (laneState === LaneState.RUNNING) return "in_progress";
+    if (laneState === LaneState.BLOCKED) return "blocked";
+    if (laneState === LaneState.WAITING_DEPENDENCY || laneState === LaneState.RATE_LIMITED) {
+      return "paused";
+    }
+    if (laneState === LaneState.COMPLETED) return "completed";
+    return "todo";
+  };
+
+  const deriveInitiativeStatusFromRun = (run: AutoContinueRun): string => {
+    ensureRunInternals(run);
+    const childStatuses = Object.values(run.laneByWorkstreamId ?? {}).map((lane) =>
+      laneStateToChildStatus(lane.state)
+    );
+
+    if (run.status === RunStatus.RUNNING || run.status === RunStatus.STOPPING) {
+      return deriveInitiativeLifecycleStatus(
+        "active",
+        childStatuses.length > 0 ? childStatuses : ["in_progress"]
+      );
+    }
+
+    if (run.stopReason === "blocked" || run.stopReason === "error") {
+      return "blocked";
+    }
+
+    if (run.stopReason === "completed") {
+      const scopedRun =
+        run.stopAfterSlice ||
+        (Array.isArray(run.allowedWorkstreamIds) && run.allowedWorkstreamIds.length > 0);
+      return scopedRun ? "paused" : "completed";
+    }
+
+    if (run.stopReason === "budget_exhausted" || run.stopReason === "stopped") {
+      return "paused";
+    }
+
+    return childStatuses.length > 0
+      ? deriveInitiativeLifecycleStatus("paused", childStatuses)
+      : "paused";
+  };
+
+  const syncInitiativeLifecycleStatus = async (run: AutoContinueRun): Promise<void> => {
+    const nextStatus = deriveInitiativeStatusFromRun(run);
+    if (run.lastInitiativeStatus === nextStatus) return;
+    await client.updateEntity("initiative", run.initiativeId, { status: nextStatus });
+    run.lastInitiativeStatus = nextStatus;
   };
 
   const recordLocalStatusOverrides = (input: {
@@ -2124,6 +2193,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       updated_at: lane.updatedAt,
     }));
     const patch: Record<string, unknown> = {
+      ...(input.run.workspaceId ? { workspace_id: input.run.workspaceId } : {}),
       auto_continue_enabled: input.run.status === RunStatus.RUNNING || input.run.status === RunStatus.STOPPING,
       auto_continue_status: input.run.status,
       auto_continue_stop_reason: input.run.stopReason,
@@ -2149,6 +2219,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       ...(input.run.lastError ? { auto_continue_last_error: input.run.lastError } : {}),
     };
     await updateInitiativeMetadata(input.initiativeId, patch);
+    await syncInitiativeLifecycleStatus(input.run);
   }
 
   async function stopAutoContinueRun(input: {
@@ -2199,18 +2270,6 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     }
     for (const runId of activeRunIds) {
       clearAutoContinueSliceTransientState(runId);
-    }
-
-    // Only pause the initiative on non-terminal stops (error, blocked, user-requested).
-    // Completed / budget-exhausted runs should not override the initiative status.
-    if (input.reason !== "completed" && input.reason !== "budget_exhausted") {
-      try {
-        await client.updateEntity("initiative", input.run.initiativeId, {
-          status: "paused",
-        });
-      } catch {
-        // best effort
-      }
     }
 
     try {
@@ -2343,7 +2402,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           old_state: LaneState.RUNNING,
           new_state: input.reason === "completed" || input.reason === "stopped" ? "idle" : input.reason === "blocked" ? "blocked" : input.reason === "error" ? "error" : "idle",
           reason: input.reason,
-          workspace_id: input.run.allowedWorkstreamIds?.[0] ?? null,
+          workspace_id: input.run.workspaceId ?? null,
         },
       });
     } catch {
@@ -4786,12 +4845,6 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     run.updatedAt = now;
 
     try {
-      await client.updateEntity("initiative", run.initiativeId, { status: "active" });
-    } catch {
-      // best effort
-    }
-
-    try {
       await updateInitiativeAutoContinueState({
         initiativeId: run.initiativeId,
         run,
@@ -5106,6 +5159,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         null;
       const dispatchRun = await startAutoContinueRun({
         initiativeId,
+        workspaceId: latestRun?.workspaceId ?? null,
         agentId: dispatchAgentId,
         agentName: dispatchAgentName,
         // Auto-fix retries should follow current defaults unless an operator explicitly
@@ -5217,6 +5271,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 
   async function startAutoContinueRun(input: {
     initiativeId: string;
+    workspaceId?: string | null;
     agentId: string;
     agentName?: string | null;
     tokenBudget: unknown;
@@ -5242,6 +5297,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       existing ??
       ({
         initiativeId: input.initiativeId,
+        workspaceId: null,
         agentId: input.agentId,
         agentName: input.agentName ?? null,
         includeVerification: false,
@@ -5270,9 +5326,14 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         activeRunId: null,
         activeTaskTokenEstimate: null,
         workerEnvOverrides: null,
+        lastInitiativeStatus: null,
       } as AutoContinueRun);
     ensureRunInternals(run);
 
+    run.workspaceId =
+      typeof input.workspaceId === "string" && input.workspaceId.trim().length > 0
+        ? input.workspaceId.trim()
+        : run.workspaceId;
     run.agentId = input.agentId;
     run.agentName =
       typeof input.agentName === "string" && input.agentName.trim().length > 0
@@ -5329,12 +5390,6 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     syncLegacyRunPointers(run);
 
     autoContinueRuns.set(input.initiativeId, run);
-
-    void client
-      .updateEntity("initiative", input.initiativeId, { status: "active" })
-      .catch(() => {
-        // best effort
-      });
 
     void updateInitiativeAutoContinueState({
       initiativeId: input.initiativeId,
@@ -5395,7 +5450,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             old_state: LaneState.IDLE,
             new_state: LaneState.RUNNING,
             reason: "started",
-            workspace_id: run.allowedWorkstreamIds?.[0] ?? null,
+            workspace_id: run.workspaceId ?? null,
           },
         });
       } catch {

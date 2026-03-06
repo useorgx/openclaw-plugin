@@ -228,6 +228,59 @@ const DEFAULT_STATE: OnboardingState = {
   pollIntervalMs: null,
 };
 
+function mergeOnboardingState(
+  previous: OnboardingState,
+  next: OnboardingState
+): OnboardingState {
+  const preserveVerifiedContext = previous.hasApiKey && previous.connectionVerified;
+  const merged: OnboardingState = {
+    ...previous,
+    ...next,
+    docsUrl: next.docsUrl ?? previous.docsUrl ?? DEFAULT_DOCS_URL,
+  };
+
+  if (
+    preserveVerifiedContext &&
+    (next.status === 'pairing' || next.status === 'awaiting_browser_auth')
+  ) {
+    merged.hasApiKey = true;
+    merged.connectionVerified = true;
+    merged.workspaceName = previous.workspaceName ?? next.workspaceName ?? null;
+  } else if (!next.workspaceName && previous.workspaceName) {
+    merged.workspaceName = previous.workspaceName;
+  }
+
+  if ((!next.installationId || next.installationId.trim().length === 0) && previous.installationId) {
+    merged.installationId = previous.installationId;
+  }
+
+  if ((next.keySource === 'none' || !next.keySource) && previous.keySource && previous.keySource !== 'none') {
+    merged.keySource = previous.keySource;
+  }
+
+  return merged;
+}
+
+function buildOnboardingErrorState(
+  previous: OnboardingState,
+  message: string
+): OnboardingState {
+  if (previous.hasApiKey || previous.connectionVerified || previous.workspaceName) {
+    return {
+      ...previous,
+      lastError: message,
+      nextAction: previous.nextAction ?? 'connect',
+    };
+  }
+
+  return {
+    ...DEFAULT_STATE,
+    status: 'error',
+    lastError: message,
+    nextAction: 'retry',
+  };
+}
+
 function buildDemoOnboardingState(): OnboardingState {
   return {
     ...DEFAULT_STATE,
@@ -289,6 +342,7 @@ export function useOnboarding() {
   const [state, setState] = useState<OnboardingState>(() =>
     isDemoModeEnabled() ? buildDemoOnboardingState() : DEFAULT_STATE
   );
+  const stateRef = useRef(state);
   const [isLoading, setIsLoading] = useState(() => !isDemoModeEnabled());
   const [isStarting, setIsStarting] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
@@ -297,6 +351,10 @@ export function useOnboarding() {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem(ONBOARDING_SKIP_STORAGE_KEY) === '1';
   });
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   const refreshStatus = useCallback(async (): Promise<OnboardingState> => {
     if (isDemoModeEnabled()) {
@@ -311,19 +369,15 @@ export function useOnboarding() {
 
     if (!payload.ok || !payload.data) {
       const message = payload.error ?? 'Failed to load onboarding state';
-      const fallback: OnboardingState = {
-        ...DEFAULT_STATE,
-        status: 'error',
-        lastError: message,
-        nextAction: 'retry',
-      };
+      const fallback = buildOnboardingErrorState(stateRef.current, message);
       setState(fallback);
       return fallback;
     }
 
-    maybeIdentify(payload.data.installationId ?? null);
-    setState(payload.data);
-    return payload.data;
+    const merged = mergeOnboardingState(stateRef.current, payload.data);
+    maybeIdentify(merged.installationId ?? null);
+    setState(merged);
+    return merged;
   }, []);
 
   useEffect(() => {
@@ -366,15 +420,16 @@ export function useOnboarding() {
         fetch('/orgx/api/onboarding/status', { method: 'GET' })
       );
       if (payload.ok && payload.data) {
-        maybeIdentify(payload.data.installationId ?? null);
-        setState(payload.data);
+        const merged = mergeOnboardingState(stateRef.current, payload.data);
+        maybeIdentify(merged.installationId ?? null);
+        setState(merged);
       }
     }, intervalMs);
 
     return () => {
       window.clearInterval(timer);
     };
-  }, [state.pollIntervalMs, state.status]);
+  }, [state.connectUrl, state.connectionVerified, state.pairingId, state.pollIntervalMs, state.status]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -445,7 +500,7 @@ export function useOnboarding() {
         return;
       }
 
-      setState(data.state);
+      setState(mergeOnboardingState(stateRef.current, data.state));
       const connectUrl = data.connectUrl;
       if (connectUrl) {
         const targetWindow = pairingWindowRef.current;
@@ -527,9 +582,10 @@ export function useOnboarding() {
           );
 
           if (payload.ok && payload.data) {
-            maybeIdentify(payload.data.installationId ?? null);
-            setState(payload.data);
-            return payload.data;
+            const merged = mergeOnboardingState(stateRef.current, payload.data);
+            maybeIdentify(merged.installationId ?? null);
+            setState(merged);
+            return merged;
           }
 
           lastError = payload.error ?? lastError;
@@ -563,9 +619,10 @@ export function useOnboarding() {
     );
 
     if (payload.ok && payload.data) {
-      maybeIdentify(payload.data.installationId ?? null);
-      setState(payload.data);
-      return payload.data;
+      const merged = mergeOnboardingState(stateRef.current, payload.data);
+      maybeIdentify(merged.installationId ?? null);
+      setState(merged);
+      return merged;
     }
 
     const fallback: OnboardingState = {
@@ -590,9 +647,10 @@ export function useOnboarding() {
     );
 
     if (payload.ok && payload.data) {
-      maybeIdentify(payload.data.installationId ?? null);
-      setState(payload.data);
-      return payload.data;
+      const merged = mergeOnboardingState(stateRef.current, payload.data);
+      maybeIdentify(merged.installationId ?? null);
+      setState(merged);
+      return merged;
     }
 
     const next = await refreshStatus();
@@ -616,7 +674,13 @@ export function useOnboarding() {
   const showGate = useMemo(() => {
     if (isDemoModeEnabled()) return false;
     if (isGateSkipped) return false;
-    return !(state.hasApiKey && state.connectionVerified && state.status === 'connected');
+    const connectionStillUsable =
+      state.hasApiKey &&
+      state.connectionVerified &&
+      (state.status === 'connected' ||
+        state.status === 'pairing' ||
+        state.status === 'awaiting_browser_auth');
+    return !connectionStillUsable;
   }, [isGateSkipped, state.connectionVerified, state.hasApiKey, state.status]);
 
   return {

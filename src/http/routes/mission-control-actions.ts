@@ -630,6 +630,20 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           queuePreferredParallel ?? 1
         );
         const parallelMode = normalizeParallelMode(requestedParallelModeRaw);
+        const requestedWorkspaceId =
+          deps.pickString(payload, [
+            "workspaceId",
+            "workspace_id",
+            "command_center_id",
+            "projectId",
+            "project_id",
+          ]) ??
+          query.get("workspaceId") ??
+          query.get("workspace_id") ??
+          query.get("command_center_id") ??
+          query.get("projectId") ??
+          query.get("project_id") ??
+          null;
 
         const existingRun = deps.autoContinueRuns.get(initiativeId) ?? null;
         const existingActiveRunIds = Array.isArray(existingRun?.activeSliceRunIds)
@@ -665,6 +679,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
 
         const run = await deps.startAutoContinueRun({
           initiativeId,
+          workspaceId: requestedWorkspaceId,
           agentId,
           agentName: requestedAgentName,
           tokenBudget,
@@ -2148,9 +2163,24 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           startScopeRaw === "milestone" || startScopeRaw === "workstream"
             ? startScopeRaw
             : "task";
+        const requestedWorkspaceId =
+          deps.pickString(payload, [
+            "workspaceId",
+            "workspace_id",
+            "command_center_id",
+            "projectId",
+            "project_id",
+          ]) ??
+          query.get("workspaceId") ??
+          query.get("workspace_id") ??
+          query.get("command_center_id") ??
+          query.get("projectId") ??
+          query.get("project_id") ??
+          null;
 
         const run = await deps.startAutoContinueRun({
           initiativeId,
+          workspaceId: requestedWorkspaceId,
           agentId,
           agentName: await deps.resolveAgentDisplayName(agentId, null),
           tokenBudget,

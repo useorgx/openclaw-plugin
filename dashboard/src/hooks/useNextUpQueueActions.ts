@@ -3,8 +3,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { buildOrgxHeaders } from '@/lib/http';
 import { isDemoModeEnabled } from '@/lib/initiativeIds';
 import { humanizeWarning } from '@/lib/humanize';
-
-const LIVE_DATA_INVALIDATE_DEBOUNCE_MS = 750;
+import { appendWorkspaceScopeParams } from '@/lib/workspaceScope';
+import {
+  invalidateMissionControlQueries,
+  LIVE_DATA_INVALIDATE_DEBOUNCE_MS,
+} from '@/lib/missionControlInvalidation';
 
 async function readResponseJson<T>(response: Response): Promise<T | null> {
   return (await response.json().catch(() => null)) as T | null;
@@ -34,9 +37,14 @@ function normalizeErrorMessage(response: Response, body: any | null, fallback: s
   return humanizeWarning(detail);
 }
 
-export function useNextUpQueueActions(input: { authToken?: string | null; embedMode?: boolean }) {
+export function useNextUpQueueActions(input: {
+  authToken?: string | null;
+  embedMode?: boolean;
+  projectId?: string | null;
+}) {
   const authToken = input.authToken ?? null;
   const embedMode = input.embedMode ?? false;
+  const projectId = input.projectId ?? null;
   const demoMode = isDemoModeEnabled();
   const queryClient = useQueryClient();
   const liveDataInvalidateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -57,16 +65,24 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     }
     liveDataInvalidateTimerRef.current = setTimeout(() => {
       liveDataInvalidateTimerRef.current = null;
-      void queryClient.invalidateQueries({ queryKey: ['live-data'] });
+      void invalidateMissionControlQueries(queryClient, {
+        projectId,
+        authToken,
+        embedMode,
+        includeQueue: false,
+        includeGraph: false,
+        includeSlices: false,
+        includeAutoContinue: false,
+      });
     }, LIVE_DATA_INVALIDATE_DEBOUNCE_MS);
   };
 
   const invalidate = async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ['mission-control-next-up'] }),
-      queryClient.invalidateQueries({ queryKey: ['mission-control-graph'] }),
-      queryClient.invalidateQueries({ queryKey: ['mission-control-slices'] }),
-    ]);
+    await invalidateMissionControlQueries(queryClient, {
+      projectId,
+      authToken,
+      embedMode,
+    });
     scheduleLiveDataInvalidate();
   };
 
@@ -98,7 +114,9 @@ export function useNextUpQueueActions(input: { authToken?: string | null; embedM
     }
 
     // Fallback for older runtimes: emulate move via fetch + reorder.
-    const queueResponse = await fetch('/orgx/api/mission-control/next-up', {
+    const params = new URLSearchParams();
+    appendWorkspaceScopeParams(params, projectId, { allTokenWhenMissing: true });
+    const queueResponse = await fetch(`/orgx/api/mission-control/next-up?${params.toString()}`, {
       headers: buildOrgxHeaders({ authToken, embedMode }),
     });
     const queueBody = await readResponseJson<{ items?: Array<{ initiativeId?: string; workstreamId?: string }>; error?: string; message?: string }>(queueResponse);
