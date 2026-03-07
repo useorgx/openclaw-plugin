@@ -2,6 +2,15 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.22 - 2026-03-07
+
+### Release Management
+- Patch release bump for npm package + git tag metadata.
+- Published release tag `v0.7.22`.
+
+### Mission Control UI Polish
+- Removed the duplicate agent header from in-progress workstream rows so active work renders with one consistent operator label.
+
 ## 0.7.21 - 2026-03-06
 
 ### Release Management
