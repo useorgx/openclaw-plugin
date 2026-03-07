@@ -210,7 +210,42 @@ function createClientHarness() {
             const now = new Date().toISOString();
             const blocking = typeof op.blocking === "boolean" ? op.blocking : true;
             const options = Array.isArray(op.options)
-	              ? op.options.filter((entry) => typeof entry === "string" && entry.trim().length > 0)
+	              ? op.options
+                    .map((entry) => {
+                      if (typeof entry === "string") {
+                        const label = entry.trim();
+                        return label.length > 0 ? label : null;
+                      }
+                      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+                        return null;
+                      }
+                      const record = entry;
+                      const label =
+                        (typeof record.label === "string" && record.label.trim()) ||
+                        (typeof record.title === "string" && record.title.trim()) ||
+                        null;
+                      if (!label) return null;
+                      return {
+                        ...(typeof record.id === "string" && record.id.trim()
+                          ? { id: record.id.trim() }
+                          : {}),
+                        label,
+                        ...(typeof record.description === "string" && record.description.trim()
+                          ? { description: record.description.trim() }
+                          : {}),
+                        ...(typeof record.consequences === "string" && record.consequences.trim()
+                          ? { consequences: record.consequences.trim() }
+                          : {}),
+                        ...(typeof record.implied_status === "string" && record.implied_status.trim()
+                          ? { implied_status: record.implied_status.trim() }
+                          : {}),
+                        ...(typeof record.action_type === "string" && record.action_type.trim()
+                          ? { action_type: record.action_type.trim() }
+                          : {}),
+                        ...(record.requires_note === true ? { requires_note: true } : {}),
+                      };
+                    })
+                    .filter(Boolean)
 	              : [];
 	            const summary =
 	              typeof op.summary === "string" && op.summary.trim().length > 0

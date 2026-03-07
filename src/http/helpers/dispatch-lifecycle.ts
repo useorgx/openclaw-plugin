@@ -354,6 +354,7 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
       id?: string;
       label: string;
       description?: string;
+      consequences?: string;
       implied_status?: "approved" | "declined" | "cancelled" | "rejected";
       action_type?: DecisionActionType;
       requires_note?: boolean;
@@ -377,6 +378,9 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
       }
       if (typeof record.description === "string" && record.description.trim()) {
         optionPayload.description = record.description.trim();
+      }
+      if (typeof record.consequences === "string" && record.consequences.trim()) {
+        optionPayload.consequences = record.consequences.trim();
       }
       if (typeof record.implied_status === "string" && record.implied_status.trim()) {
         const implied = record.implied_status.trim().toLowerCase();

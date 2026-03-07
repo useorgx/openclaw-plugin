@@ -10,6 +10,7 @@ import type { Entity } from "../../types.js";
 import {
   normalizeActivityActionPhase,
   normalizeActivityActionType,
+  normalizeDecisionActionType,
 } from "../../contracts/shared-types.js";
 import { upsertAgentContext, upsertRunContext } from "../../agent-context-store.js";
 import { appendTeamCompletion } from "../../team-context-store.js";
@@ -1048,6 +1049,35 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     }
     return { queued: false, decisionIds: [] };
   };
+  const defaultInterventionDecisionOptions = (): Array<Record<string, unknown>> => [
+    {
+      id: "retry_slice",
+      label: "Retry this workstream slice",
+      description: "Retry once with the latest context and logs.",
+      consequences: "Autopilot retries this workstream slice immediately.",
+      implied_status: "approved",
+      action_type: "retry",
+      requires_note: false,
+    },
+    {
+      id: "pause_and_investigate",
+      label: "Pause autopilot and investigate",
+      description: "Pause orchestration and capture operator notes for handoff.",
+      consequences: "Autopilot pauses and waits for new operator guidance.",
+      implied_status: "declined",
+      action_type: "pause",
+      requires_note: true,
+    },
+    {
+      id: "skip_for_now",
+      label: "Skip this workstream for now",
+      description: "Defer this lane and keep other workstreams moving.",
+      consequences: "This lane is deferred while the rest of the queue continues.",
+      implied_status: "declined",
+      action_type: "defer",
+      requires_note: true,
+    },
+  ];
   const __filename = deps.filename;
   type AutoContinueStopReason =
     | "budget_exhausted"
@@ -1295,7 +1325,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
   type AutoContinueSliceDecision = {
     question: string;
     summary?: string | null;
-    options?: string[] | null;
+    options?: Array<string | Record<string, unknown>> | null;
     urgency?: "low" | "medium" | "high" | "urgent";
     blocking?: boolean | null;
   };
@@ -2569,11 +2599,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                summary:
 	                  humanizeSliceFailureSummary(`MCP handshake failed${mcpHandshake.server ? ` for ${mcpHandshake.server}` : ""}.`),
 	                urgency: "high",
-	                options: [
-	                  "Retry this workstream slice",
-	                  "Pause autopilot and investigate",
-	                  "Skip this workstream for now",
-	                ],
+	                options: defaultInterventionDecisionOptions(),
 	                blocking: true,
                   decisionType: "autopilot_failure",
                   workstreamId: slice.workstreamId,
@@ -2707,11 +2733,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	                summary:
 	                  humanizeSliceFailureSummary(slice.lastError ?? `Autopilot slice ${humanLabel}`),
 	                urgency: "high",
-	                options: [
-	                  "Retry this workstream slice",
-	                  "Pause autopilot and investigate",
-	                  "Skip this workstream for now",
-	                ],
+	                options: defaultInterventionDecisionOptions(),
 	                blocking: true,
                   decisionType: "autopilot_failure",
                   workstreamId: slice.workstreamId,
@@ -2818,6 +2840,74 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         }
 
         const defaultDecisionBlocking = parsedStatus === "completed" ? false : true;
+        const normalizeDecisionOptions = (
+          value: AutoContinueSliceDecision["options"]
+        ): Array<string | Record<string, unknown>> => {
+          if (!Array.isArray(value)) return [];
+          const normalized: Array<string | Record<string, unknown>> = [];
+          for (const rawOption of value) {
+            if (typeof rawOption === "string") {
+              const label = rawOption.trim();
+              if (label.length > 0) normalized.push(label);
+              continue;
+            }
+            if (!rawOption || typeof rawOption !== "object" || Array.isArray(rawOption)) {
+              continue;
+            }
+            const optionRecord = rawOption as Record<string, unknown>;
+            const label =
+              (typeof optionRecord.label === "string" && optionRecord.label.trim()) ||
+              (typeof optionRecord.title === "string" && optionRecord.title.trim()) ||
+              (typeof optionRecord.name === "string" && optionRecord.name.trim()) ||
+              null;
+            if (!label) continue;
+            const normalizedRecord: Record<string, unknown> = { label };
+            const id =
+              (typeof optionRecord.id === "string" && optionRecord.id.trim()) ||
+              (typeof optionRecord.option_id === "string" && optionRecord.option_id.trim()) ||
+              null;
+            if (id) normalizedRecord.id = id;
+            const description =
+              (typeof optionRecord.description === "string" && optionRecord.description.trim()) ||
+              null;
+            if (description) normalizedRecord.description = description;
+            const consequences =
+              (typeof optionRecord.consequences === "string" && optionRecord.consequences.trim()) ||
+              (typeof optionRecord.impact === "string" && optionRecord.impact.trim()) ||
+              null;
+            if (consequences) normalizedRecord.consequences = consequences;
+            const impliedStatusRaw =
+              typeof optionRecord.implied_status === "string"
+                ? optionRecord.implied_status
+                : typeof optionRecord.status === "string"
+                  ? optionRecord.status
+                  : null;
+            if (impliedStatusRaw) {
+              const implied = impliedStatusRaw.trim().toLowerCase();
+              if (
+                implied === "approved" ||
+                implied === "declined" ||
+                implied === "cancelled" ||
+                implied === "rejected"
+              ) {
+                normalizedRecord.implied_status = implied;
+              }
+            }
+            const actionType = normalizeDecisionActionType(
+              optionRecord.action_type ?? optionRecord.type ?? optionRecord.verb ?? optionRecord.action
+            );
+            if (actionType) normalizedRecord.action_type = actionType;
+            if (
+              optionRecord.requires_note === true ||
+              optionRecord.requiresNote === true ||
+              optionRecord.note_required === true
+            ) {
+              normalizedRecord.requires_note = true;
+            }
+            normalized.push(normalizedRecord);
+          }
+          return normalized.slice(0, 8);
+        };
 
         const allDecisions = Array.isArray(parsed?.decisions_needed)
           ? (parsed?.decisions_needed ?? [])
@@ -2996,9 +3086,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             title: normalizedQuestion,
             summary: decision.summary ?? parsed?.summary ?? null,
             urgency: decision.urgency ?? "high",
-            options: Array.isArray(decision.options)
-              ? decision.options.filter((opt: string) => typeof opt === "string" && opt.trim())
-              : [],
+            options: normalizeDecisionOptions(decision.options),
             blocking: isBlocking,
             decisionType: isBlocking
               ? "autopilot_blocking_decision"
@@ -3420,11 +3508,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               title: fallbackDecisionTitle,
               summary: fallbackDecisionSummary,
               urgency: "high",
-              options: [
-                "Retry this workstream slice",
-                "Pause autopilot and investigate",
-                "Skip this workstream for now",
-              ],
+              options: defaultInterventionDecisionOptions(),
               blocking: true,
               decisionType: looksLikeNoOutcome
                 ? "autopilot_completed_without_outcome"
@@ -3520,11 +3604,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             title: attentionTitle,
             summary: attentionSummary,
             urgency: "high",
-            options: [
-              "Retry this workstream slice",
-              "Pause autopilot and investigate",
-              "Skip this workstream for now",
-            ],
+            options: defaultInterventionDecisionOptions(),
 	            blocking: true,
             decisionType: completionHadNoOutcome
               ? "autopilot_completed_without_outcome"

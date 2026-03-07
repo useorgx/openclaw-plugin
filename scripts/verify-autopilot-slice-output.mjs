@@ -173,6 +173,42 @@ function assertNonEmptyStringArrayOrNull(value, label) {
   }
 }
 
+function assertDecisionOptionsOrNull(value, label) {
+  if (value == null) return;
+  assert(Array.isArray(value), `${label} must be an array or null`);
+  assert(value.length > 0, `${label} must be a non-empty array or null`);
+  for (const entry of value) {
+    if (typeof entry === "string") {
+      assert(entry.trim().length > 0, `${label} entries must be non-empty strings`);
+      continue;
+    }
+    assert(isObject(entry), `${label} entries must be non-empty strings or option objects`);
+    assertKnownFields(
+      entry,
+      ["id", "label", "description", "consequences", "implied_status", "action_type", "requires_note"],
+      "decision.options object"
+    );
+    assert(
+      typeof entry.label === "string" && entry.label.trim().length > 0,
+      "decision.options object.label is required"
+    );
+    assertOptionalNonEmptyString(entry.id, "decision.options object.id");
+    assertOptionalNonEmptyString(entry.description, "decision.options object.description");
+    assertOptionalNonEmptyString(entry.consequences, "decision.options object.consequences");
+    assert(
+      ["approved", "declined", "cancelled", "rejected", null].includes(entry.implied_status ?? null),
+      "decision.options object.implied_status must be approved|declined|cancelled|rejected|null"
+    );
+    assertOptionalNonEmptyString(entry.action_type, "decision.options object.action_type");
+    if (entry.requires_note != null) {
+      assert(
+        typeof entry.requires_note === "boolean",
+        "decision.options object.requires_note must be boolean or null"
+      );
+    }
+  }
+}
+
 function sha256File(pathname) {
   try {
     const stat = statSync(pathname);
@@ -283,7 +319,7 @@ function main() {
     assertKnownFields(decision, ["question", "summary", "options", "urgency", "blocking"], "decision");
     assert(typeof decision.question === "string" && decision.question.trim().length > 0, "decision.question is required");
     assertOptionalNonEmptyString(decision.summary, "decision.summary");
-    assertNonEmptyStringArrayOrNull(decision.options, "decision.options");
+    assertDecisionOptionsOrNull(decision.options, "decision.options");
     assert(
       ["low", "medium", "high", "urgent", null].includes(decision.urgency ?? null),
       "decision.urgency must be low|medium|high|urgent|null"

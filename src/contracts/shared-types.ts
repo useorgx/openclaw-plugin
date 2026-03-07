@@ -417,6 +417,7 @@ export interface LiveDecisionOption {
   id: string;
   label: string;
   description: string | null;
+  consequences?: string | null;
   impliedStatus: LiveDecisionOptionStatus | null;
   actionType: DecisionActionType | null;
   requiresNote: boolean;
@@ -595,6 +596,7 @@ export interface TriageAction {
   consequences: string;
   requiresNote: boolean;
   available: boolean;
+  optionId?: string | null;
 }
 
 export interface ProofBundle {
@@ -609,6 +611,21 @@ export interface TriageImpact {
   initiativeCount: number;
   workstreamCount: number;
   downstreamBlockedCount: number;
+}
+
+export interface TriageInterventionContext {
+  blockerReason?: string | null;
+  waitingOn?: string | null;
+  requiredAction?: string | null;
+  requiredActor?: string | null;
+  retryable?: boolean | null;
+  errorCode?: string | null;
+  errorCategory?: string | null;
+  suggestedActions?: string[];
+  nextActions?: string[];
+  decisionIds?: string[];
+  taskUpdateCount?: number;
+  milestoneUpdateCount?: number;
 }
 
 export interface LiveTriageItem {
@@ -633,6 +650,7 @@ export interface LiveTriageItem {
   blocking: boolean;
   recommendedAction: string | null;
   agentId: string | null;
+  intervention?: TriageInterventionContext | null;
   // Impact
   impact: TriageImpact;
   // Proof

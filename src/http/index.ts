@@ -4525,11 +4525,13 @@ export function createHttpHandler(
       }> = [];
       const deriveFailureType = (
         eventNameRaw: string | null,
-        actionTypeRaw: string | null
+        actionTypeRaw: string | null,
+        reasonRaw: string | null
       ): string | null => {
         const eventName = (eventNameRaw ?? "").trim().toLowerCase();
         const actionType = (actionTypeRaw ?? "").trim().toLowerCase();
-        const signature = `${eventName} ${actionType}`;
+        const reason = (reasonRaw ?? "").trim().toLowerCase();
+        const signature = `${eventName} ${actionType} ${reason}`;
         if (!signature.trim()) return null;
         if (signature.includes("status_updates_buffered")) return "status_updates_buffered";
         if (signature.includes("question_answer_failed")) return "question_answer_failed";
@@ -4548,6 +4550,22 @@ export function createHttpHandler(
         if (signature.includes("workspace_conflict")) return "workspace_conflict";
         if (signature.includes("budget_exhausted")) return "budget_exhausted";
         if (signature.includes("stale_blocked_workstream")) return "stale_blocked_workstream";
+        if (
+          signature.includes("credit") ||
+          signature.includes("insufficient_quota") ||
+          signature.includes("insufficient credit") ||
+          signature.includes("payment required")
+        ) {
+          return "budget_exhausted";
+        }
+        if (
+          signature.includes("run_failed") ||
+          signature.includes("autopilot_slice_result") ||
+          signature.includes("autopilot_slice_finished") ||
+          signature.includes("failed")
+        ) {
+          return "worker_exit_no_output";
+        }
         return null;
       };
       try {
@@ -4563,9 +4581,26 @@ export function createHttpHandler(
               activityRecord.metadata && typeof activityRecord.metadata === "object"
                 ? (activityRecord.metadata as Record<string, unknown>)
                 : {};
+            const resultRecord =
+              metadataRecord.result && typeof metadataRecord.result === "object"
+                ? (metadataRecord.result as Record<string, unknown>)
+                : null;
+            const blockerRecord =
+              metadataRecord.blocker && typeof metadataRecord.blocker === "object"
+                ? (metadataRecord.blocker as Record<string, unknown>)
+                : resultRecord && resultRecord.blocker && typeof resultRecord.blocker === "object"
+                  ? (resultRecord.blocker as Record<string, unknown>)
+                  : null;
+            const reasonText =
+              pickString(blockerRecord ?? {}, ["description", "summary"]) ??
+              pickString(resultRecord ?? {}, ["error", "reason", "blocked_reason", "blockedReason", "summary"]) ??
+              pickString(metadataRecord, ["error", "reason", "message", "blocked_reason", "blockedReason"]) ??
+              pickString(activityRecord, ["description", "summary", "title"]);
             const failureType = deriveFailureType(
               pickString(metadataRecord, ["event", "event_name"]),
-              pickString(metadataRecord, ["action_type", "actionType"])
+              pickString(metadataRecord, ["action_type", "actionType"]) ??
+                pickString(activityRecord, ["type"]),
+              reasonText
             );
             if (!failureType) continue;
             const runId = pickString(metadataRecord, ["run_id", "source_run_id"]) ?? pickString(activityRecord, ["runId"]);
@@ -4588,9 +4623,10 @@ export function createHttpHandler(
               id: dedupeId,
               failureType,
               reason:
-                pickString(metadataRecord, ["error", "reason", "message"]) ??
-                pickString(activityRecord, ["description", "summary", "title"]),
-              provider: pickString(metadataRecord, ["provider"]),
+                reasonText,
+              provider:
+                pickString(metadataRecord, ["provider"]) ??
+                pickString(blockerRecord ?? {}, ["provider"]),
               initiativeId,
               initiativeTitle:
                 pickString(metadataRecord, ["initiative_title"]) ??
@@ -4608,8 +4644,14 @@ export function createHttpHandler(
               sourceSystem:
                 pickString(metadataRecord, ["source_system", "source"]) ?? "openclaw",
               runId,
-              logPath: pickString(metadataRecord, ["log_path"]),
-              outputPath: pickString(metadataRecord, ["output_path"]),
+              logPath:
+                pickString(metadataRecord, ["log_path"]) ??
+                pickString(resultRecord ?? {}, ["log_path"]) ??
+                pickString(blockerRecord ?? {}, ["log_path"]),
+              outputPath:
+                pickString(metadataRecord, ["output_path"]) ??
+                pickString(resultRecord ?? {}, ["output_path"]) ??
+                pickString(blockerRecord ?? {}, ["output_path"]),
               metadata: metadataRecord,
               timestamp: timestamp ?? undefined,
             });

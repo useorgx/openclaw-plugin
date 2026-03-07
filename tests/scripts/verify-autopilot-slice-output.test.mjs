@@ -564,6 +564,64 @@ test("verifier rejects decisions_needed options containing blank entries", () =>
   assert.match(combined, /decision\.options entries must be non-empty strings/i);
 });
 
+test("verifier accepts structured decision option objects", () => {
+  const output = makeValidOutput();
+  output.status = "needs_decision";
+  output.artifacts = null;
+  output.task_updates = null;
+  output.decisions_needed = [
+    {
+      question: "Choose rollout strategy",
+      summary: "Need operator decision for blast radius.",
+      options: [
+        {
+          id: "retry_slice",
+          label: "Retry slice now",
+          description: "Retry with current plan and logs.",
+          consequences: "Will immediately re-run this lane.",
+          implied_status: "approved",
+          action_type: "retry",
+          requires_note: false,
+        },
+        {
+          id: "pause_and_review",
+          label: "Pause and review",
+          description: "Pause lane and inspect evidence.",
+          consequences: "Keeps lane blocked until manual resume.",
+          implied_status: "declined",
+          action_type: "pause",
+          requires_note: true,
+        },
+      ],
+      urgency: "high",
+      blocking: true,
+    },
+  ];
+  const result = runVerifier(output, makeSchema());
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /\[verify\] ok/i);
+});
+
+test("verifier rejects structured decision option objects without label", () => {
+  const output = makeValidOutput();
+  output.status = "needs_decision";
+  output.artifacts = null;
+  output.task_updates = null;
+  output.decisions_needed = [
+    {
+      question: "Choose rollout strategy",
+      summary: null,
+      options: [{ id: "missing_label" }],
+      urgency: "high",
+      blocking: true,
+    },
+  ];
+  const result = runVerifier(output, makeSchema());
+  assert.notEqual(result.status, 0);
+  const combined = `${result.stderr}\n${result.stdout}`;
+  assert.match(combined, /decision\.options object missing required field "label"/i);
+});
+
 test("verifier rejects blank optional decision summary values", () => {
   const output = makeValidOutput();
   output.status = "needs_decision";

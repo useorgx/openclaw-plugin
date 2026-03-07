@@ -35,6 +35,33 @@ export type SliceRunDecisionOption = {
   requiresNote: boolean;
 };
 
+export type SliceRunPendingDecision = {
+  id: string;
+  title: string;
+  summary: string | null;
+  status: string;
+  blocking: boolean;
+  decisionType: string | null;
+  recommendedAction: string | null;
+  updatedAt: string | null;
+  sourceRunId: string | null;
+  sourceClient: string | null;
+  evidenceCount: number;
+  options: SliceRunDecisionOption[];
+};
+
+export type SliceRunBlockerSummary = {
+  id: string;
+  reason: string;
+  waitingOn: string | null;
+  requiredAction: string | null;
+  source: string | null;
+  eventType: string | null;
+  eventAt: string | null;
+  severity: "info" | "warn" | "error";
+  decisionIds: string[];
+};
+
 export type SliceRunProjection = {
   id: string;
   sliceRunId: string;
@@ -57,6 +84,8 @@ export type SliceRunProjection = {
   decisionCount: number;
   blockingDecisionCount: number;
   decisionOptions: SliceRunDecisionOption[];
+  pendingDecisions: SliceRunPendingDecision[];
+  blockers: SliceRunBlockerSummary[];
   sourceClient: string | null;
   runtimeState: string | null;
   startedAt: string | null;
@@ -91,6 +120,8 @@ type MutableSliceRunProjection = SliceRunProjection & {
   _artifactIds: Set<string>;
   _hasExplicitCompletion: boolean;
   _peakReportedArtifacts: number;
+  _pendingDecisionById: Map<string, SliceRunPendingDecision>;
+  _blockerByKey: Map<string, SliceRunBlockerSummary>;
 };
 
 const TERMINAL_STATES = new Set<SliceRunLifecycleState>([
@@ -382,6 +413,8 @@ function createProjection(sliceRunId: string): MutableSliceRunProjection {
     decisionCount: 0,
     blockingDecisionCount: 0,
     decisionOptions: [],
+    pendingDecisions: [],
+    blockers: [],
     sourceClient: null,
     runtimeState: null,
     startedAt: null,
@@ -399,6 +432,8 @@ function createProjection(sliceRunId: string): MutableSliceRunProjection {
     _artifactIds: new Set<string>(),
     _hasExplicitCompletion: false,
     _peakReportedArtifacts: 0,
+    _pendingDecisionById: new Map<string, SliceRunPendingDecision>(),
+    _blockerByKey: new Map<string, SliceRunBlockerSummary>(),
   };
 }
 
@@ -573,6 +608,16 @@ function mergeDecisionOptions(
   optionsRaw: unknown
 ): void {
   if (!Array.isArray(optionsRaw)) return;
+  const next = parseDecisionOptions(optionsRaw);
+  if (next.length === 0) return;
+  const merged = new Map<string, SliceRunDecisionOption>();
+  for (const option of projection.decisionOptions) merged.set(option.id, option);
+  for (const option of next) merged.set(option.id, option);
+  projection.decisionOptions = Array.from(merged.values()).slice(0, 8);
+}
+
+function parseDecisionOptions(optionsRaw: unknown): SliceRunDecisionOption[] {
+  if (!Array.isArray(optionsRaw)) return [];
   const next: SliceRunDecisionOption[] = [];
   for (const option of optionsRaw) {
     const record = asRecord(option);
@@ -588,11 +633,208 @@ function mergeDecisionOptions(
       requiresNote: metadataBoolean(record, ["requiresNote", "requires_note"]) ?? false,
     });
   }
-  if (next.length === 0) return;
-  const merged = new Map<string, SliceRunDecisionOption>();
-  for (const option of projection.decisionOptions) merged.set(option.id, option);
-  for (const option of next) merged.set(option.id, option);
-  projection.decisionOptions = Array.from(merged.values()).slice(0, 8);
+  return next;
+}
+
+function extractDecisionIdsFromMetadata(metadata: Record<string, unknown> | null): string[] {
+  if (!metadata) return [];
+  const ids = new Set<string>();
+  for (const id of metadataStringArray(metadata, [
+    "decision_id",
+    "decisionId",
+    "decision_ids",
+    "decisionIds",
+    "blocking_decision_ids",
+    "blockingDecisionIds",
+    "non_blocking_decision_ids",
+    "nonBlockingDecisionIds",
+  ])) {
+    ids.add(id);
+  }
+  const decisionsNeededRaw = metadata.decisions_needed ?? metadata.decisionsNeeded;
+  if (Array.isArray(decisionsNeededRaw)) {
+    for (const item of decisionsNeededRaw) {
+      const record = asRecord(item);
+      if (!record) continue;
+      const directId =
+        normalizeText(record.id) ??
+        normalizeText(record.decision_id) ??
+        normalizeText(record.decisionId);
+      if (directId) ids.add(directId);
+    }
+  }
+  return Array.from(ids);
+}
+
+function normalizePendingDecisionStatus(value: string | null): string {
+  return (value ?? "pending").trim().toLowerCase() || "pending";
+}
+
+function isDecisionResolvedStatus(status: string): boolean {
+  return (
+    status === "approved" ||
+    status === "declined" ||
+    status === "cancelled" ||
+    status === "resolved" ||
+    status === "closed"
+  );
+}
+
+function upsertPendingDecision(
+  projection: MutableSliceRunProjection,
+  decisionRecord: Record<string, unknown>,
+  metadata: Record<string, unknown> | null
+): void {
+  const decisionId =
+    normalizeText(decisionRecord.id) ??
+    normalizeText(decisionRecord.decision_id) ??
+    normalizeText(decisionRecord.entity_id);
+  if (!decisionId) return;
+
+  const status = normalizePendingDecisionStatus(normalizeText(decisionRecord.status));
+  if (isDecisionResolvedStatus(status)) {
+    projection._pendingDecisionById.delete(decisionId);
+    return;
+  }
+
+  const options = parseDecisionOptions(
+    decisionRecord.options ??
+      decisionRecord.decision_options ??
+      metadata?.options ??
+      metadata?.decision_options
+  );
+  if (options.length > 0) {
+    mergeDecisionOptions(projection, options);
+  }
+
+  const evidenceGroup =
+    decisionRecord.evidenceRefs ??
+    decisionRecord.evidence_refs ??
+    metadata?.evidence_refs ??
+    metadata?.decision_evidence;
+  const evidenceCount = Array.isArray(evidenceGroup) ? evidenceGroup.length : 0;
+
+  const updatedAt =
+    toIso(normalizeText(decisionRecord.updatedAt)) ??
+    toIso(normalizeText(decisionRecord.updated_at)) ??
+    toIso(normalizeText(decisionRecord.requestedAt)) ??
+    toIso(normalizeText(decisionRecord.requested_at)) ??
+    projection.updatedAt;
+
+  projection._pendingDecisionById.set(decisionId, {
+    id: decisionId,
+    title:
+      normalizeText(decisionRecord.title) ??
+      normalizeText(decisionRecord.name) ??
+      "Pending decision",
+    summary:
+      normalizeText(decisionRecord.context) ??
+      normalizeText(decisionRecord.summary) ??
+      normalizeText(decisionRecord.description) ??
+      normalizeText(metadata?.summary) ??
+      null,
+    status,
+    blocking: metadataBoolean(metadata, ["blocking"]) !== false,
+    decisionType:
+      normalizeText(decisionRecord.decisionType) ??
+      normalizeText(decisionRecord.decision_type) ??
+      normalizeText(metadata?.decision_type) ??
+      null,
+    recommendedAction:
+      normalizeText(decisionRecord.recommendedAction) ??
+      normalizeText(decisionRecord.recommended_action) ??
+      normalizeText(metadata?.recommended_action) ??
+      null,
+    updatedAt,
+    sourceRunId:
+      normalizeText(decisionRecord.sourceRunId) ??
+      normalizeText(decisionRecord.source_run_id) ??
+      normalizeText(metadata?.source_run_id) ??
+      normalizeText(metadata?.run_id) ??
+      normalizeText(metadata?.correlation_id) ??
+      null,
+    sourceClient:
+      normalizeText(decisionRecord.sourceClient) ??
+      normalizeText(decisionRecord.source_client) ??
+      normalizeText(metadata?.source_client) ??
+      null,
+    evidenceCount,
+    options: options.slice(0, 4),
+  });
+}
+
+function inferBlockerFromActivity(
+  item: LiveActivityItem,
+  metadata: Record<string, unknown> | null,
+  event: string,
+  atIso: string | null
+): SliceRunBlockerSummary | null {
+  const blocker = asRecord(metadata?.blocker);
+  const reason =
+    normalizeText(blocker?.description) ??
+    normalizeText(blocker?.summary) ??
+    metadataString(metadata, ["error", "reason", "blocked_reason", "blockedReason", "last_error", "lastError"]) ??
+    normalizeText(item.summary) ??
+    normalizeText(item.description) ??
+    null;
+  if (!reason) return null;
+
+  const waitingOn =
+    normalizeText(blocker?.waiting_on) ??
+    normalizeText(blocker?.required_actor) ??
+    metadataString(metadata, ["waiting_on", "required_actor", "requiredActor"]) ??
+    null;
+  const requiredAction =
+    normalizeText(blocker?.required_action) ??
+    normalizeText(blocker?.requiredAction) ??
+    metadataString(metadata, ["next_step", "nextStep", "recommended_action", "recommendedAction"]) ??
+    null;
+  const source =
+    metadataString(metadata, ["source", "source_system", "sourceSystem"]) ??
+    null;
+  const severity: "info" | "warn" | "error" =
+    item.type === "run_failed" || event.includes("failed") || event.includes("error")
+      ? "error"
+      : item.type === "blocker_created" || event.includes("blocked")
+        ? "warn"
+        : "info";
+  const decisionIds = extractDecisionIdsFromMetadata(metadata);
+
+  return {
+    id: normalizeText(item.id) ?? `${event || item.type}:${atIso ?? "unknown"}`,
+    reason,
+    waitingOn,
+    requiredAction,
+    source,
+    eventType: event || item.type,
+    eventAt: atIso,
+    severity,
+    decisionIds,
+  };
+}
+
+function upsertBlocker(
+  projection: MutableSliceRunProjection,
+  blocker: SliceRunBlockerSummary
+): void {
+  const key = [
+    blocker.reason.trim().toLowerCase(),
+    blocker.waitingOn?.trim().toLowerCase() ?? "",
+    blocker.requiredAction?.trim().toLowerCase() ?? "",
+  ].join("|");
+  const existing = projection._blockerByKey.get(key);
+  if (!existing) {
+    projection._blockerByKey.set(key, blocker);
+    return;
+  }
+  const existingEpoch = toEpoch(existing.eventAt);
+  const nextEpoch = toEpoch(blocker.eventAt);
+  const keep = nextEpoch >= existingEpoch ? blocker : existing;
+  keep.decisionIds = dedupeStrings([
+    ...(existing.decisionIds ?? []),
+    ...(blocker.decisionIds ?? []),
+  ]);
+  projection._blockerByKey.set(key, keep);
 }
 
 function applySessionFallback(
@@ -685,6 +927,10 @@ export function buildSliceRunProjections(
     updateProjectionContext(projection, item, metadata);
 
     const atIso = toIso(item.timestamp);
+    const blockerFromEvent = inferBlockerFromActivity(item, metadata, event, atIso);
+    if (blockerFromEvent) {
+      upsertBlocker(projection, blockerFromEvent);
+    }
 
     if (item.type === "artifact_created") {
       maybeAddArtifact(projection, item, metadata);
@@ -934,14 +1180,22 @@ export function buildSliceRunProjections(
     if (!projection) continue;
 
     const status = (normalizeText(decisionRecord?.status) ?? "pending").toLowerCase();
-    if (status === "approved" || status === "declined" || status === "cancelled" || status === "resolved") {
-      continue;
+    if (decisionRecord) {
+      upsertPendingDecision(projection, decisionRecord, metadata);
     }
+    if (isDecisionResolvedStatus(status)) continue;
 
     projection.decisionCount += 1;
     const isBlocking = metadataBoolean(metadata, ["blocking"]) !== false;
     if (isBlocking) projection.blockingDecisionCount += 1;
-    mergeDecisionOptions(projection, decisionRecord?.options ?? null);
+    mergeDecisionOptions(
+      projection,
+      decisionRecord?.options ??
+        decisionRecord?.decision_options ??
+        metadata?.options ??
+        metadata?.decision_options ??
+        null
+    );
 
     const updatedAt =
       toIso(normalizeText(decisionRecord?.updatedAt)) ??
@@ -1085,6 +1339,12 @@ export function buildSliceRunProjections(
       decisionCount: projection.decisionCount,
       blockingDecisionCount: projection.blockingDecisionCount,
       decisionOptions: projection.decisionOptions,
+      pendingDecisions: Array.from(projection._pendingDecisionById.values())
+        .sort((a, b) => toEpoch(b.updatedAt) - toEpoch(a.updatedAt))
+        .slice(0, 8),
+      blockers: Array.from(projection._blockerByKey.values())
+        .sort((a, b) => toEpoch(b.eventAt) - toEpoch(a.eventAt))
+        .slice(0, 6),
       sourceClient: projection.sourceClient,
       runtimeState: projection.runtimeState,
       startedAt: projection.startedAt,

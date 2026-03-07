@@ -243,6 +243,10 @@ function extractData(target: SliceDetailTarget) {
 
   // needs_input
   const { sliceRun } = target;
+  const primaryBlocker =
+    Array.isArray(sliceRun.blockers) && sliceRun.blockers.length > 0
+      ? sliceRun.blockers[0]
+      : null;
   const agentName = sliceRun.sourceClient
     ? sliceRun.sourceClient.charAt(0).toUpperCase() + sliceRun.sourceClient.slice(1)
     : 'OrgX';
@@ -262,7 +266,9 @@ function extractData(target: SliceDetailTarget) {
     agentName,
     agentSource: sliceRun.sourceClient,
     queueState: sliceRun.status === 'needs_review' ? 'completed' : 'blocked' as string,
-    blockReason: sliceRun.status === 'failed' ? (sliceRun.statusExplainer || null) : null,
+    blockReason:
+      primaryBlocker?.reason ??
+      (sliceRun.status === 'failed' ? (sliceRun.statusExplainer || null) : null),
     sliceScope: sliceRun.scope ?? null,
     sliceTaskCount:
       typeof sliceRun.scopeProgress?.totalTasks === 'number'
@@ -889,6 +895,8 @@ export function SliceDetailModal({
                 confidence: sr.confidence,
               });
               const outcomeText = synthesized ?? deduped.outcome;
+              const blockerItems = Array.isArray(sr.blockers) ? sr.blockers : [];
+              const pendingDecisionItems = Array.isArray(sr.pendingDecisions) ? sr.pendingDecisions : [];
               return (
                 <>
                   {/* Action card */}
@@ -922,6 +930,57 @@ export function SliceDetailModal({
                       </p>
                     ) : null}
                   </motion.div>
+
+                  {(blockerItems.length > 0 || pendingDecisionItems.length > 0) && (
+                    <motion.div
+                      variants={sectionVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      custom={sectionIndex++}
+                      className="space-y-2"
+                    >
+                      <p className="section-kicker">Intervention brief</p>
+                      {blockerItems.slice(0, 3).map((blocker) => (
+                        <div
+                          key={blocker.id}
+                          className={`rounded-lg border px-3 py-2 ${
+                            blocker.severity === 'error'
+                              ? 'border-red-400/24 bg-red-500/[0.08]'
+                              : blocker.severity === 'warn'
+                                ? 'border-amber-300/20 bg-amber-500/[0.08]'
+                                : 'border-white/[0.10] bg-white/[0.03]'
+                          }`}
+                        >
+                          <p className="text-caption font-semibold text-primary">
+                            {blocker.reason}
+                          </p>
+                          {(blocker.waitingOn || blocker.requiredAction) && (
+                            <p className="mt-1 text-micro text-secondary">
+                              {blocker.waitingOn ? `Waiting on: ${blocker.waitingOn}` : null}
+                              {blocker.waitingOn && blocker.requiredAction ? ' · ' : null}
+                              {blocker.requiredAction ? `Required action: ${blocker.requiredAction}` : null}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                      {pendingDecisionItems.slice(0, 2).map((decision) => (
+                        <div key={decision.id} className="rounded-lg border border-amber-300/16 bg-amber-500/[0.06] px-3 py-2">
+                          <p className="text-caption font-semibold text-primary">{decision.title}</p>
+                          {decision.summary && (
+                            <p className="mt-1 text-micro text-secondary leading-relaxed">
+                              {decision.summary}
+                            </p>
+                          )}
+                          {decision.recommendedAction && (
+                            <p className="mt-1 text-micro text-amber-100/80">
+                              Recommended: {decision.recommendedAction}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </motion.div>
+                  )}
 
                   {/* Outcome — synthesized or deduplicated */}
                   {outcomeText && (
@@ -1219,7 +1278,7 @@ export function SliceDetailModal({
             )}
 
             {/* ───── 6. Decisions section ───── */}
-            {sr && sr.decisionCount > 0 && (
+            {sr && ((sr.decisionCount > 0) || ((sr.pendingDecisions?.length ?? 0) > 0)) && (
               <>
                 <SectionDivider />
                 <motion.div
@@ -1247,6 +1306,55 @@ export function SliceDetailModal({
                       </span>
                     )}
                   </div>
+                  {Array.isArray(sr.pendingDecisions) && sr.pendingDecisions.length > 0 && (
+                    <div className="space-y-2">
+                      {sr.pendingDecisions.slice(0, 4).map((decision) => (
+                        <div
+                          key={decision.id}
+                          className="rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2.5"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="text-caption font-semibold text-primary">{decision.title}</p>
+                            <span
+                              className={`inline-flex rounded-full border px-1.5 py-[0.5px] text-micro font-semibold ${
+                                decision.blocking
+                                  ? 'border-red-400/30 bg-red-500/[0.12] text-red-100'
+                                  : 'border-amber-300/25 bg-amber-400/[0.10] text-amber-100'
+                              }`}
+                            >
+                              {decision.blocking ? 'Blocking' : 'Advisory'}
+                            </span>
+                          </div>
+                          {decision.summary && (
+                            <p className="mt-1 text-micro leading-relaxed text-secondary">
+                              {decision.summary}
+                            </p>
+                          )}
+                          {(decision.recommendedAction || (decision.options?.length ?? 0) > 0) && (
+                            <div className="mt-1.5 space-y-1">
+                              {decision.recommendedAction && (
+                                <p className="text-micro text-lime/75">
+                                  Recommended: {decision.recommendedAction}
+                                </p>
+                              )}
+                              {(decision.options?.length ?? 0) > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {decision.options.slice(0, 3).map((option) => (
+                                    <span
+                                      key={`${decision.id}:${option.id}`}
+                                      className="rounded-full border border-white/[0.12] bg-white/[0.04] px-2 py-0.5 text-micro text-secondary"
+                                    >
+                                      {option.label}
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {sr.decisionOptions.length > 0 && (
                     <div className="space-y-1.5">
                       {sr.decisionOptions.slice(0, 4).map((opt) => (

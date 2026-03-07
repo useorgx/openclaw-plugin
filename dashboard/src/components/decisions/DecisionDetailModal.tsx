@@ -60,6 +60,67 @@ function safeJson(value: unknown) {
   }
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+type DecisionUpdateRow = {
+  scope: 'Task' | 'Milestone';
+  label: string;
+  status: string | null;
+  note: string | null;
+};
+
+function extractDecisionUpdateRows(metadata: Record<string, unknown> | undefined): DecisionUpdateRow[] {
+  if (!metadata) return [];
+  const result = asRecord(metadata.result);
+  const sources = [metadata, result].filter((entry): entry is Record<string, unknown> => Boolean(entry));
+  const rows: DecisionUpdateRow[] = [];
+  const seen = new Set<string>();
+  const pushRows = (scope: DecisionUpdateRow['scope'], raw: unknown) => {
+    if (!Array.isArray(raw)) return;
+    for (const candidate of raw) {
+      const record = asRecord(candidate);
+      if (!record) continue;
+      const id =
+        (typeof record.task_id === 'string' && record.task_id.trim()) ||
+        (typeof record.taskId === 'string' && record.taskId.trim()) ||
+        (typeof record.milestone_id === 'string' && record.milestone_id.trim()) ||
+        (typeof record.milestoneId === 'string' && record.milestoneId.trim()) ||
+        null;
+      const label =
+        (typeof record.task_title === 'string' && record.task_title.trim()) ||
+        (typeof record.taskTitle === 'string' && record.taskTitle.trim()) ||
+        (typeof record.milestone_title === 'string' && record.milestone_title.trim()) ||
+        (typeof record.milestoneTitle === 'string' && record.milestoneTitle.trim()) ||
+        (typeof record.title === 'string' && record.title.trim()) ||
+        id ||
+        scope;
+      const status =
+        (typeof record.status === 'string' && record.status.trim()) ||
+        (typeof record.state === 'string' && record.state.trim()) ||
+        null;
+      const note =
+        (typeof record.reason === 'string' && record.reason.trim()) ||
+        (typeof record.summary === 'string' && record.summary.trim()) ||
+        (typeof record.note === 'string' && record.note.trim()) ||
+        null;
+      const dedupe = `${scope}|${label.toLowerCase()}|${(status ?? '').toLowerCase()}|${(note ?? '').toLowerCase()}`;
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
+      rows.push({ scope, label, status, note });
+    }
+  };
+
+  for (const source of sources) {
+    pushRows('Task', source.task_updates ?? source.taskUpdates);
+    pushRows('Milestone', source.milestone_updates ?? source.milestoneUpdates);
+  }
+
+  return rows.slice(0, 8);
+}
+
 function normalizeOptionStatus(
   value: unknown
 ): LiveDecisionOption['impliedStatus'] {
@@ -173,6 +234,7 @@ export function DecisionDetailModal({
           id,
           label,
           description: null,
+          consequences: null,
           impliedStatus: null,
           actionType: null,
           requiresNote: false,
@@ -203,6 +265,10 @@ export function DecisionDetailModal({
         label,
         description:
           typeof record.description === 'string' ? record.description : null,
+        consequences:
+          (typeof record.consequences === 'string' && record.consequences) ||
+          (typeof record.impact === 'string' && record.impact) ||
+          null,
         impliedStatus:
           normalizeOptionStatus(record.implied_status) ??
           normalizeOptionStatus(record.status),
@@ -264,6 +330,37 @@ export function DecisionDetailModal({
       '';
     return String(fallback ?? '').trim();
   }, [decision?.context, metadata]);
+
+  const plannedUpdates = useMemo(() => {
+    const metaRecord = metadata && typeof metadata === 'object' ? (metadata as Record<string, unknown>) : undefined;
+    const rows = extractDecisionUpdateRows(metaRecord);
+    const outcomes = asRecord(metaRecord?.outcomes);
+    const statusUpdatesApplied =
+      (typeof metaRecord?.status_updates_applied === 'number' && Number.isFinite(metaRecord.status_updates_applied))
+        ? metaRecord.status_updates_applied
+        : (typeof (asRecord(metaRecord?.result)?.status_updates_applied) === 'number' &&
+            Number.isFinite((asRecord(metaRecord?.result)?.status_updates_applied as number)))
+          ? (asRecord(metaRecord?.result)?.status_updates_applied as number)
+          : null;
+    const artifactCount =
+      Array.isArray(metaRecord?.artifacts)
+        ? metaRecord.artifacts.length
+        : (typeof outcomes?.artifacts === 'number' ? outcomes.artifacts : null);
+    const bufferedRaw = metaRecord?.status_updates_buffered ?? metaRecord?.statusUpdatesBuffered;
+    const buffered =
+      bufferedRaw === true ||
+      (typeof bufferedRaw === 'number' && bufferedRaw > 0) ||
+      (typeof bufferedRaw === 'string' && ['true', '1', 'yes'].includes(bufferedRaw.trim().toLowerCase()));
+    return {
+      rows,
+      statusUpdatesApplied,
+      artifactCount: typeof artifactCount === 'number' ? artifactCount : null,
+      buffered,
+      hasPr:
+        typeof outcomes?.pr_url === 'string' ||
+        typeof outcomes?.commit_sha === 'string',
+    };
+  }, [metadata]);
 
   const urgencyColor = useMemo(() => {
     const mins = decision?.waitingMinutes ?? 0;
@@ -718,6 +815,40 @@ export function DecisionDetailModal({
             </p>
           )}
 
+          {(plannedUpdates.rows.length > 0 ||
+            (plannedUpdates.statusUpdatesApplied ?? 0) > 0 ||
+            plannedUpdates.buffered ||
+            (plannedUpdates.artifactCount ?? 0) > 0 ||
+            plannedUpdates.hasPr) && (
+            <div className="mt-4 rounded-xl border border-[#14B8A6]/20 bg-[#14B8A6]/[0.06] px-4 py-3">
+              <p className="text-micro font-semibold uppercase tracking-wider text-[#7ce0d3] mb-1">
+                {plannedUpdates.buffered ? 'Updates being applied' : 'Expected updates'}
+              </p>
+              {(plannedUpdates.statusUpdatesApplied ?? 0) > 0 && (
+                <p className="text-caption text-primary">
+                  {plannedUpdates.statusUpdatesApplied} status update{plannedUpdates.statusUpdatesApplied === 1 ? '' : 's'}
+                  {plannedUpdates.buffered ? ' queued for sync' : ' planned'}.
+                </p>
+              )}
+              {(plannedUpdates.artifactCount ?? 0) > 0 && (
+                <p className="text-caption text-primary">
+                  {plannedUpdates.artifactCount} artifact{plannedUpdates.artifactCount === 1 ? '' : 's'} expected from this decision path.
+                </p>
+              )}
+              {plannedUpdates.rows.length > 0 && (
+                <ul className="mt-2 space-y-1 pl-4">
+                  {plannedUpdates.rows.map((row, index) => (
+                    <li key={`${row.scope}-${row.label}-${index}`} className="text-caption text-secondary">
+                      <span className="text-primary">{row.scope}: {row.label}</span>
+                      {row.status ? ` → ${row.status}` : ''}
+                      {row.note ? ` · ${row.note}` : ''}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
           {/* 8. Options as selectable cards */}
           {options.length > 0 && (
             <div className="mt-8">
@@ -779,6 +910,9 @@ export function DecisionDetailModal({
                         </span>
                         {option.description && (
                           <p className="mt-1 text-[13px] leading-relaxed text-secondary">{option.description}</p>
+                        )}
+                        {option.consequences && (
+                          <p className="mt-1 text-[12px] leading-relaxed text-muted">{option.consequences}</p>
                         )}
                         {option.requiresNote && (
                           <p className="mt-1.5 text-[11px] font-medium uppercase tracking-wider text-amber-400">

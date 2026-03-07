@@ -228,6 +228,33 @@ export interface SliceRunDecisionOption {
   requiresNote: boolean;
 }
 
+export interface SliceRunPendingDecision {
+  id: string;
+  title: string;
+  summary: string | null;
+  status: string;
+  blocking: boolean;
+  decisionType: string | null;
+  recommendedAction: string | null;
+  updatedAt: string | null;
+  sourceRunId: string | null;
+  sourceClient: string | null;
+  evidenceCount: number;
+  options: SliceRunDecisionOption[];
+}
+
+export interface SliceRunBlockerSummary {
+  id: string;
+  reason: string;
+  waitingOn: string | null;
+  requiredAction: string | null;
+  source: string | null;
+  eventType: string | null;
+  eventAt: string | null;
+  severity: 'info' | 'warn' | 'error';
+  decisionIds: string[];
+}
+
 export interface SliceRunProjection {
   id: string;
   sliceRunId: string;
@@ -251,6 +278,8 @@ export interface SliceRunProjection {
   decisionCount: number;
   blockingDecisionCount: number;
   decisionOptions: SliceRunDecisionOption[];
+  pendingDecisions?: SliceRunPendingDecision[];
+  blockers?: SliceRunBlockerSummary[];
   sourceClient: string | null;
   runtimeState: string | null;
   startedAt: string | null;
