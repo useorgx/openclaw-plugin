@@ -40,7 +40,7 @@ function SuiteSection({
   return (
     <section className="grid gap-3">
       <div>
-        <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/80">{step}</p>
+        <p className="text-micro uppercase tracking-[0.12em] text-lime/80">{step}</p>
         <h4 className="mt-1 text-heading font-semibold text-white">{title}</h4>
         <p className="mt-1 text-caption leading-relaxed text-secondary">{description}</p>
       </div>
@@ -321,7 +321,7 @@ export function AgentSuitePanel({
                 type="button"
                 onClick={() => { suite.install({ dryRun: false }); }}
                 disabled={suite.isInstalling}
-                className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-full bg-lime px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
                 title="Install missing agents and scaffold managed workspace files"
               >
                 {suite.isInstalling ? 'Installing...' : 'Install / Update'}
@@ -381,7 +381,7 @@ export function AgentSuitePanel({
       {/* Install success banner */}
       {lastInstall && (
         <div className="mt-3 rounded-xl border border-lime/20 bg-lime/[0.06] px-4 py-3">
-          <p className="text-caption uppercase tracking-[0.1em] text-[#D8FFA1]">
+          <p className="text-caption uppercase tracking-[0.1em] text-lime">
             {isDryRun ? 'Dry run' : 'Applied'}
           </p>
           <p className="mt-1 text-body leading-relaxed text-secondary">
@@ -596,7 +596,7 @@ export function AgentSuitePanel({
                         })}
                       </div>
                       {presetNotice && (
-                        <p className="mt-2 rounded-lg border border-lime/20 bg-lime/[0.07] px-2.5 py-2 text-caption text-[#D8FFA1]">
+                        <p className="mt-2 rounded-lg border border-lime/20 bg-lime/[0.07] px-2.5 py-2 text-caption text-lime">
                           {presetNotice}
                         </p>
                       )}

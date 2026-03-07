@@ -77,7 +77,7 @@ export function MobileTabBar({ activeTab, onTabChange, pendingDecisionCount = 0 
                 <>
                   <motion.span
                     layoutId="mobile-tab-active-pill"
-                    className="absolute inset-0 rounded-[18px] border border-[#BFFF00]/28 bg-[#BFFF00]/[0.1]"
+                    className="absolute inset-0 rounded-[18px] border border-lime/28 bg-lime/[0.1]"
                     transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.8 }}
                   />
                   <motion.span
@@ -92,7 +92,7 @@ export function MobileTabBar({ activeTab, onTabChange, pendingDecisionCount = 0 
                 className={cn(
                   'relative inline-flex h-8 w-8 items-center justify-center rounded-full border transition-colors',
                   isActive
-                    ? 'border-[#BFFF00]/35 bg-[#BFFF00]/[0.12] text-[#D8FFA1]'
+                    ? 'border-lime/35 bg-lime/[0.12] text-lime'
                     : 'border-white/[0.1] bg-white/[0.03]'
                 )}
               >
@@ -108,7 +108,7 @@ export function MobileTabBar({ activeTab, onTabChange, pendingDecisionCount = 0 
                   </span>
                 )}
               </span>
-              <span className={cn('relative z-[1] text-micro font-medium', isActive ? 'text-[#D8FFA1]' : 'text-secondary')}>
+              <span className={cn('relative z-[1] text-micro font-medium', isActive ? 'text-lime' : 'text-secondary')}>
                 {tab.label}
               </span>
             </button>

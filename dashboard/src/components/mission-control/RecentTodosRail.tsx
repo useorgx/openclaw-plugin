@@ -98,7 +98,7 @@ export function RecentTodosRail({
           primaryOverdue ? 'border-l-2 border-l-red-400/60 ' : ''
         }${
           selectedNodeId === primary.id
-            ? 'border-[#BFFF00]/35 bg-[#BFFF00]/14'
+            ? 'border-lime/35 bg-lime/14'
             : 'border-white/15 bg-black/25 hover:border-white/30 hover:bg-white/[0.08]'
         }`}
       >
@@ -141,7 +141,7 @@ export function RecentTodosRail({
                   nodeOverdue ? 'border-l-2 border-l-red-400/60 ' : ''
                 }${
                   selectedNodeId === node.id
-                    ? 'border-[#BFFF00]/30 bg-[#BFFF00]/12'
+                    ? 'border-lime/30 bg-lime/12'
                     : 'border-strong bg-black/20 hover:bg-white/[0.08]'
                 }`}
               >

@@ -220,7 +220,7 @@ export function AgentDetailModal({
             </AgentHealthRing>
             <div className="min-w-0 flex-1 pt-1">
               <div className="flex items-center gap-3">
-                <h3 className="text-[28px] font-medium leading-none text-white truncate">{agentName}</h3>
+                <h3 className="text-display font-medium leading-none text-white truncate">{agentName}</h3>
                 <span
                   className="status-pill"
                   style={{

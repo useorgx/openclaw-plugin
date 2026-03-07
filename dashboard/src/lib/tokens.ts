@@ -73,6 +73,7 @@ export const typography = {
     body: { fontSize: 13, lineHeight: 20, letterSpacing: 0 },
     heading: { fontSize: 15, lineHeight: 22, letterSpacing: -0.01 },
     title: { fontSize: 20, lineHeight: 28, letterSpacing: -0.015 },
+    display: { fontSize: 28, lineHeight: 34, letterSpacing: -0.02 },
   },
 } as const;
 
@@ -162,6 +163,32 @@ export const stateTones = {
     background: 'rgba(255, 255, 255, 0.06)',
     text: 'rgba(236, 241, 255, 0.74)',
   },
+} as const;
+
+/**
+ * Unified status color system — single source of truth for all panels.
+ * Each status has text, bg, and border at canonical opacities.
+ */
+export const statusColors = {
+  success: { text: '#BFFF00', bg: 'rgba(191, 255, 0, 0.12)', border: 'rgba(191, 255, 0, 0.30)' },
+  failed: { text: '#FCA5A5', bg: 'rgba(239, 68, 68, 0.12)', border: 'rgba(248, 113, 113, 0.30)' },
+  warning: { text: '#FDE68A', bg: 'rgba(245, 183, 0, 0.12)', border: 'rgba(252, 211, 77, 0.30)' },
+  inProgress: { text: '#5EEAD4', bg: 'rgba(20, 184, 166, 0.12)', border: 'rgba(94, 234, 212, 0.30)' },
+  idle: { text: 'rgba(255, 255, 255, 0.60)', bg: 'rgba(255, 255, 255, 0.04)', border: 'rgba(255, 255, 255, 0.14)' },
+} as const;
+
+/**
+ * Canonical opacity scale — prevents ad-hoc opacity math.
+ * Use these with any brand/status color instead of `${color}14` hex suffixes.
+ */
+export const opacity = {
+  subtleBg: 0.04,
+  lightBg: 0.08,
+  mediumBg: 0.12,
+  chipBorder: 0.30,
+  chipText: 0.90,
+  hoverBg: 0.06,
+  activeBorder: 0.28,
 } as const;
 
 export const agentColors: Record<string, string> = {

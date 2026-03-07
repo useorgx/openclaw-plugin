@@ -143,7 +143,7 @@ export function CollapsibleSection({
                     badge.action!.onClick();
                   }
                 }}
-                className={`text-micro font-semibold text-[#D8FFA1] transition-colors hover:text-white active:scale-95 ${
+                className={`text-micro font-semibold text-lime transition-colors hover:text-white active:scale-95 ${
                   badge.action.busy ? 'pointer-events-none opacity-45' : 'cursor-pointer'
                 }`}
               >

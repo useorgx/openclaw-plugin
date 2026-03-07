@@ -144,7 +144,7 @@ function BehaviorSubspace({
   return (
     <section className="grid gap-4 border-t border-white/[0.06] pt-5 first:border-t-0 first:pt-0">
       <div>
-        <p className="text-micro uppercase tracking-[0.16em] text-[#D8FFA1]/72">{step}</p>
+        <p className="text-micro uppercase tracking-[0.16em] text-lime/72">{step}</p>
         <h4 className="mt-2 text-[18px] font-semibold leading-tight text-white">{title}</h4>
         <p className="mt-1.5 text-body leading-relaxed text-secondary">{description}</p>
       </div>
@@ -402,7 +402,7 @@ export function AgentBehaviorPanel({
     return (
       <section className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-5">
         <div className="max-w-2xl">
-          <p className="text-micro uppercase tracking-[0.16em] text-[#D8FFA1]/72">Runtime policy</p>
+          <p className="text-micro uppercase tracking-[0.16em] text-lime/72">Runtime policy</p>
           <h3 className="mt-2 text-[22px] font-semibold leading-tight text-white">No agent suite is installed yet.</h3>
           <p className="mt-2 text-body leading-relaxed text-secondary">
             Per-agent controls only become useful after the local suite is installed and linked to OrgX agent IDs. Set
@@ -439,7 +439,7 @@ export function AgentBehaviorPanel({
             <button
               type="button"
               onClick={onOpenSuiteOps}
-              className="inline-flex min-h-[44px] items-center rounded-full bg-[#BFFF00] px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42]"
+              className="inline-flex min-h-[44px] items-center rounded-full bg-lime px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42]"
             >
               Open suite setup
             </button>

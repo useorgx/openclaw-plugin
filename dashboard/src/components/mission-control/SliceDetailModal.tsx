@@ -437,7 +437,7 @@ export function SliceDetailModal({
     if (action === 'retry_slice') return 'start';
     return null;
   })();
-  const highlightRing = 'ring-1 ring-[#BFFF00]/40 shadow-[0_0_8px_rgba(191,255,0,0.15)]';
+  const highlightRing = 'ring-1 ring-lime/40 shadow-[0_0_8px_rgba(191,255,0,0.15)]';
 
   const handleOpenTerminal = useCallback(
     async (input: { runId?: string | null; sliceRunId?: string | null; sessionId?: string | null }) => {
@@ -561,7 +561,7 @@ export function SliceDetailModal({
             ? 'bg-[#FF6B88]/10 text-[#FF6B88]'
             : actionFeedback.includes('…')
               ? 'bg-white/[0.04] text-white/60 animate-pulse'
-              : 'bg-[#BFFF00]/10 text-[#BFFF00]'
+              : 'bg-lime/10 text-lime'
         }`}>
           {actionFeedback}
         </div>
@@ -605,7 +605,7 @@ export function SliceDetailModal({
                   Cancel
                 </button>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-white/20">
+                  <span className="text-micro text-white/20">
                     {actionMode === 'reject' && !actionNote.trim() ? 'Note required' : '\u2318Enter to confirm'}
                   </span>
                   <button
@@ -614,7 +614,7 @@ export function SliceDetailModal({
                     disabled={actionMode === 'reject' && !actionNote.trim()}
                     className={`inline-flex h-7 items-center gap-1 rounded-md px-3 text-[11px] font-semibold transition-colors disabled:opacity-30 ${
                       actionMode === 'accept'
-                        ? 'bg-[#BFFF00]/12 text-[#BFFF00] hover:bg-[#BFFF00]/20'
+                        ? 'bg-lime/12 text-lime hover:bg-lime/20'
                         : 'bg-[#FF6B88]/12 text-[#FF6B88] hover:bg-[#FF6B88]/20'
                     }`}
                   >
@@ -719,7 +719,7 @@ export function SliceDetailModal({
                   setActionMode('accept');
                 }
               }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#BFFF00]/12 px-4 text-[12px] font-semibold text-[#BFFF00] transition-colors hover:bg-[#BFFF00]/20"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-lime/12 px-4 text-[12px] font-semibold text-lime transition-colors hover:bg-lime/20"
             >
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <polyline points="20 6 9 17 4 12" />
@@ -735,7 +735,7 @@ export function SliceDetailModal({
                 onPlayWorkstream?.(d.initiativeId!, d.workstreamId!, d.agentId ?? undefined);
                 onClose();
               }}
-              className={`inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#BFFF00]/25 bg-[#BFFF00]/10 px-4 text-[12px] font-semibold text-[#E1FFB2] transition-colors hover:bg-[#BFFF00]/20 ${highlightedButton === 'start' ? 'ring-1 ring-[#BFFF00]/50 shadow-[0_0_10px_rgba(191,255,0,0.2)]' : ''}`}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-lg border border-lime/25 bg-lime/10 px-4 text-[12px] font-semibold text-lime transition-colors hover:bg-lime/20 ${highlightedButton === 'start' ? 'ring-1 ring-lime/50 shadow-[0_0_10px_rgba(191,255,0,0.2)]' : ''}`}
               title="Start (⌘ Enter)"
             >
               <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
@@ -801,17 +801,17 @@ export function SliceDetailModal({
                 size="md"
               />
               <div className="min-w-0 flex-1">
-                <h3 className="text-[28px] font-medium leading-none text-white truncate">
+                <h3 className="text-display font-medium leading-none text-white truncate">
                   {d.workstreamTitle}
                 </h3>
                 {d.initiativeTitle && (
-                  <p className="mt-1 text-[10px] uppercase tracking-[0.1em] text-muted">
+                  <p className="mt-1 text-micro uppercase tracking-[0.08em] text-muted">
                     {d.initiativeTitle}
                   </p>
                 )}
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <span
-                    className={`inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-widest ${canonicalStatusClass}`}
+                    className={`inline-flex items-center rounded-full border px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] ${canonicalStatusClass}`}
                   >
                     <span className="relative mr-1.5 inline-block h-1.5 w-1.5">
                       <span
@@ -831,7 +831,7 @@ export function SliceDetailModal({
                   </span>
                   {sr?.confidence && (
                     <span className={`chip text-[9px] font-semibold ${
-                      sr.confidence === 'high' ? 'border-[#BFFF00]/30 bg-[#BFFF00]/[0.12] text-[#d8ffa1]'
+                      sr.confidence === 'high' ? 'border-lime/30 bg-lime/[0.12] text-lime'
                       : sr.confidence === 'medium' ? 'border-[#F5B700]/30 bg-[#F5B700]/[0.12] text-[#FFE7A8]'
                       : 'border-white/[0.12] bg-white/[0.05] text-white/60'
                     }`}>
@@ -916,7 +916,7 @@ export function SliceDetailModal({
                       </p>
                     ) : null}
                     {nextActionLabel ? (
-                      <p className="mt-1 text-caption text-[#BFFF00]/70 flex items-center gap-1">
+                      <p className="mt-1 text-caption text-lime/70 flex items-center gap-1">
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0"><polyline points="9 18 15 12 9 6" /></svg>
                         Recommended action: {nextActionLabel}
                       </p>
@@ -1028,7 +1028,7 @@ export function SliceDetailModal({
                   <div className="flex items-center gap-2">
                     {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
                       <span
-                        className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
+                        className="inline-flex rounded-full border px-2 py-0.5 text-micro font-semibold"
                         style={{
                           color: priorityColor(d.nextTaskPriority),
                           borderColor: `${priorityColor(d.nextTaskPriority)}33`,
@@ -1068,18 +1068,18 @@ export function SliceDetailModal({
                   )}
                   <div className="flex items-center gap-2">
                     {d.sliceScope ? (
-                      <span className="inline-flex rounded-full border border-strong bg-white/[0.03] px-2 py-[1px] text-micro uppercase tracking-[0.08em] text-secondary">
+                      <span className="inline-flex rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
                         {d.sliceScope} slice
                       </span>
                     ) : null}
                     {typeof d.sliceTaskCount === 'number' ? (
-                      <span className="inline-flex rounded-full border border-strong bg-white/[0.03] px-2 py-[1px] text-micro text-secondary">
+                      <span className="inline-flex rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro text-secondary">
                         {d.sliceTaskCount} {d.sliceTaskCount === 1 ? 'task' : 'tasks'} in scope
                       </span>
                     ) : null}
                     {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
                       <span
-                        className="inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold"
+                        className="inline-flex rounded-full border px-2 py-0.5 text-micro font-semibold"
                         style={{
                           color: priorityColor(d.nextTaskPriority),
                           borderColor: `${priorityColor(d.nextTaskPriority)}33`,

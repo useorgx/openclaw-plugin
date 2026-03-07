@@ -873,7 +873,7 @@ export function HierarchyTreeTable({
 
   const SortChevron = ({ field }: { field: SortField }) => {
     if (sortField !== field) return <span className="text-faint ml-0.5">↕</span>;
-    return <span className="text-[#BFFF00] ml-0.5">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
+    return <span className="text-lime ml-0.5">{sortDirection === 'asc' ? '↑' : '↓'}</span>;
   };
 
   const tableHeaderStickyTop = useInternalTableScroll
@@ -978,7 +978,7 @@ export function HierarchyTreeTable({
               onClick={onToggleEditMode}
               data-state={editMode ? 'active' : 'idle'}
               className={`control-pill inline-flex h-8 items-center gap-1.5 px-3.5 text-caption font-semibold ${
-                editMode ? 'text-[#D8FFA1]' : 'text-secondary hover:text-bright'
+                editMode ? 'text-lime' : 'text-secondary hover:text-bright'
               }`}
             >
               <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1031,7 +1031,7 @@ export function HierarchyTreeTable({
                             onClick={() => setStatusScope(scope.id)}
                             className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-micro font-semibold transition-colors ${
                               active
-                                ? 'border-[#BFFF00]/30 bg-[#BFFF00]/10 text-[#D8FFA1]'
+                                ? 'border-lime/30 bg-lime/10 text-lime'
                                 : 'border-strong bg-white/[0.03] text-secondary hover:bg-white/[0.07] hover:text-white/82'
                             }`}
                           >
@@ -1117,7 +1117,7 @@ export function HierarchyTreeTable({
         <div
           className={`rounded-xl border px-3 ${
             selectedRowCount > 0
-              ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08]'
+              ? 'border-lime/24 bg-lime/[0.08]'
               : 'border-white/[0.08] bg-white/[0.02]'
           }`}
         >
@@ -1128,7 +1128,7 @@ export function HierarchyTreeTable({
                 type="checkbox"
                 checked={allVisibleSelected}
                 onChange={toggleSelectAllVisibleRows}
-                className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+                className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/35"
               />
               Select all
             </label>
@@ -1373,7 +1373,7 @@ export function HierarchyTreeTable({
                   }}
                   className={`group/row cursor-pointer rounded-lg border transition-colors ${
                     selected
-                      ? 'border-[#BFFF00]/[0.22] bg-[#BFFF00]/[0.08]'
+                      ? 'border-lime/[0.22] bg-lime/[0.08]'
                       : highlighted
                         ? 'border-[#14B8A6]/[0.2] bg-[#14B8A6]/[0.08]'
                         : 'border-subtle bg-white/[0.02] hover:border-strong hover:bg-white/[0.05]'
@@ -1390,7 +1390,7 @@ export function HierarchyTreeTable({
                       }}
                       onClick={(event) => event.stopPropagation()}
                       aria-label={`Select ${node.type}: ${node.title}`}
-                      className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+                      className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/35"
                     />
                   </td>
                   {/* Item */}
@@ -1411,7 +1411,7 @@ export function HierarchyTreeTable({
                               });
                             }}
                             aria-label={`${expandedRows.has(node.id) ? 'Collapse' : 'Expand'} ${node.type}: ${node.title}`}
-                            className="rounded text-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                            className="rounded text-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                           >
                             {expandedRows.has(node.id) ? '▾' : '▸'}
                           </button>
@@ -1426,7 +1426,7 @@ export function HierarchyTreeTable({
                             onOpenNode(node);
                           }}
                           aria-label={`Open ${node.type} details: ${node.title}`}
-                          className="min-w-0 max-w-[560px] flex-1 truncate rounded text-left text-body text-bright hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                          className="min-w-0 max-w-[560px] flex-1 truncate rounded text-left text-body text-bright hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
                         >
                           {node.title}
                         </button>
@@ -1461,7 +1461,7 @@ export function HierarchyTreeTable({
                                 ? `Start ${node.type}: ${node.title}`
                                 : `${node.type} has no runnable workstream`
                             }
-                            className="control-pill flex h-7 w-[34px] items-center justify-center px-0 text-[#D8FFA1] hover:text-[#E9FFBD] disabled:cursor-not-allowed disabled:text-white/25 disabled:hover:text-white/25"
+                            className="control-pill flex h-7 w-[34px] items-center justify-center px-0 text-lime hover:text-[#E9FFBD] disabled:cursor-not-allowed disabled:text-white/25 disabled:hover:text-white/25"
                           >
                             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg>
                           </button>

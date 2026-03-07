@@ -23,7 +23,7 @@ function riskClasses(risk: UsageRiskLevel): string {
   if (risk === 'over_limit') return 'border-rose-300/30 bg-rose-400/12 text-rose-100';
   if (risk === 'at_risk') return 'border-amber-300/30 bg-amber-400/12 text-amber-100';
   if (risk === 'watch') return 'border-teal-300/25 bg-teal-400/10 text-teal-100';
-  return 'border-lime/30 bg-lime/[0.14] text-[#D8FFA1]';
+  return 'border-lime/30 bg-lime/[0.14] text-lime';
 }
 
 function topBuckets(values: UsageBreakdownBucket[] | undefined, limit = 4): UsageBreakdownBucket[] {
@@ -57,7 +57,7 @@ function UsageSubspace({
   return (
     <section className="grid gap-3">
       <div>
-        <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/80">{step}</p>
+        <p className="text-micro uppercase tracking-[0.12em] text-lime/80">{step}</p>
         <h4 className="mt-1 text-heading font-semibold text-white">{title}</h4>
         <p className="mt-1 text-caption leading-relaxed text-secondary">{description}</p>
       </div>

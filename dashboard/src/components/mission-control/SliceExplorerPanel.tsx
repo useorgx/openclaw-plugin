@@ -54,7 +54,7 @@ function statusTone(status: string): string {
   if (normalized === 'completed' || normalized === 'done' || normalized === 'resolved') {
     return 'border-strong bg-white/[0.05] text-secondary';
   }
-  return 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.08] text-[#E8FFD0]/92';
+  return 'border-lime/24 bg-lime/[0.08] text-lime/92';
 }
 
 function statusHighlight(status: string): string {
@@ -72,7 +72,7 @@ function statusHighlight(status: string): string {
   if (normalized === 'completed' || normalized === 'done' || normalized === 'resolved') {
     return 'from-white/0 via-white/45 to-white/0';
   }
-  return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
+  return 'from-lime/0 via-lime/70 to-lime/0';
 }
 
 function formatMetric(value: number | null | undefined, digits = 2): string {
@@ -321,7 +321,7 @@ export function SliceExplorerPanel({
     >
       <div className="flex flex-col gap-2 border-b border-strong px-3 py-3">
         <div className="flex min-h-[34px] items-center gap-2">
-          <div className="h-1.5 w-1.5 rounded-full bg-[#BFFF00]/70" />
+          <div className="h-1.5 w-1.5 rounded-full bg-lime/70" />
           <h3 className="text-caption font-semibold uppercase tracking-[0.1em] text-secondary">
             {title}
           </h3>
@@ -372,7 +372,7 @@ export function SliceExplorerPanel({
                             className={cn(
                               'control-pill flex h-8 items-center gap-1.5 px-2 text-micro font-semibold',
                               level === option.value
-                                ? 'border-[#BFFF00]/34 bg-[#BFFF00]/[0.12] text-[#E8FFD0]'
+                                ? 'border-lime/34 bg-lime/[0.12] text-lime'
                                 : 'text-secondary'
                             )}
                           >
@@ -390,7 +390,7 @@ export function SliceExplorerPanel({
                           className={cn(
                             'control-pill h-8 px-2.5 text-micro font-semibold',
                             effectiveOrderMode === 'manual'
-                              ? 'border-[#BFFF00]/34 bg-[#BFFF00]/[0.12] text-[#E8FFD0]'
+                              ? 'border-lime/34 bg-lime/[0.12] text-lime'
                               : 'text-secondary'
                           )}
                           disabled={ordering.isSettingOrderMode}
@@ -517,7 +517,7 @@ export function SliceExplorerPanel({
                     </button>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start gap-2">
-                        <span className="rounded-md border border-[#BFFF00]/22 bg-[#BFFF00]/[0.08] px-1.5 py-0.5 text-micro font-semibold text-[#DFFFB5]">
+                        <span className="rounded-md border border-lime/22 bg-lime/[0.08] px-1.5 py-0.5 text-micro font-semibold text-[#DFFFB5]">
                           #{rank}
                         </span>
                         <div className="min-w-0 flex-1">
@@ -617,7 +617,7 @@ export function SliceExplorerPanel({
                     aria-hidden
                   />
                   <div className="flex items-start gap-2">
-                    <span className="rounded-md border border-[#BFFF00]/22 bg-[#BFFF00]/[0.08] px-1.5 py-0.5 text-micro font-semibold text-[#DFFFB5]">
+                    <span className="rounded-md border border-lime/22 bg-lime/[0.08] px-1.5 py-0.5 text-micro font-semibold text-[#DFFFB5]">
                       #{rank}
                     </span>
                     <div className="min-w-0 flex-1">

@@ -114,7 +114,7 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
           <span className="mb-1.5 block text-caption font-medium uppercase tracking-[0.14em] text-muted">
             API key
           </span>
-          <div className={`flex items-stretch overflow-hidden rounded-xl border transition-colors focus-within:border-[#BFFF00]/40 ${hasError ? 'border-red-500/30' : 'border-white/[0.08]'}`}>
+          <div className={`flex items-stretch overflow-hidden rounded-xl border transition-colors focus-within:border-lime/40 ${hasError ? 'border-red-500/30' : 'border-white/[0.08]'}`}>
             <span className="flex items-center border-r border-subtle bg-white/[0.03] px-3 font-mono text-body text-faint select-none">
               oxk_
             </span>
@@ -151,7 +151,7 @@ export function ManualKeyPanel({ isSubmitting, onSubmit, onBack }: ManualKeyPane
           type="button"
           onClick={() => { void submit(); }}
           disabled={isSubmitting}
-          className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-5 py-2.5 text-body font-semibold text-black shadow-[0_0_24px_rgba(191,255,0,0.12)] transition-all hover:bg-[#d3ff42] hover:shadow-[0_0_32px_rgba(191,255,0,0.22)] disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-full bg-lime px-5 py-2.5 text-body font-semibold text-black shadow-[0_0_24px_rgba(191,255,0,0.12)] transition-all hover:bg-[#d3ff42] hover:shadow-[0_0_32px_rgba(191,255,0,0.22)] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSubmitting ? (
             <>

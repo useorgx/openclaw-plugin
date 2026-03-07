@@ -8,6 +8,8 @@ export default {
         teal: '#14B8A6',
         cyan: '#0AD4C4',
         iris: '#7C7CFF',
+        'orgx-amber': '#F5B700',
+        'orgx-red': '#FF6B88',
         surface: {
           0: '#02040A',
           1: '#08090D',
@@ -34,6 +36,7 @@ export default {
         body: ['13px', { lineHeight: '20px' }],
         heading: ['15px', { lineHeight: '22px' }],
         title: ['20px', { lineHeight: '28px' }],
+        display: ['28px', { lineHeight: '34px', letterSpacing: '-0.02em' }],
       },
       fontFamily: {
         sans: ['Geist', 'system-ui', '-apple-system', 'sans-serif'],

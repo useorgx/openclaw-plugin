@@ -246,9 +246,9 @@ export function DependencyMapPanel({
                         title={node.title}
                         className={`flex w-full items-center gap-1.5 rounded-md border px-2 py-1 text-left transition-colors ${
                           selected
-                            ? 'border-[#BFFF00]/35 bg-[#BFFF00]/12'
+                            ? 'border-lime/35 bg-lime/12'
                             : inChain
-                              ? 'border-[#BFFF00]/20 bg-[#BFFF00]/[0.06]'
+                              ? 'border-lime/20 bg-lime/[0.06]'
                               : 'border-white/[0.06] bg-white/[0.03] hover:bg-white/[0.08]'
                         }`}
                       >

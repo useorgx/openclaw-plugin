@@ -99,7 +99,7 @@ export function ActivityTimelineItem({
   const visibleChips = evidenceChips?.slice(0, 2) ?? [];
   const overflowCount = (evidenceChips?.length ?? 0) - visibleChips.length;
   const commonClassName =
-    "group w-full rounded-xl border border-white/[0.08] bg-white/[0.02] px-3.5 py-3 text-left transition-colors hover:border-strong hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/45 cv-auto";
+    "group w-full rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3 text-left transition-colors hover:border-strong hover:bg-white/[0.05] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lime/45 cv-auto";
 
   const isSystem = actorCategory === 'system';
   const content = (

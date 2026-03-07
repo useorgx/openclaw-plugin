@@ -147,11 +147,11 @@ const rise = {
 
 const featureAccentByType: Record<EntityIconType, string> = {
   initiative: 'text-[#A8A0FF]',
-  workstream: 'text-[#BFFF00]',
+  workstream: 'text-lime',
   milestone: 'text-[#43E7D8]',
   task: 'text-primary',
   session: 'text-[#43E7D8]',
-  active: 'text-[#BFFF00]',
+  active: 'text-lime',
   blocked: 'text-[#FF6B88]',
   failed: 'text-[#FF6B88]',
   handoff: 'text-[#A8A0FF]',
@@ -266,7 +266,7 @@ export function ExplainerPanel({
           >
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5">
-                <EntityIcon type="workstream" size={14} className="text-[#BFFF00]" />
+                <EntityIcon type="workstream" size={14} className="text-lime" />
                 <p className="text-micro uppercase tracking-[0.1em] text-secondary">Guided Tour</p>
               </div>
               <span className="chip text-micro">
@@ -323,7 +323,7 @@ export function ExplainerPanel({
                       onClick={() => setActiveSlideIndex(index)}
                       aria-label={`View slide ${index + 1}`}
                       className={`h-1.5 rounded-full transition-all ${
-                        active ? 'w-6 bg-[#BFFF00]' : 'w-2 bg-white/24 hover:bg-white/38'
+                        active ? 'w-6 bg-lime' : 'w-2 bg-white/24 hover:bg-white/38'
                       }`}
                     />
                   );
@@ -368,7 +368,7 @@ export function ExplainerPanel({
               type="button"
               onClick={onConnect}
               disabled={isStarting}
-              className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-5 py-2.5 text-body font-semibold text-black shadow-[0_0_24px_rgba(191,255,0,0.12)] transition-all hover:bg-[#d3ff42] hover:shadow-[0_0_32px_rgba(191,255,0,0.22)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-full bg-lime px-5 py-2.5 text-body font-semibold text-black shadow-[0_0_24px_rgba(191,255,0,0.12)] transition-all hover:bg-[#d3ff42] hover:shadow-[0_0_32px_rgba(191,255,0,0.22)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {isStarting ? (
                 <>

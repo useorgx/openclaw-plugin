@@ -69,7 +69,7 @@ function statusTone(status: string): string {
   if (normalized === 'paused' || normalized === 'pending' || normalized === 'queued') {
     return 'border-amber-300/28 bg-amber-300/[0.10] text-amber-100';
   }
-  return 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.10] text-[#E8FFD0]';
+  return 'border-lime/24 bg-lime/[0.10] text-lime';
 }
 
 function statusHighlight(status: string): string {
@@ -83,7 +83,7 @@ function statusHighlight(status: string): string {
   if (normalized === 'paused' || normalized === 'pending' || normalized === 'queued') {
     return 'from-amber-300/0 via-amber-300/65 to-amber-300/0';
   }
-  return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
+  return 'from-lime/0 via-lime/70 to-lime/0';
 }
 
 function coerceProgress(progress: number | null | undefined): number | null {
@@ -583,7 +583,7 @@ export const InProgressPanel = memo(function InProgressPanel({
             onClick={() => setActiveFilter(null)}
             className={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-micro font-semibold transition-colors ${
               activeFilter === null
-                ? 'border-[#BFFF00]/30 bg-[#BFFF00]/12 text-[#E1FFB2]'
+                ? 'border-lime/30 bg-lime/12 text-lime'
                 : 'border-strong bg-white/[0.04] text-secondary hover:bg-white/[0.08]'
             }`}
           >
@@ -597,7 +597,7 @@ export const InProgressPanel = memo(function InProgressPanel({
               onClick={() => setActiveFilter((prev) => (prev === status ? null : status))}
               className={`inline-flex h-6 items-center gap-1 rounded-full border px-2 text-micro font-semibold capitalize transition-colors ${
                 activeFilter === status
-                  ? 'border-[#BFFF00]/30 bg-[#BFFF00]/12 text-[#E1FFB2]'
+                  ? 'border-lime/30 bg-lime/12 text-lime'
                   : 'border-strong bg-white/[0.04] text-secondary hover:bg-white/[0.08]'
               }`}
             >
@@ -932,7 +932,7 @@ function InProgressRowCard({
                 {row.scope}
               </Pill>
             )}
-            <span className={`inline-flex rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-[0.08em] ${statusTone(status)}`}>
+            <span className={`inline-flex rounded-full border px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] ${statusTone(status)}`}>
               {statusLabel(status)}
             </span>
             {/* Heartbeat timestamp */}

@@ -15,7 +15,7 @@ export function MetricRow({ metrics, className }: MetricRowProps) {
     <div className={`flex items-center gap-12 ${className ?? ''}`}>
       {metrics.map((metric) => (
         <div key={metric.label}>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">
+          <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">
             {metric.label}
           </p>
           <p

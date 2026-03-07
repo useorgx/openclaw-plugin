@@ -62,7 +62,7 @@ function ByokSubspace({
   return (
     <section className="grid gap-4 border-t border-white/[0.06] pt-5 first:border-t-0 first:pt-0">
       <div>
-        <p className="text-micro uppercase tracking-[0.16em] text-[#D8FFA1]/72">{step}</p>
+        <p className="text-micro uppercase tracking-[0.16em] text-lime/72">{step}</p>
         <h4 className="mt-2 text-[18px] font-semibold leading-tight text-white">{title}</h4>
         <p className="mt-1.5 text-body leading-relaxed text-secondary">{description}</p>
       </div>
@@ -274,7 +274,7 @@ export function ByokSettingsPanel({
         description="A dry operational read on launch viability based on current + pending credentials."
       >
         <div className="rounded-xl border border-lime/20 bg-lime/[0.05] p-4">
-          <p className="text-body font-semibold text-[#D8FFA1]">{runPreview.summary}</p>
+          <p className="text-body font-semibold text-lime">{runPreview.summary}</p>
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             {runPreview.providers.map((provider) => (
               <div key={provider.id} className="rounded-xl border border-white/[0.08] bg-black/20 px-3 py-2">
@@ -284,7 +284,7 @@ export function ByokSettingsPanel({
                     className={cn(
                       'rounded-full border px-2 py-0.5 text-micro uppercase tracking-[0.12em]',
                       provider.configured
-                        ? 'border-lime/30 bg-lime/[0.14] text-[#D8FFA1]'
+                        ? 'border-lime/30 bg-lime/[0.14] text-lime'
                         : 'border-white/[0.14] bg-white/[0.04] text-secondary'
                     )}
                   >
@@ -426,7 +426,7 @@ export function ByokSettingsPanel({
                     autoComplete="new-password"
                     spellCheck={false}
                     placeholder={`Paste ${provider.label} key`}
-                    className="w-full rounded-xl border border-white/[0.08] bg-black/30 px-3 py-3 font-mono text-body text-primary placeholder:text-faint focus:border-[#BFFF00]/40 focus:outline-none"
+                    className="w-full rounded-xl border border-white/[0.08] bg-black/30 px-3 py-3 font-mono text-body text-primary placeholder:text-faint focus:border-lime/40 focus:outline-none"
                   />
                 </label>
 
@@ -438,7 +438,7 @@ export function ByokSettingsPanel({
                   <button
                     type="submit"
                     disabled={!canSave}
-                    className="rounded-full bg-[#BFFF00] px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-40"
+                    className="rounded-full bg-lime px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {isSavingThis ? 'Saving...' : saveLabel}
                   </button>

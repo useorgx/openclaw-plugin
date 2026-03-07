@@ -216,7 +216,7 @@ function toInitiativePriorityLabel(item: NextUpQueueItem): {
       : normalized === 'high'
         ? 'border-amber-300/35 bg-amber-500/[0.14] text-amber-100'
         : normalized === 'medium'
-          ? 'border-[#BFFF00]/35 bg-[#BFFF00]/14 text-[#E1FFB2]'
+          ? 'border-lime/35 bg-lime/14 text-lime'
           : 'border-white/[0.2] bg-white/[0.08] text-white/70';
 
   return {
@@ -407,7 +407,7 @@ function NextUpLoadingSkeleton({ compact }: { compact: boolean }) {
   return (
     <div className="space-y-2.5">
       <div className="flex items-center gap-2 px-1 pt-1 text-micro uppercase tracking-[0.12em] text-muted">
-        <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00]/70 status-breathe" />
+        <span className="h-1.5 w-1.5 rounded-full bg-lime/70 status-breathe" />
         <span>Calibrating queue</span>
       </div>
       {Array.from({ length: cards }).map((_, index) => (
@@ -1051,7 +1051,7 @@ export function NextUpPanel({
                     className={cn(
                       'relative h-7 rounded-lg px-2.5 text-caption font-semibold transition-colors',
                       selected
-                        ? 'text-[#E8FFD0]'
+                        ? 'text-lime'
                         : 'text-secondary hover:text-white'
                     )}
                     title={`Show ${option.label.toLowerCase()} queue`}
@@ -1064,7 +1064,7 @@ export function NextUpPanel({
                             ? { duration: 0.01 }
                             : missionControlMotion.railMorphSpring
                         }
-                        className="pointer-events-none absolute inset-0 rounded-lg border border-[#BFFF00]/35 bg-[#BFFF00]/16"
+                        className="pointer-events-none absolute inset-0 rounded-lg border border-lime/35 bg-lime/16"
                         aria-hidden
                       />
                     ) : null}
@@ -1656,7 +1656,7 @@ export function NextUpPanel({
                           const score = item.objectiveScore ?? item.compositeScore ?? null;
                           if (score == null) return null;
                           const tier = score >= 80 ? 'S' : score >= 60 ? 'A' : 'B';
-                          const tierColor = tier === 'S' ? 'border-[#BFFF00]/30 bg-[#BFFF00]/[0.12] text-[#d8ffa1]'
+                          const tierColor = tier === 'S' ? 'border-lime/30 bg-lime/[0.12] text-lime'
                             : tier === 'A' ? 'border-[#14B8A6]/30 bg-[#14B8A6]/[0.12] text-[#87FFE9]'
                             : 'border-white/[0.12] bg-white/[0.05] text-white/60';
                           return (
@@ -2053,7 +2053,7 @@ function NextUpReorderRow({
                   onKeyDown={(event) => event.stopPropagation()}
                   className={`absolute inset-0 flex items-center justify-center rounded-full border transition-[opacity,transform,background-color,border-color,color] duration-200 ease-out ${
                     selected
-                      ? 'opacity-100 scale-100 border-[#BFFF00]/40 bg-[#BFFF00]/18 text-[#E1FFB2]'
+                      ? 'opacity-100 scale-100 border-lime/40 bg-lime/18 text-lime'
                       : 'opacity-0 scale-90 border-white/[0.24] bg-black/55 text-white/78 group-hover:opacity-100 group-hover:scale-100 group-focus-within:opacity-100 group-focus-within:scale-100 hover:bg-black/62'
                   }`}
                 >
@@ -2188,7 +2188,7 @@ function NextUpReorderRow({
             title={isDragging ? 'Reordering' : 'Drag to reorder'}
             className={`control-pill flex h-7 items-center justify-center gap-1 px-2 text-micro font-semibold transition-colors ${
               isDragging
-                ? 'border-[#BFFF00]/35 bg-[#BFFF00]/14 text-[#E1FFB2] cursor-grabbing'
+                ? 'border-lime/35 bg-lime/14 text-lime cursor-grabbing'
                 : 'cursor-grab hover:bg-white/[0.08] hover:text-bright'
             }`}
           >

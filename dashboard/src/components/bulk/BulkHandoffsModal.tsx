@@ -150,7 +150,7 @@ export function BulkHandoffsModal({
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search title, summary, status…"
                 data-modal-autofocus="true"
-                className="w-full rounded-lg border border-strong bg-black/25 px-3 py-2 text-body text-white placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/35"
+                className="w-full rounded-lg border border-strong bg-black/25 px-3 py-2 text-body text-white placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-lime/35"
               />
             </div>
 

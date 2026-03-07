@@ -59,7 +59,7 @@ export function selectNeedsInputRows(sliceRuns: SliceRunProjection[]): NeedsInpu
 function statusTone(status: SliceRunProjection['status']): string {
   if (status === 'failed') return 'border-red-400/30 bg-red-500/[0.10] text-red-100';
   if (status === 'needs_review') return 'border-amber-300/30 bg-amber-300/[0.10] text-amber-100';
-  return 'border-[#BFFF00]/30 bg-[#BFFF00]/12 text-[#E1FFB2]';
+  return 'border-lime/30 bg-lime/12 text-lime';
 }
 
 function statusLabel(status: SliceRunProjection['status']): string {
@@ -72,7 +72,7 @@ function statusLabel(status: SliceRunProjection['status']): string {
 function statusHighlight(status: SliceRunProjection['status']): string {
   if (status === 'failed') return 'from-red-300/0 via-red-300/65 to-red-300/0';
   if (status === 'needs_review') return 'from-amber-300/0 via-amber-300/65 to-amber-300/0';
-  return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
+  return 'from-lime/0 via-lime/70 to-lime/0';
 }
 
 function actionLabel(item: SliceRunProjection): string {
