@@ -1,6 +1,7 @@
 import type { LiveActivityItem } from '@/types';
 import { humanizeActivitySummary } from '@/lib/humanize';
 import { useMemo } from 'react';
+import { motion } from 'framer-motion';
 
 interface ActivityDetailSummaryProps {
   item: LiveActivityItem;
@@ -84,20 +85,30 @@ export function ActivityDetailSummary({ item, className }: ActivityDetailSummary
     ? `${agentName} recorded a ${eventType}`
     : null;
 
+  const rows = [
+    (summary.taskDescription || fallbackTask) ? { label: 'Task', value: summary.taskDescription ?? fallbackTask! } : null,
+    summary.outcomeDescription ? { label: 'Outcome', value: summary.outcomeDescription } : null,
+    summary.nextStep ? { label: 'Next step', value: summary.nextStep } : null,
+  ].filter(Boolean) as { label: string; value: string }[];
+
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
       className={`rounded-lg border ${styles.border} ${styles.bg} p-6 space-y-5 ${className ?? ''}`}
     >
-      {(summary.taskDescription || fallbackTask) && (
-        <SummaryRow label="Task" value={summary.taskDescription ?? fallbackTask!} styles={styles} />
-      )}
-      {summary.outcomeDescription && (
-        <SummaryRow label="Outcome" value={summary.outcomeDescription} styles={styles} />
-      )}
-      {summary.nextStep && (
-        <SummaryRow label="Next step" value={summary.nextStep} styles={styles} />
-      )}
-    </div>
+      {rows.map((row, i) => (
+        <motion.div
+          key={row.label}
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.25, delay: 0.08 + i * 0.06, ease: [0.22, 1, 0.36, 1] }}
+        >
+          <SummaryRow label={row.label} value={row.value} styles={styles} />
+        </motion.div>
+      ))}
+    </motion.div>
   );
 }
 

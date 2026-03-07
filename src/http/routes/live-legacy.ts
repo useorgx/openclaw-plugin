@@ -23,6 +23,8 @@ type LocalLiveActivity = {
 
 type LiveActivityPage = {
   activities: LiveActivityItem[];
+  total?: number;
+  storeUpdatedAt?: string;
   cursor?: string | null;
   nextCursor?: string | null;
   prevCursor?: string | null;
@@ -163,6 +165,46 @@ export function registerLiveLegacyRoutes<
     };
   }
 
+  function readActivityMetadataValue(
+    metadata: Record<string, unknown> | null | undefined,
+    keys: string[]
+  ): string | null {
+    if (!metadata) return null;
+    for (const key of keys) {
+      const value = metadata[key];
+      if (typeof value === "string" && value.trim().length > 0) {
+        return value.trim();
+      }
+    }
+    return null;
+  }
+
+  function resolveActivityInitiativeId(item: LiveActivityItem): string | null {
+    const direct = item.initiativeId?.trim();
+    if (direct) return direct;
+    const metadata =
+      item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+        ? (item.metadata as Record<string, unknown>)
+        : null;
+    return readActivityMetadataValue(metadata, [
+      "initiativeId",
+      "initiative_id",
+      "initiative",
+    ]);
+  }
+
+  function filterActivityByInitiativeIds(
+    items: LiveActivityItem[],
+    initiativeIds: Set<string> | null
+  ): LiveActivityItem[] {
+    if (!initiativeIds) return items;
+    if (initiativeIds.size === 0) return [];
+    return items.filter((item) => {
+      const initiativeId = resolveActivityInitiativeId(item);
+      return initiativeId ? initiativeIds.has(initiativeId) : false;
+    });
+  }
+
   const sendDeprecated = (
     res: TRes,
     endpoint: string,
@@ -206,6 +248,23 @@ export function registerLiveLegacyRoutes<
     const limit = Number.isFinite(limitRaw)
       ? Math.max(1, Math.floor(Number(limitRaw)))
       : 200;
+    const scopedInitiativeIds = projectId
+      ? new Set(
+          (await deps.listInitiativeIdsForProject({ projectId }))
+            .map((value) => value.trim())
+            .filter((value) => value.length > 0)
+        )
+      : null;
+
+    if (scopedInitiativeIds && scopedInitiativeIds.size === 0) {
+      deps.sendJson(res, 200, {
+        activities: [],
+        total: 0,
+        nextCursor: null,
+        storeUpdatedAt: null,
+      });
+      return;
+    }
 
     let page = deps.listActivityPage({
       limit,
@@ -218,7 +277,10 @@ export function registerLiveLegacyRoutes<
       const ctx = toContextBundle(deps.readAgentContexts());
       page = {
         ...page,
-        activities: deps.applyAgentContextsToActivity(page.activities, ctx),
+        activities: filterActivityByInitiativeIds(
+          deps.applyAgentContextsToActivity(page.activities, ctx),
+          scopedInitiativeIds
+        ),
       };
     }
 
@@ -255,12 +317,22 @@ export function registerLiveLegacyRoutes<
           const ctx = toContextBundle(deps.readAgentContexts());
           page = {
             ...page,
-            activities: deps.applyAgentContextsToActivity(page.activities, ctx),
+            activities: filterActivityByInitiativeIds(
+              deps.applyAgentContextsToActivity(page.activities, ctx),
+              scopedInitiativeIds
+            ),
           };
         }
       } catch {
         // best effort
       }
+    }
+
+    if (scopedInitiativeIds) {
+      page = {
+        ...page,
+        total: page.activities.length,
+      };
     }
 
     deps.sendJson(res, 200, page);

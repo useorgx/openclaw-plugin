@@ -122,6 +122,7 @@ export function Modal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
+          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
           className="fixed inset-0 z-[420] flex items-stretch justify-center p-0 sm:items-center sm:p-6"
           onClick={() => {
             if (closeOnBackdropClick) onClose();

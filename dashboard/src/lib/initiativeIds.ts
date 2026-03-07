@@ -1,5 +1,6 @@
 import {
   DEMO_MODE_STORAGE_KEY,
+  SANDBOX_MODE_STORAGE_KEY,
   SHOW_SYNTHETIC_ENTITIES_STORAGE_KEY,
 } from '@/lib/storageKeys';
 
@@ -18,22 +19,31 @@ export function isSyntheticInitiativeId(value: string | null | undefined): boole
   return false;
 }
 
-export function isDemoModeEnabled(): boolean {
-  // Demo mode is a purely client-side concern; avoid introducing hard dependencies
+export function isSandboxModeEnabled(): boolean {
+  // Sandbox mode is a purely client-side concern; avoid introducing hard dependencies
   // on browser globals for SSR/build-time evaluation.
   if (typeof window === 'undefined') return false;
   try {
     const params = new URLSearchParams(window.location.search);
+    if (params.get('sandbox') === '1') return true;
     if (params.get('demo') === '1') return true;
   } catch {
     // ignore
   }
   try {
-    // Keep in sync with dashboard/src/App.tsx
-    return window.localStorage.getItem(DEMO_MODE_STORAGE_KEY) === '1';
+    // `orgx.demo_mode` is a legacy key kept for backward compatibility while
+    // first-run flows migrate to the explicit sandbox model.
+    return (
+      window.localStorage.getItem(SANDBOX_MODE_STORAGE_KEY) === '1' ||
+      window.localStorage.getItem(DEMO_MODE_STORAGE_KEY) === '1'
+    );
   } catch {
     return false;
   }
+}
+
+export function isDemoModeEnabled(): boolean {
+  return isSandboxModeEnabled();
 }
 
 export function shouldIncludeSyntheticEntities(): boolean {

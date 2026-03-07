@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { OnboardingState } from '@/types';
 import { humanizeWarning } from '@/lib/humanize';
-import { DEMO_MODE_STORAGE_KEY } from '@/lib/storageKeys';
+import {
+  DEMO_MODE_STORAGE_KEY,
+  SANDBOX_MODE_STORAGE_KEY,
+} from '@/lib/storageKeys';
 import orgxLogo from '@/assets/orgx-logo.png';
 import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
 
@@ -503,7 +506,8 @@ export function ExplainerPanel({
             type="button"
             onClick={() => {
               try {
-                window.localStorage.setItem(DEMO_MODE_STORAGE_KEY, '1');
+                window.localStorage.setItem(SANDBOX_MODE_STORAGE_KEY, '1');
+                window.localStorage.removeItem(DEMO_MODE_STORAGE_KEY);
               } catch {
                 // ignore
               }
@@ -511,21 +515,7 @@ export function ExplainerPanel({
             }}
             className="text-left text-caption text-muted transition hover:text-secondary"
           >
-            Explore demo dashboard
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              try {
-                window.localStorage.removeItem(DEMO_MODE_STORAGE_KEY);
-              } catch {
-                // ignore
-              }
-              onContinueWithoutOrgX();
-            }}
-            className="text-left text-caption text-faint transition hover:text-secondary"
-          >
-            Continue offline
+            Open guided sandbox
           </button>
         </div>
         <a

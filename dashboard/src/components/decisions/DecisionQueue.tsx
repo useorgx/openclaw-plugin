@@ -101,7 +101,12 @@ function InitiativeGroupHeader({
   const urgency = getGroupUrgency(group.worstWaitingMinutes);
   const count = group.decisions.length;
   return (
-    <div className="flex items-center gap-2 px-1 pb-1 pt-2.5 first:pt-0">
+    <motion.div
+      initial={{ opacity: 0, x: -6 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+      className="flex items-center gap-2 px-1 pb-1 pt-2.5 first:pt-0"
+    >
       <span className="text-caption font-semibold text-white/70 truncate">
         {group.label}
       </span>
@@ -120,7 +125,7 @@ function InitiativeGroupHeader({
           urgent
         </span>
       )}
-    </div>
+    </motion.div>
   );
 }
 
@@ -632,10 +637,14 @@ export const DecisionQueue = memo(function DecisionQueue({
           </div>
 
           {showStatusBanner ? (
-            <div
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
               aria-live="polite"
               className={cn(
-                'flex min-h-[32px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-caption transition-colors',
+                'flex min-h-[32px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-caption transition-colors overflow-hidden',
                 statusTone === 'processing'
                   ? 'border-amber-300/25 bg-amber-400/[0.08] text-amber-100'
                   : statusTone === 'success'
@@ -672,14 +681,19 @@ export const DecisionQueue = memo(function DecisionQueue({
                 <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-white/35" />
               )}
               <span className="min-w-0 truncate">{statusMessage}</span>
-            </div>
+            </motion.div>
           ) : null}
         </div>
       ) : null}
 
       <div className={cn('min-h-0 flex-1 space-y-2 overflow-y-auto', showHeader ? 'p-3' : 'p-0')}>
         {sorted.length === 0 && (
-          <div className="flex flex-col items-center gap-2.5 rounded-xl border border-subtle bg-white/[0.02] p-4 text-center">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            className="flex flex-col items-center gap-2.5 rounded-xl border border-subtle bg-white/[0.02] p-4 text-center"
+          >
             {hasInFlightMutations ? (
               <>
                 <span
@@ -707,7 +721,7 @@ export const DecisionQueue = memo(function DecisionQueue({
                 <p className="text-body text-secondary">No pending decisions. All clear.</p>
               </>
             )}
-          </div>
+          </motion.div>
         )}
 
         {enableMotion ? (
@@ -743,7 +757,12 @@ export const DecisionQueue = memo(function DecisionQueue({
                       }}
                       initial={isApprovingAll ? { opacity: 0, x: 300 } : { opacity: 0, y: 8, scale: 0.98 }}
                       animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
-                      exit={{ opacity: 0, x: 300, scale: 0.95 }}
+                      exit={{
+                        opacity: 0,
+                        x: 300,
+                        scale: 0.95,
+                        boxShadow: '0 0 12px 4px rgba(191, 255, 0, 0.15)',
+                      }}
                       transition={{
                         duration: 0.25,
                         ease: [0.22, 1, 0.36, 1],

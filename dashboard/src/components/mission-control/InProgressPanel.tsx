@@ -1,5 +1,5 @@
 import { memo, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
 import type { Initiative, SessionTreeNode, SliceRunProjection, SliceScope } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
@@ -885,6 +885,8 @@ function InProgressRowCard({
     <motion.article
       initial={{ opacity: 0, y: 10, scale: 0.985 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.97, y: -6 }}
+      layout
       transition={{
         duration: 0.24,
         delay: Math.min(index, 7) * 0.02,

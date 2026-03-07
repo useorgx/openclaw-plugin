@@ -16,10 +16,11 @@ import { colors, normalizeStatus } from '@/lib/tokens';
 import { formatWaitingDuration } from '@/lib/time';
 import { appendWorkspaceScopeParams as appendCanonicalWorkspaceScopeParams } from '@/lib/workspaceScope';
 import { buildOrgxHeaders } from '@/lib/http';
-import { isSyntheticInitiativeId } from '@/lib/initiativeIds';
+import { isSandboxModeEnabled, isSyntheticInitiativeId } from '@/lib/initiativeIds';
 import {
   DEMO_MODE_STORAGE_KEY,
   DEV_MODE_STORAGE_KEY,
+  SANDBOX_MODE_STORAGE_KEY,
   SELECTED_WORKSPACE_ID_STORAGE_KEY,
   SHOW_SYNTHETIC_ENTITIES_STORAGE_KEY,
 } from '@/lib/storageKeys';
@@ -59,6 +60,7 @@ import { ArtifactViewerProvider, useArtifactViewer } from '@/components/artifact
 import { ContextualStatus } from '@/components/shared/ContextualStatus';
 import { AgentsChatsPanel } from '@/components/sessions/AgentsChatsPanel';
 import { ActivityTimeline } from '@/components/activity/ActivityTimeline';
+import { ConnectedEmptyRunway } from '@/components/onboarding/ConnectedEmptyRunway';
 import orgxLogo from '@/assets/orgx-logo.png';
 
 type DashboardView = 'activity' | 'mission-control';
@@ -630,16 +632,7 @@ function DashboardShell({
 }: {
   onboarding: OnboardingController;
 }) {
-  const [demoMode, setDemoMode] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('demo') === '1') return true;
-    try {
-      return window.localStorage.getItem(DEMO_MODE_STORAGE_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
+  const [demoMode, setDemoMode] = useState<boolean>(() => isSandboxModeEnabled());
   const [showSyntheticEntities, setShowSyntheticEntities] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
     try {
@@ -1167,8 +1160,10 @@ function DashboardShell({
     if (typeof window === 'undefined') return;
     try {
       if (demoMode) {
-        window.localStorage.setItem(DEMO_MODE_STORAGE_KEY, '1');
+        window.localStorage.setItem(SANDBOX_MODE_STORAGE_KEY, '1');
+        window.localStorage.removeItem(DEMO_MODE_STORAGE_KEY);
       } else {
+        window.localStorage.removeItem(SANDBOX_MODE_STORAGE_KEY);
         window.localStorage.removeItem(DEMO_MODE_STORAGE_KEY);
       }
     } catch {
@@ -1248,8 +1243,10 @@ function DashboardShell({
     try {
       const url = new URL(window.location.href);
       if (next) {
-        url.searchParams.set('demo', '1');
+        url.searchParams.set('sandbox', '1');
+        url.searchParams.delete('demo');
       } else {
+        url.searchParams.delete('sandbox');
         url.searchParams.delete('demo');
       }
       window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
@@ -1267,12 +1264,13 @@ function DashboardShell({
   }, []);
 
   // Fetch entity-based initiatives for Mission Control (only when view is active)
-  const { data: entityInitiatives } = useEntityInitiatives(
-    dashboardView === 'mission-control',
+  const initiativesEnabled = onboarding.state.connectionVerified && !demoMode;
+  const { data: entityInitiatives, isLoading: isEntityInitiativesLoading } = useEntityInitiatives(
+    initiativesEnabled,
     selectedWorkspaceId
   );
-  const { data: liveInitiatives } = useLiveInitiatives(
-    dashboardView === 'mission-control',
+  const { data: liveInitiatives, isLoading: isLiveInitiativesLoading } = useLiveInitiatives(
+    initiativesEnabled,
     selectedWorkspaceId
   );
   const { data: initiativeTombstones = [] } = useQuery<string[]>({
@@ -1981,6 +1979,24 @@ function DashboardShell({
     initiativeTombstones,
   ]);
 
+  const recentSessionDraft = useMemo(() => {
+    return [...sessionNodesInScope]
+      .filter((node) => node.title.trim().length > 0)
+      .sort(
+        (left, right) =>
+          toEpoch(right.updatedAt ?? right.lastEventAt ?? right.startedAt) -
+          toEpoch(left.updatedAt ?? left.lastEventAt ?? left.startedAt)
+      )[0] ?? null;
+  }, [sessionNodesInScope]);
+
+  const showConnectedEmptyRunway =
+    !demoMode &&
+    onboarding.state.connectionVerified &&
+    !isLoading &&
+    !isEntityInitiativesLoading &&
+    !isLiveInitiativesLoading &&
+    mcInitiatives.length === 0;
+
   const initiativeNameMap = useMemo(() => {
     const map: Record<string, string> = {};
     for (const init of mcInitiatives) {
@@ -2535,9 +2551,15 @@ function DashboardShell({
     }
   }, [closeEntityModal, entityCreating, entityModal, entityName, initiatives, refetch, selectedSession?.initiativeId]);
 
+  const createInitiativeDraft = useCallback((title?: string | null) => {
+    setEntityModal({ type: 'initiative' });
+    setEntityName(title?.trim() ?? '');
+    setEntityCreating(false);
+  }, []);
+
   const startInitiative = useCallback(() => {
-    openEntityModal('initiative');
-  }, [openEntityModal]);
+    createInitiativeDraft();
+  }, [createInitiativeDraft]);
 
   const startWorkstream = useCallback(
     (initiativeId?: string | null) => {
@@ -2749,6 +2771,27 @@ function DashboardShell({
     );
   }
 
+  if (showConnectedEmptyRunway) {
+    return (
+      <ConnectedEmptyRunway
+        workspaceLabel={selectedWorkspaceLabel}
+        suggestedTitle={recentSessionDraft?.title ?? null}
+        sessionSummary={recentSessionDraft?.lastEventSummary ?? null}
+        onCreateInitiative={() => createInitiativeDraft()}
+        onCreateFromSession={() => createInitiativeDraft(recentSessionDraft?.title ?? null)}
+        onOpenSandbox={() => {
+          setDemoModeEnabled(true);
+          onboarding.skipGate();
+        }}
+        onOpenSettings={() => openSettings('orgx')}
+        onRefresh={() => {
+          void onboarding.refreshStatus();
+          void refetch();
+        }}
+      />
+    );
+  }
+
   return (
     <div
       className="relative flex min-h-screen flex-col pb-[92px] lg:h-screen lg:min-h-0 lg:overflow-hidden lg:pb-0"
@@ -2909,9 +2952,9 @@ function DashboardShell({
                   handleReconnect();
                 }}
                 className="hidden rounded-full border border-amber-200/25 bg-amber-200/10 px-3 py-1.5 text-caption font-semibold text-amber-100 transition-colors hover:bg-amber-200/15 sm:inline"
-                title="Exit demo mode"
+                title="Exit guided sandbox"
               >
-                Exit demo
+                Exit sandbox
               </button>
             )}
             <button

@@ -66,10 +66,10 @@ export function FirstRunGuideModal({
 
   const steps = [
     {
-      label: demoMode ? 'Exit demo (optional)' : 'Connect OrgX',
+      label: demoMode ? 'Exit sandbox (optional)' : 'Connect OrgX',
       done: demoMode ? false : connectionVerified,
       detail: demoMode
-        ? 'Demo mode shows sample data. Connect OrgX to sync initiatives/tasks.'
+        ? 'Sandbox mode shows sample data. Connect OrgX to sync initiatives and tasks.'
         : 'Approve the pairing flow so your initiatives, tasks, and activity can sync.',
       action:
         !demoMode && !connectionVerified && onOpenOrgxSettings

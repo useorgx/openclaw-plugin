@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { motion } from 'framer-motion';
 import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
 
 interface Breadcrumb {
@@ -55,10 +56,13 @@ export function ModalShell({
             </span>
           )}
         </div>
-        <button
+        <motion.button
           type="button"
           onClick={onClose}
           aria-label="Close detail"
+          whileHover={{ scale: 1.06 }}
+          whileTap={{ scale: 0.92 }}
+          transition={{ duration: 0.12 }}
           className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-strong bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
         >
           <svg
@@ -74,7 +78,7 @@ export function ModalShell({
             <path d="M18 6L6 18" />
             <path d="M6 6l12 12" />
           </svg>
-        </button>
+        </motion.button>
       </div>
 
       {/* Scrollable body */}

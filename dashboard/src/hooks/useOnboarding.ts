@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { identifyTelemetry } from '@/lib/telemetry';
-import { isDemoModeEnabled } from '@/lib/initiativeIds';
+import { isSandboxModeEnabled } from '@/lib/initiativeIds';
 import { humanizeWarning } from '@/lib/humanize';
 import { ONBOARDING_SKIP_STORAGE_KEY } from '@/lib/storageKeys';
 import { mergeOnboardingState } from '@shared/onboarding-state';
@@ -249,19 +249,6 @@ function buildOnboardingErrorState(
   };
 }
 
-function buildDemoOnboardingState(): OnboardingState {
-  return {
-    ...DEFAULT_STATE,
-    status: 'connected',
-    hasApiKey: true,
-    connectionVerified: true,
-    workspaceName: 'Demo Workspace',
-    nextAction: 'open_dashboard',
-    keySource: 'legacy-dev',
-    lastError: null,
-  };
-}
-
 interface ApiResponse<T> {
   ok?: boolean;
   data?: T;
@@ -307,11 +294,9 @@ function maybeIdentify(installationId: string | null | undefined) {
 }
 
 export function useOnboarding() {
-  const [state, setState] = useState<OnboardingState>(() =>
-    isDemoModeEnabled() ? buildDemoOnboardingState() : DEFAULT_STATE
-  );
+  const [state, setState] = useState<OnboardingState>(DEFAULT_STATE);
   const stateRef = useRef(state);
-  const [isLoading, setIsLoading] = useState(() => !isDemoModeEnabled());
+  const [isLoading, setIsLoading] = useState(true);
   const [isStarting, setIsStarting] = useState(false);
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
   const pairingWindowRef = useRef<Window | null>(null);
@@ -324,13 +309,13 @@ export function useOnboarding() {
     stateRef.current = state;
   }, [state]);
 
-  const refreshStatus = useCallback(async (): Promise<OnboardingState> => {
-    if (isDemoModeEnabled()) {
-      const demoState = buildDemoOnboardingState();
-      setState(demoState);
-      return demoState;
+  useEffect(() => {
+    if (!isSandboxModeEnabled() && isGateSkipped) {
+      setIsGateSkipped(false);
     }
+  }, [isGateSkipped]);
 
+  const refreshStatus = useCallback(async (): Promise<OnboardingState> => {
     const payload = await readJson<OnboardingState>(
       fetch('/orgx/api/onboarding/status', { method: 'GET' })
     );
@@ -352,12 +337,6 @@ export function useOnboarding() {
   }, []);
 
   useEffect(() => {
-    if (isDemoModeEnabled()) {
-      setState(buildDemoOnboardingState());
-      setIsLoading(false);
-      return undefined;
-    }
-
     let cancelled = false;
 
     void (async () => {
@@ -407,6 +386,10 @@ export function useOnboarding() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
+    if (!isSandboxModeEnabled()) {
+      window.localStorage.removeItem(ONBOARDING_SKIP_STORAGE_KEY);
+      return;
+    }
     if (isGateSkipped) {
       window.localStorage.setItem(ONBOARDING_SKIP_STORAGE_KEY, '1');
       return;
@@ -431,12 +414,6 @@ export function useOnboarding() {
   }, []);
 
   const startPairing = useCallback(async () => {
-    if (isDemoModeEnabled()) {
-      const demoState = buildDemoOnboardingState();
-      setState(demoState);
-      return;
-    }
-
     const pairingWindow = openPairingWindow();
     pairingWindowRef.current = pairingWindow;
 
@@ -521,12 +498,6 @@ export function useOnboarding() {
 
   const submitManualKey = useCallback(
     async (apiKey: string) => {
-      if (isDemoModeEnabled()) {
-        const demoState = buildDemoOnboardingState();
-        setState(demoState);
-        return demoState;
-      }
-
       setIsSubmittingManual(true);
       try {
         const trimmedInput = apiKey.trim();
@@ -586,12 +557,6 @@ export function useOnboarding() {
   );
 
   const disconnect = useCallback(async () => {
-    if (isDemoModeEnabled()) {
-      const demoState = buildDemoOnboardingState();
-      setState(demoState);
-      return demoState;
-    }
-
     const payload = await readJson<OnboardingState>(
       fetch('/orgx/api/onboarding/disconnect', {
         method: 'POST',
@@ -617,12 +582,6 @@ export function useOnboarding() {
   }, []);
 
   const cancelPairing = useCallback(async () => {
-    if (isDemoModeEnabled()) {
-      const demoState = buildDemoOnboardingState();
-      setState(demoState);
-      return demoState;
-    }
-
     const payload = await readJson<OnboardingState>(
       fetch('/orgx/api/onboarding/cancel', {
         method: 'POST',
@@ -658,15 +617,14 @@ export function useOnboarding() {
   }, []);
 
   const showGate = useMemo(() => {
-    if (isDemoModeEnabled()) return false;
-    if (isGateSkipped) return false;
     const connectionStillUsable =
       state.hasApiKey &&
       state.connectionVerified &&
       (state.status === 'connected' ||
         state.status === 'pairing' ||
         state.status === 'awaiting_browser_auth');
-    return !connectionStillUsable;
+    if (connectionStillUsable) return false;
+    return !(isGateSkipped && isSandboxModeEnabled());
   }, [isGateSkipped, state.connectionVerified, state.hasApiKey, state.status]);
 
   return {

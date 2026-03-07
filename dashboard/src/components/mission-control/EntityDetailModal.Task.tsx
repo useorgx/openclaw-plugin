@@ -406,7 +406,7 @@ export function TaskDetail({ task, initiative }: TaskDetailProps) {
               &#x22EF;
             </button>
             {overflowOpen && (
-              <div className="absolute bottom-full right-0 mb-1 min-w-[160px] rounded-lg border border-white/10 bg-[#0c1322] shadow-xl z-50">
+              <div className="popover-enter absolute bottom-full right-0 mb-1 min-w-[160px] rounded-lg border border-white/10 bg-[#0c1322] shadow-xl z-50">
                 {confirmDelete ? (
                   <div className="flex flex-col gap-1 p-2">
                     <span className="text-caption" style={{ color: `${colors.red}b3` }}>Delete task?</span>
