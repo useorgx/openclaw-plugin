@@ -672,81 +672,12 @@ export const InProgressPanel = memo(function InProgressPanel({
                 {initGroup.workstreams.map((wsGroup) => {
                   const wsCompletedKey = `${initGroup.initiativeId}:${wsGroup.workstreamId}`;
                   const showCompleted = collapsedCompleted.has(wsCompletedKey);
-                  // Resolve agent persona from first active row in workstream
-                  const firstRow = wsGroup.rows[0] ?? null;
-                  const agentPersona = firstRow
-                    ? resolveAgentPersona(firstRow.session?.agentId, firstRow.session?.agentName)
-                    : null;
-                  // Scope progress from first row
-                  const scopeTotal = firstRow?.milestoneProgress
-                    ? firstRow.milestoneProgress.reduce((s, m) => s + m.total, 0)
-                    : null;
-                  const scopeDone = firstRow?.milestoneProgress
-                    ? firstRow.milestoneProgress.reduce((s, m) => s + m.done, 0)
-                    : null;
-                  const taskPosition =
-                    scopeTotal && scopeTotal > 0
-                      ? `Task ${(scopeDone ?? 0) + 1} of ${scopeTotal}`
-                      : null;
-                  const taskPercent =
-                    scopeTotal && scopeTotal > 0
-                      ? Math.round(((scopeDone ?? 0) / scopeTotal) * 100)
-                      : firstRow?.progress != null
-                        ? coerceProgress(firstRow.progress)
-                        : null;
                   return (
                     <div
                       key={wsGroup.workstreamId}
                       className="pl-4 border-l border-white/[0.08] mb-3"
                     >
-                      {/* Workstream context row */}
-                      <div className="mb-2 flex items-start gap-2">
-                        <div className="min-w-0 flex flex-1 items-center gap-1.5">
-                          <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-80" />
-                          {agentPersona && (
-                            <div
-                              className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
-                              style={{
-                                backgroundColor: `${agentPersona.color}20`,
-                                color: agentPersona.color,
-                              }}
-                            >
-                              {agentPersona.name.charAt(0).toUpperCase()}
-                            </div>
-                          )}
-                          {agentPersona ? (
-                            <p
-                              className="truncate text-[11px] font-medium"
-                              style={{ color: agentPersona.color }}
-                              title={agentPersona.displayLabel}
-                            >
-                              {agentPersona.displayLabel}
-                            </p>
-                          ) : (
-                            <span className="text-[11px] text-white/45">Workstream</span>
-                          )}
-                        </div>
-
-                        {/* Task position + mini progress bar */}
-                        {taskPosition && (
-                          <div className="flex items-center gap-2 ml-auto">
-                            <span className="font-mono tabular-nums text-[11px] text-white/50">
-                              {taskPosition}
-                            </span>
-                            <div className="h-1 rounded-full bg-white/10 w-24">
-                              <div
-                                className="h-full rounded-full transition-[width] duration-500"
-                                style={{
-                                  width: `${Math.max(3, taskPercent ?? 0)}%`,
-                                  backgroundColor: agentPersona?.color ?? '#14B8A6',
-                                }}
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Header intentionally omits workstream title to avoid duplicate copy with the card title. */}
-                      </div>
+                      {/* Agent header removed — the card already shows the AgentAvatar + name */}
 
                       {/* Active rows */}
                       <div className="space-y-2">
