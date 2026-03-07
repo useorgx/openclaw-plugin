@@ -13,6 +13,7 @@ import type {
   ProofBundle,
   TriageImpact,
   LiveDecision,
+  TriageInterventionContext,
 } from "../../contracts/shared-types.js";
 import { callLlmJson } from "./llm-client.js";
 
@@ -43,6 +44,141 @@ interface MappingContext {
   domain?: string | null;
   sourceSystem?: string | null;
   metadata?: Record<string, unknown>;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function pickString(record: Record<string, unknown> | null, keys: string[]): string | null {
+  if (!record) return null;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value !== "string") continue;
+    const normalized = value.trim();
+    if (normalized.length > 0) return normalized;
+  }
+  return null;
+}
+
+function pickStringArray(record: Record<string, unknown> | null, keys: string[]): string[] {
+  if (!record) return [];
+  const values: string[] = [];
+  for (const key of keys) {
+    const candidate = record[key];
+    if (!Array.isArray(candidate)) continue;
+    for (const entry of candidate) {
+      if (typeof entry !== "string") continue;
+      const normalized = entry.trim();
+      if (normalized.length > 0) values.push(normalized);
+    }
+    if (values.length > 0) break;
+  }
+  return values;
+}
+
+function countArray(record: Record<string, unknown> | null, keys: string[]): number {
+  if (!record) return 0;
+  for (const key of keys) {
+    const candidate = record[key];
+    if (Array.isArray(candidate)) return candidate.length;
+  }
+  return 0;
+}
+
+function deriveInterventionContext(input: {
+  reason?: string | null;
+  metadata?: Record<string, unknown>;
+}): TriageInterventionContext | null {
+  const metadata = asRecord(input.metadata);
+  const result = asRecord(metadata?.result);
+  const blocker = asRecord(metadata?.blocker) ?? asRecord(result?.blocker);
+  const blockerReason =
+    pickString(blocker, ["description", "summary"]) ??
+    pickString(result, ["blocked_reason", "blockedReason", "error"]) ??
+    pickString(metadata, ["blocked_reason", "blockedReason", "error", "reason"]) ??
+    (typeof input.reason === "string" && input.reason.trim().length > 0 ? input.reason.trim() : null);
+  const waitingOn =
+    pickString(blocker, ["waiting_on", "required_actor", "requiredActor"]) ??
+    pickString(result, ["waiting_on", "required_actor", "requiredActor"]) ??
+    pickString(metadata, ["waiting_on", "required_actor", "requiredActor"]);
+  const nextActions = [
+    ...pickStringArray(result, ["next_actions", "nextActions"]),
+    ...pickStringArray(metadata, ["next_actions", "nextActions"]),
+  ];
+  const requiredAction =
+    pickString(blocker, ["required_action", "requiredAction"]) ??
+    pickString(result, ["required_action", "requiredAction"]) ??
+    pickString(metadata, ["required_action", "requiredAction"]) ??
+    (nextActions[0] ?? null);
+  const requiredActor =
+    pickString(blocker, ["required_actor", "requiredActor"]) ??
+    pickString(result, ["required_actor", "requiredActor"]) ??
+    pickString(metadata, ["required_actor", "requiredActor"]);
+  const suggestedActions = [
+    ...pickStringArray(blocker, ["suggested_actions", "suggestedActions"]),
+    ...pickStringArray(result, ["suggested_actions", "suggestedActions"]),
+    ...pickStringArray(metadata, ["suggested_actions", "suggestedActions"]),
+  ];
+  const decisionIds = [
+    ...pickStringArray(result, ["decision_ids", "decisionIds"]),
+    ...pickStringArray(metadata, ["decision_ids", "decisionIds"]),
+  ];
+  const retryable =
+    typeof blocker?.retryable === "boolean"
+      ? blocker.retryable
+      : typeof result?.retryable === "boolean"
+        ? result.retryable
+        : typeof metadata?.retryable === "boolean"
+          ? metadata.retryable
+          : null;
+  const errorCode =
+    pickString(blocker, ["error_code", "errorCode"]) ??
+    pickString(result, ["error_code", "errorCode"]) ??
+    pickString(metadata, ["error_code", "errorCode"]);
+  const errorCategory =
+    pickString(blocker, ["error_category", "errorCategory"]) ??
+    pickString(result, ["error_category", "errorCategory"]) ??
+    pickString(metadata, ["error_category", "errorCategory"]);
+  const taskUpdateCount =
+    countArray(result, ["task_updates", "taskUpdates"]) ||
+    countArray(metadata, ["task_updates", "taskUpdates"]);
+  const milestoneUpdateCount =
+    countArray(result, ["milestone_updates", "milestoneUpdates"]) ||
+    countArray(metadata, ["milestone_updates", "milestoneUpdates"]);
+  const context: TriageInterventionContext = {
+    blockerReason,
+    waitingOn,
+    requiredAction,
+    requiredActor,
+    retryable,
+    errorCode,
+    errorCategory,
+    suggestedActions: suggestedActions.length > 0 ? Array.from(new Set(suggestedActions)) : [],
+    nextActions: nextActions.length > 0 ? Array.from(new Set(nextActions)) : [],
+    decisionIds: decisionIds.length > 0 ? Array.from(new Set(decisionIds)) : [],
+    taskUpdateCount: taskUpdateCount > 0 ? taskUpdateCount : undefined,
+    milestoneUpdateCount: milestoneUpdateCount > 0 ? milestoneUpdateCount : undefined,
+  };
+  const hasValue = [
+    context.blockerReason,
+    context.waitingOn,
+    context.requiredAction,
+    context.requiredActor,
+    context.errorCode,
+    context.errorCategory,
+    context.retryable,
+    context.taskUpdateCount,
+    context.milestoneUpdateCount,
+    context.suggestedActions?.length,
+    context.nextActions?.length,
+    context.decisionIds?.length,
+  ].some((entry) => {
+    if (typeof entry === "number") return entry > 0;
+    return entry != null && String(entry).trim().length > 0;
+  });
+  return hasValue ? context : null;
 }
 
 const FAILURE_MAPPINGS: Record<string, TriageMapping> = {
@@ -385,13 +521,17 @@ export async function mapFailureToTriageItem(input: {
   };
 
   const now = input.timestamp ?? new Date().toISOString();
+  const intervention = deriveInterventionContext({
+    reason: input.reason ?? null,
+    metadata: input.metadata,
+  });
 
   const proofBundle: ProofBundle = {
     artifactRefs: [],
     fileChanges: [],
     prRefs: [],
     logRefs: input.logPath ? [input.logPath] : [],
-    decisionRefs: [],
+    decisionRefs: intervention?.decisionIds ?? [],
   };
 
   if (input.outputPath) {
@@ -491,6 +631,27 @@ export async function mapFailureToTriageItem(input: {
     ];
   }
 
+  const summaryDetails: string[] = [];
+  if (intervention?.waitingOn) summaryDetails.push(`Waiting on ${intervention.waitingOn}.`);
+  if (intervention?.requiredAction) summaryDetails.push(`Required action: ${intervention.requiredAction}.`);
+  if (intervention?.errorCode) summaryDetails.push(`Error code: ${intervention.errorCode}.`);
+  if (intervention?.taskUpdateCount && intervention.taskUpdateCount > 0) {
+    summaryDetails.push(
+      `${intervention.taskUpdateCount} task update${intervention.taskUpdateCount === 1 ? "" : "s"} pending apply.`
+    );
+  }
+  if (intervention?.milestoneUpdateCount && intervention.milestoneUpdateCount > 0) {
+    summaryDetails.push(
+      `${intervention.milestoneUpdateCount} milestone update${intervention.milestoneUpdateCount === 1 ? "" : "s"} pending apply.`
+    );
+  }
+  if (summaryDetails.length > 0) {
+    summary = `${summary} ${summaryDetails.join(" ")}`.trim();
+  }
+  if (intervention?.requiredAction) {
+    recommendedAction = intervention.requiredAction;
+  }
+
   return {
     id: input.id,
     kind,
@@ -518,6 +679,7 @@ export async function mapFailureToTriageItem(input: {
     blocking: kind === "blocked_intervention" || kind === "decision_required",
     recommendedAction,
     agentId: input.agentId ?? null,
+    intervention,
     impact,
     proofBundle,
     actionContract,
@@ -538,8 +700,43 @@ export function mapDecisionToTriageItem(decision: LiveDecision): LiveTriageItem 
   const now = new Date().toISOString();
   const decisionType = decision.decisionType ?? "decision_required";
   const mapping = FAILURE_MAPPINGS[decisionType];
+  const metadata =
+    decision.metadata && typeof decision.metadata === "object" && !Array.isArray(decision.metadata)
+      ? (decision.metadata as Record<string, unknown>)
+      : null;
+  const intervention = deriveInterventionContext({
+    reason: decision.context ?? null,
+    metadata: metadata ?? undefined,
+  });
+  const blocking = metadata?.blocking !== false;
+  const options = Array.isArray(decision.options) ? decision.options : [];
+  const optionActions: TriageAction[] = options
+    .map((option) => {
+      const implied = (option.impliedStatus ?? "").toLowerCase();
+      const action: TriageAction["action"] =
+        implied === "declined" || implied === "cancelled" ? "reject" : "approve";
+      const optionConsequences =
+        typeof option.consequences === "string" && option.consequences.trim().length > 0
+          ? option.consequences.trim()
+          : null;
+      const consequences =
+        optionConsequences ??
+        (action === "approve"
+          ? "Will continue execution using this option."
+          : "Will decline this direction and keep the run blocked.");
+      return {
+        action,
+        label: option.label,
+        description: option.description ?? (action === "approve" ? "Approve this option" : "Reject with this rationale"),
+        consequences,
+        requiresNote: option.requiresNote === true,
+        available: true,
+        optionId: option.id,
+      };
+    })
+    .slice(0, 4);
 
-  const actions: TriageAction[] = [
+  const fallbackActions: TriageAction[] = [
     {
       action: "approve",
       label: "Approve",
@@ -547,6 +744,7 @@ export function mapDecisionToTriageItem(decision: LiveDecision): LiveTriageItem 
       consequences: "Will proceed with the recommended action.",
       requiresNote: false,
       available: true,
+      optionId: null,
     },
     {
       action: "reject",
@@ -555,7 +753,22 @@ export function mapDecisionToTriageItem(decision: LiveDecision): LiveTriageItem 
       consequences: "Agent will pause and await new instructions.",
       requiresNote: true,
       available: true,
+      optionId: null,
     },
+  ];
+
+  const optionActionsWithCoverage = [...optionActions];
+  if (optionActionsWithCoverage.length > 0) {
+    if (!optionActionsWithCoverage.some((action) => action.action === "approve")) {
+      optionActionsWithCoverage.unshift(fallbackActions[0]);
+    }
+    if (!optionActionsWithCoverage.some((action) => action.action === "reject")) {
+      optionActionsWithCoverage.push(fallbackActions[1]);
+    }
+  }
+
+  const actions: TriageAction[] = [
+    ...(optionActionsWithCoverage.length > 0 ? optionActionsWithCoverage.slice(0, 4) : fallbackActions),
     {
       action: "snooze",
       label: "Snooze",
@@ -563,6 +776,7 @@ export function mapDecisionToTriageItem(decision: LiveDecision): LiveTriageItem 
       consequences: "Item reappears after snooze period.",
       requiresNote: false,
       available: true,
+      optionId: null,
     },
   ];
 
@@ -571,21 +785,36 @@ export function mapDecisionToTriageItem(decision: LiveDecision): LiveTriageItem 
     fileChanges: [],
     prRefs: [],
     logRefs: [],
-    decisionRefs: [decision.id],
+    decisionRefs: Array.from(
+      new Set([decision.id, ...(intervention?.decisionIds ?? [])].filter(Boolean))
+    ),
   };
 
   if (decision.evidenceRefs) {
     for (const ref of decision.evidenceRefs) {
       if (ref.sourceUrl) proofBundle.artifactRefs.push(ref.sourceUrl);
+      if (ref.sourcePointer) proofBundle.logRefs.push(ref.sourcePointer);
     }
   }
+  const summaryBase =
+    (typeof decision.context === "string" && decision.context.trim()) ||
+    intervention?.blockerReason ||
+    decision.title;
+  const summarySuffix = [
+    intervention?.waitingOn ? `Waiting on ${intervention.waitingOn}.` : null,
+    intervention?.requiredAction ? `Required action: ${intervention.requiredAction}.` : null,
+  ]
+    .filter((entry): entry is string => Boolean(entry))
+    .join(" ");
+  const summary = summarySuffix.length > 0 ? `${summaryBase} ${summarySuffix}` : summaryBase;
+  const recommendedAction = decision.recommendedAction ?? intervention?.requiredAction ?? null;
 
   return {
     id: `triage-decision-${decision.id}`,
     kind: mapping?.kind ?? "decision_required",
     status: decision.status === "pending" ? "open" : decision.status === "resolved" ? "resolved" : "open",
     title: decision.title,
-    summary: decision.context ?? decision.title,
+    summary,
     initiativeId: decision.initiativeId ?? null,
     initiativeTitle: null,
     workstreamId: decision.workstreamId ?? null,
@@ -597,9 +826,10 @@ export function mapDecisionToTriageItem(decision: LiveDecision): LiveTriageItem 
     dedupeKey: decision.dedupeKey ?? null,
     occurrenceCount: decision.occurrenceCount ?? 1,
     severity: decision.priority === "urgent" ? "critical" : decision.priority === "high" ? "high" : "medium",
-    blocking: true,
-    recommendedAction: decision.recommendedAction ?? null,
+    blocking,
+    recommendedAction,
     agentId: decision.agentId ?? null,
+    intervention,
     impact: {
       initiativeCount: decision.initiativeId ? 1 : 0,
       workstreamCount: decision.workstreamId ? 1 : 0,

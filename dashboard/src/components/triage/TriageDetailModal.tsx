@@ -137,6 +137,103 @@ function ImpactSection({ item }: { item: LiveTriageItem }) {
   );
 }
 
+function InterventionSection({ item }: { item: LiveTriageItem }) {
+  const context = item.intervention;
+  if (!context) return null;
+  const hasContext =
+    Boolean(context.blockerReason) ||
+    Boolean(context.waitingOn) ||
+    Boolean(context.requiredAction) ||
+    Boolean(context.requiredActor) ||
+    Boolean(context.errorCode) ||
+    Boolean(context.errorCategory) ||
+    typeof context.retryable === 'boolean' ||
+    (Array.isArray(context.suggestedActions) && context.suggestedActions.length > 0) ||
+    (Array.isArray(context.nextActions) && context.nextActions.length > 0) ||
+    typeof context.taskUpdateCount === 'number' ||
+    typeof context.milestoneUpdateCount === 'number';
+  if (!hasContext) return null;
+
+  return (
+    <div>
+      <SectionHeading>Intervention brief</SectionHeading>
+      <div className="space-y-2 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+        {context.blockerReason && (
+          <div>
+            <p className="text-micro uppercase tracking-wider text-muted">Blocker</p>
+            <p className="text-caption text-primary">{context.blockerReason}</p>
+          </div>
+        )}
+        {context.requiredAction && (
+          <div>
+            <p className="text-micro uppercase tracking-wider text-muted">Required action</p>
+            <p className="text-caption text-[#7AEDE5]">{context.requiredAction}</p>
+          </div>
+        )}
+        {context.waitingOn && (
+          <div>
+            <p className="text-micro uppercase tracking-wider text-muted">Waiting on</p>
+            <p className="text-caption text-secondary">{context.waitingOn}</p>
+          </div>
+        )}
+        {(context.errorCode || context.errorCategory || typeof context.retryable === 'boolean') && (
+          <div className="flex flex-wrap gap-2">
+            {context.errorCode && (
+              <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-micro text-secondary">
+                Error: {context.errorCode}
+              </span>
+            )}
+            {context.errorCategory && (
+              <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-micro text-secondary">
+                Category: {context.errorCategory}
+              </span>
+            )}
+            {typeof context.retryable === 'boolean' && (
+              <span className="rounded bg-white/[0.06] px-1.5 py-0.5 text-micro text-secondary">
+                {context.retryable ? 'Retryable' : 'Non-retryable'}
+              </span>
+            )}
+          </div>
+        )}
+        {((context.taskUpdateCount ?? 0) > 0 || (context.milestoneUpdateCount ?? 0) > 0) && (
+          <div className="flex flex-wrap gap-2">
+            {(context.taskUpdateCount ?? 0) > 0 && (
+              <span className="rounded bg-[#0AD4C4]/12 px-1.5 py-0.5 text-micro text-[#7AEDE5]">
+                {context.taskUpdateCount} task update{context.taskUpdateCount === 1 ? '' : 's'}
+              </span>
+            )}
+            {(context.milestoneUpdateCount ?? 0) > 0 && (
+              <span className="rounded bg-[#0AD4C4]/12 px-1.5 py-0.5 text-micro text-[#7AEDE5]">
+                {context.milestoneUpdateCount} milestone update{context.milestoneUpdateCount === 1 ? '' : 's'}
+              </span>
+            )}
+          </div>
+        )}
+        {Array.isArray(context.suggestedActions) && context.suggestedActions.length > 0 && (
+          <div>
+            <p className="text-micro uppercase tracking-wider text-muted">Suggested actions</p>
+            <ul className="mt-1 space-y-0.5">
+              {context.suggestedActions.slice(0, 4).map((action) => (
+                <li key={action} className="text-caption text-secondary">- {action}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {Array.isArray(context.nextActions) && context.nextActions.length > 0 && (
+          <div>
+            <p className="text-micro uppercase tracking-wider text-muted">Next up</p>
+            <ul className="mt-1 space-y-0.5">
+              {context.nextActions.slice(0, 4).map((action) => (
+                <li key={action} className="text-caption text-secondary">- {action}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ImpactChip({
   label,
   tone = 'amber',
@@ -163,7 +260,7 @@ function ActionButton({
   isActing,
 }: {
   triageAction: TriageAction;
-  onPerform: (action: string, note?: string) => void;
+  onPerform: (action: string, note?: string, optionId?: string) => void;
   isActing: boolean;
 }) {
   const [showNote, setShowNote] = useState(false);
@@ -205,7 +302,7 @@ function ActionButton({
         <div className="flex gap-1.5">
           <button
             type="button"
-            onClick={() => onPerform(triageAction.action, note)}
+            onClick={() => onPerform(triageAction.action, note, triageAction.optionId ?? undefined)}
             disabled={isActing}
             className={`rounded-lg px-3 py-1 text-caption font-medium transition-colors disabled:opacity-40 ${baseClass}`}
           >
@@ -230,7 +327,7 @@ function ActionButton({
         if (triageAction.requiresNote) {
           setShowNote(true);
         } else {
-          onPerform(triageAction.action);
+          onPerform(triageAction.action, undefined, triageAction.optionId ?? undefined);
         }
       }}
       disabled={isActing}
@@ -327,8 +424,19 @@ export function TriageDetailModal({
   onNavigate,
   currentIndex,
   totalCount,
+  decisions,
 }: TriageDetailModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const defaultOptionByAction = useCallback(
+    (action: string): string | undefined => {
+      if (!item) return undefined;
+      const match = item.actionContract.find(
+        (entry) => entry.action === action && typeof entry.optionId === 'string' && entry.optionId.trim().length > 0
+      );
+      return typeof match?.optionId === 'string' ? match.optionId : undefined;
+    },
+    [item]
+  );
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -378,20 +486,28 @@ export function TriageDetailModal({
   }, [item, onNavigate, onClose]);
 
   const handleAction = useCallback(
-    async (action: string, note?: string) => {
+    async (action: string, note?: string, optionId?: string) => {
       if (!item) return;
       try {
-        await actions.performAction(item.id, action, { note });
+        await actions.performAction(item.id, action, {
+          note,
+          optionId: optionId ?? defaultOptionByAction(action),
+        });
         // Auto-advance after action
         onNavigate?.(1);
       } catch {
         // error handled by hook
       }
     },
-    [item, actions, onNavigate]
+    [item, actions, onNavigate, defaultOptionByAction]
   );
 
   if (!item) return null;
+
+  const linkedDecision =
+    item.sourceDecisionId && Array.isArray(decisions)
+      ? decisions.find((decision) => decision.id === item.sourceDecisionId) ?? null
+      : null;
 
   return (
     <AnimatePresence mode="wait">
@@ -487,12 +603,18 @@ export function TriageDetailModal({
           <p className="text-body text-secondary leading-relaxed">
             {item.summary}
           </p>
+          {linkedDecision?.recommendedAction && (
+            <p className="text-caption text-[#7AEDE5]">
+              Recommended: {linkedDecision.recommendedAction}
+            </p>
+          )}
         </div>
 
         <div className="h-px bg-gradient-to-r from-transparent via-white/[0.06] to-transparent mb-4" />
 
         {/* 2. Proof */}
         <div className="space-y-4 mb-4">
+          <InterventionSection item={item} />
           <ProofSection item={item} />
         </div>
 

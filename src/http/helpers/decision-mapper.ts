@@ -9,6 +9,7 @@ type LiveDecisionOption = {
   id: string;
   label: string;
   description: string | null;
+  consequences: string | null;
   impliedStatus: LiveDecisionOptionStatus | null;
   actionType: DecisionActionType | null;
   requiresNote: boolean;
@@ -102,6 +103,7 @@ function parseDecisionOptions(record: Record<string, unknown>): LiveDecisionOpti
         id,
         label,
         description: null,
+        consequences: null,
         impliedStatus: null,
         actionType: null,
         requiresNote: false,
@@ -132,6 +134,10 @@ function parseDecisionOptions(record: Record<string, unknown>): LiveDecisionOpti
       label,
       description:
         typeof candidate.description === "string" ? candidate.description : null,
+      consequences:
+        (typeof candidate.consequences === "string" && candidate.consequences.trim()) ||
+        (typeof candidate.impact === "string" && candidate.impact.trim()) ||
+        null,
       impliedStatus:
         normalizeOptionStatus(candidate.implied_status) ??
         normalizeOptionStatus(candidate.status) ??
@@ -245,6 +251,16 @@ export function mapDecisionEntity(entity: Entity) {
       : 0);
   const options = parseDecisionOptions(record);
   const evidenceRefs = parseEvidenceRefs(record);
+  const metadataBlocker = asRecord(metadata?.blocker);
+  const envelopeBlocker = asRecord(envelope?.blocker);
+  const blockerContext =
+    (metadataBlocker
+      ? pickString(metadataBlocker, ["description", "summary", "required_action", "requiredAction"])
+      : null) ??
+    (envelopeBlocker
+      ? pickString(envelopeBlocker, ["description", "summary", "required_action", "requiredAction"])
+      : null) ??
+    null;
 
   return {
     id: String(record.id ?? ""),
@@ -256,7 +272,7 @@ export function mapDecisionEntity(entity: Entity) {
       "details",
       "recommended_action",
       "recommendedAction",
-    ]),
+    ]) ?? blockerContext,
     status: pickStringFromRecords(containers, ["status", "decision_status"]) ?? "pending",
     priority: pickStringFromRecords(containers, ["priority"]),
     decisionType: pickStringFromRecords(containers, ["decision_type", "decisionType"]),
@@ -283,7 +299,11 @@ export function mapDecisionEntity(entity: Entity) {
     recommendedAction: pickStringFromRecords(containers, [
       "recommended_action",
       "recommendedAction",
-    ]),
+    ]) ??
+      (metadataBlocker
+        ? pickString(metadataBlocker, ["required_action", "requiredAction"])
+        : null) ??
+      null,
     occurrenceCount: pickNumberFromRecords(containers, ["occurrence_count", "occurrenceCount"]),
     firstSeenAt: toIsoString(pickStringFromRecords(containers, ["first_seen_at", "firstSeenAt"])),
     lastSeenAt: toIsoString(pickStringFromRecords(containers, ["last_seen_at", "lastSeenAt"])),

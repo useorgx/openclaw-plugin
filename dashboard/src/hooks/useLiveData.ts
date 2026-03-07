@@ -1389,6 +1389,12 @@ function normalizeSliceRuns(input: SliceRunProjection[] | null | undefined): Sli
       iwmtIds,
       artifacts: Array.isArray(item.artifacts) ? item.artifacts : [],
       decisionOptions: Array.isArray(item.decisionOptions) ? item.decisionOptions : [],
+      pendingDecisions: Array.isArray((item as { pendingDecisions?: unknown }).pendingDecisions)
+        ? ((item as { pendingDecisions: SliceRunProjection['pendingDecisions'] }).pendingDecisions ?? [])
+        : [],
+      blockers: Array.isArray((item as { blockers?: unknown }).blockers)
+        ? ((item as { blockers: SliceRunProjection['blockers'] }).blockers ?? [])
+        : [],
       taskIds: Array.isArray(item.taskIds) ? item.taskIds : [],
       milestoneIds: Array.isArray(item.milestoneIds) ? item.milestoneIds : [],
     });

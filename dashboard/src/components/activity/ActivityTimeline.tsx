@@ -4766,15 +4766,26 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     activeOutcome,
     onOpenDecision,
   ]);
-  const activeSliceDecisionOptions = useMemo(() => {
-    if (!activeDecorated) return [];
+  const activeSliceProjection = useMemo(() => {
+    if (!activeDecorated) return null;
     const runId = resolveRunId(activeDecorated.item);
-    if (!runId) return [];
-    const match = sliceRuns.find(
-      (s) => s.runId === runId || s.sliceRunId === runId
+    if (!runId) return null;
+    return (
+      sliceRuns.find((s) => s.runId === runId || s.sliceRunId === runId) ?? null
     );
-    return match?.decisionOptions ?? [];
   }, [activeDecorated, sliceRuns]);
+  const activeSliceDecisionOptions = useMemo(
+    () => activeSliceProjection?.decisionOptions ?? [],
+    [activeSliceProjection]
+  );
+  const activeSlicePendingDecisions = useMemo(
+    () => activeSliceProjection?.pendingDecisions ?? [],
+    [activeSliceProjection]
+  );
+  const activeSliceBlockers = useMemo(
+    () => activeSliceProjection?.blockers ?? [],
+    [activeSliceProjection]
+  );
   const activeAutopilotProgressColor = useMemo(() => {
     if (!activeAutopilotProgress) return colors.teal;
     if (activeAutopilotProgress.tone === 'positive') return colors.lime;
@@ -7200,8 +7211,67 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     {(() => {
                       if (!activeVisibleSections.has('evidence')) return null;
                       const evMeta = metadataForItem(activeDecorated.item);
-                      const blocker = evMeta?.blocker as { description?: string; waiting_on?: string } | undefined;
-                      const decisionsNeeded = evMeta?.decisions_needed as Array<{ title?: string; id?: string }> | undefined;
+                      const blockerRecord = asMetadataRecord(evMeta?.blocker);
+                      const runFailedReason =
+                        metadataString(evMeta, ['error', 'reason', 'blocked_reason', 'blockedReason', 'last_error', 'lastError']) ??
+                        null;
+                      const fallbackSliceBlocker = activeSliceBlockers[0] ?? null;
+                      const blocker = blockerRecord
+                        ? {
+                            description:
+                              metadataString(blockerRecord, ['description', 'summary']) ??
+                              runFailedReason ??
+                              null,
+                            waiting_on:
+                              metadataString(blockerRecord, ['waiting_on', 'required_actor', 'requiredActor']) ??
+                              null,
+                            required_action:
+                              metadataString(blockerRecord, ['required_action', 'requiredAction']) ??
+                              metadataString(evMeta, ['next_step', 'nextStep']) ??
+                              null,
+                          }
+                        : fallbackSliceBlocker
+                          ? {
+                              description: fallbackSliceBlocker.reason,
+                              waiting_on: fallbackSliceBlocker.waitingOn,
+                              required_action: fallbackSliceBlocker.requiredAction,
+                            }
+                          : (activeDecorated.item.type === 'run_failed' || activeDecorated.item.type === 'blocker_created') && runFailedReason
+                            ? {
+                                description: runFailedReason,
+                                waiting_on: null,
+                                required_action: metadataString(evMeta, ['next_step', 'nextStep']),
+                              }
+                            : undefined;
+                      const decisionsNeededRaw =
+                        (evMeta?.decisions_needed as unknown) ??
+                        (evMeta?.decisionsNeeded as unknown);
+                      type DecisionNeededItem = { title: string; id: string | null };
+                      const decisionsNeededFromMetadata: DecisionNeededItem[] = Array.isArray(decisionsNeededRaw)
+                        ? decisionsNeededRaw
+                            .map((entry) => {
+                              const record = asMetadataRecord(entry);
+                              if (!record) return null;
+                              return {
+                                title:
+                                  metadataString(record, ['title', 'label', 'question', 'summary']) ??
+                                  'Pending decision',
+                                id: metadataString(record, ['id', 'decision_id', 'decisionId']),
+                              };
+                            })
+                            .filter((entry): entry is DecisionNeededItem => entry !== null)
+                        : [];
+                      const decisionsNeeded =
+                        decisionsNeededFromMetadata.length > 0
+                          ? decisionsNeededFromMetadata
+                          : activeSlicePendingDecisions.length > 0
+                            ? activeSlicePendingDecisions.map((decision) => ({
+                                title: decision.title,
+                                id: decision.id,
+                              }))
+                            : activeDecisionIds.length > 0
+                              ? activeDecisionIds.map((id) => ({ id, title: 'Pending decision' }))
+                              : undefined;
                       const outcomes = evMeta?.outcomes as Record<string, unknown> | undefined;
                       const taskUpdates = (evMeta?.task_updates as Array<{ title?: string; status?: string }> | undefined)
                         ?.filter(t => t.title?.trim().toLowerCase() !== blocker?.description?.trim().toLowerCase());
@@ -7234,6 +7304,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                     {blocker.waiting_on && (
                                       <p className="mt-0.5 text-caption text-secondary">Waiting on: {blocker.waiting_on}</p>
                                     )}
+                                    {blocker.required_action && (
+                                      <p className="mt-0.5 text-caption text-secondary">Next action: {blocker.required_action}</p>
+                                    )}
                                   </div>
                                 </div>
                                 {canOpenDecisionFromDetail && activeDecisionIds.length > 0 && (
@@ -7264,17 +7337,17 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                             )}
                             {decisionsNeeded && decisionsNeeded.length > 0 && (
                               <div className="space-y-1.5">
-                                {decisionsNeeded.map((d, i) => (
-                                  <div key={d.id ?? i} className="flex items-center gap-3 rounded-xl border border-amber-300/15 bg-amber-400/[0.05] px-3.5 py-2.5">
+                                {decisionsNeeded.map((decisionItem, i) => (
+                                  <div key={decisionItem.id ?? i} className="flex items-center gap-3 rounded-xl border border-amber-300/15 bg-amber-400/[0.05] px-3.5 py-2.5">
                                     <span className="h-2 w-2 flex-shrink-0 rounded-full bg-amber-400" />
                                     <div className="min-w-0 flex-1">
                                       <p className="text-micro font-semibold uppercase tracking-wider text-amber-200/70">Decision needed</p>
-                                      <p className="mt-0.5 text-body text-primary">{d.title ?? 'Pending decision'}</p>
+                                      <p className="mt-0.5 text-body text-primary">{decisionItem.title}</p>
                                     </div>
-                                    {d.id && onOpenDecision && (
+                                    {decisionItem.id && onOpenDecision && (
                                       <button
                                         type="button"
-                                        onClick={() => { onOpenDecision(d.id!); closeDetail(); }}
+                                        onClick={() => { onOpenDecision(decisionItem.id); closeDetail(); }}
                                         className="rounded-full border border-amber-300/30 bg-amber-400/[0.10] px-2.5 py-1 text-caption font-semibold text-amber-100 transition hover:bg-amber-400/[0.16]"
                                       >
                                         Resolve
