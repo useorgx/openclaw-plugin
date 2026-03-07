@@ -372,7 +372,7 @@ export function AgentLaunchModal({
 	                    <select
 	                      value={selectedAgentId}
 	                      onChange={(e) => setSelectedAgentId(e.target.value)}
-	                      className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+	                      className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-lime/30"
 	                    >
 	                      {catalogAgents.map((agent) => {
 	                        const badge = toStatusBadge(agent.status);
@@ -419,7 +419,7 @@ export function AgentLaunchModal({
 	                          <select
 	                            value={selectedProvider}
 	                            onChange={(e) => setSelectedProvider(e.target.value)}
-	                            className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+	                            className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-lime/30"
 	                          >
 	                            <option value="auto">Auto (keep agent model)</option>
 	                            <option value="anthropic">Anthropic</option>
@@ -472,7 +472,7 @@ export function AgentLaunchModal({
 	                    <select
 	                      value={selectedInitiativeId}
 	                      onChange={(e) => setSelectedInitiativeId(e.target.value)}
-	                      className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+	                      className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-lime/30"
 	                    >
 	                      <option value="">Select an initiative…</option>
 	                      {(initiatives ?? []).map((initiative) => (
@@ -491,7 +491,7 @@ export function AgentLaunchModal({
 	                        onChange={(e) => setSelectedWorkstreamId(e.target.value)}
 	                        disabled={!selectedInitiative}
 	                        className={cn(
-	                          'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
+	                          'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-lime/30',
 	                          !selectedInitiative && 'opacity-50'
 	                        )}
 	                      >
@@ -511,7 +511,7 @@ export function AgentLaunchModal({
 	                        onChange={(e) => setSelectedTaskId(e.target.value)}
 	                        disabled={!selectedInitiative}
 	                        className={cn(
-	                          'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30',
+	                          'mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-lime/30',
 	                          !selectedInitiative && 'opacity-50'
 	                        )}
 	                      >
@@ -540,7 +540,7 @@ export function AgentLaunchModal({
 	                      value={message}
 	                      onChange={(e) => setMessage(e.target.value)}
 	                      rows={4}
-	                      className="mt-1 w-full resize-none rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+	                      className="mt-1 w-full resize-none rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary focus:outline-none focus:ring-1 focus:ring-lime/30"
 	                      placeholder="Optional. If left blank, a default kickoff message is used."
 	                    />
 	                  </div>

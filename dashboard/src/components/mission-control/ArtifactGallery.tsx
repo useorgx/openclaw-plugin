@@ -48,7 +48,7 @@ export function ArtifactGallery({ artifacts, onOpenArtifact, className }: Artifa
             >
               <div className="flex items-center gap-2">
                 <span
-                  className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-widest"
+                  className="rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.08em]"
                   style={{
                     color: badge.color,
                     backgroundColor: `${badge.color}18`,

@@ -236,7 +236,7 @@ function nextUpModeLabel(mode: 'none' | 'running' | 'blocked' | 'queued' | 'star
 function nextUpModeTone(mode: 'none' | 'running' | 'blocked' | 'queued' | 'startable' | 'completed' | 'active_no_queue'): string {
   if (mode === 'running') return 'border-teal-300/24 bg-teal-400/[0.08] text-teal-100/90';
   if (mode === 'blocked') return 'border-red-400/24 bg-red-500/[0.08] text-red-100/90';
-  if (mode === 'queued' || mode === 'startable') return 'border-[#BFFF00]/18 bg-[#BFFF00]/[0.06] text-[#E8FFD0]/95';
+  if (mode === 'queued' || mode === 'startable') return 'border-lime/18 bg-lime/[0.06] text-lime/95';
   if (mode === 'completed') return 'border-strong bg-white/[0.05] text-secondary';
   return 'border-strong bg-white/[0.04] text-white/68';
 }
@@ -2219,7 +2219,7 @@ function MissionControlInner({
                 data-mc-selection-bar="true"
                 className={`mt-3 relative grid overflow-hidden rounded-xl border xl:grid-cols-[minmax(0,1fr)_560px] xl:gap-0 xl:items-center ${
                   selectedInitiativeCount > 0
-                    ? 'border-[#BFFF00]/14 bg-[#0A0E15]/72'
+                    ? 'border-lime/14 bg-[#0A0E15]/72'
                     : 'border-white/[0.10] bg-[#0A0E15]/66'
                 }`}
               >
@@ -2246,7 +2246,7 @@ function MissionControlInner({
                       type="checkbox"
                       checked={allVisibleSelected}
                       onChange={toggleSelectAllVisibleInitiatives}
-                      className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+                      className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/35"
                     />
                     Select page
                   </label>
@@ -2377,12 +2377,12 @@ function MissionControlInner({
                               Now Working
                             </span>
                             {nextActionQueue.isLoading ? (
-                              <span className="inline-flex items-center gap-1.5 rounded-full border border-strong bg-white/[0.04] px-1.5 py-[1px] text-micro uppercase tracking-[0.07em] text-secondary">
-                                <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00]/70 status-breathe" />
+                              <span className="inline-flex items-center gap-1.5 rounded-full border border-strong bg-white/[0.04] px-1.5 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
+                                <span className="h-1.5 w-1.5 rounded-full bg-lime/70 status-breathe" />
                                 Syncing
                               </span>
                             ) : (
-                              <span className={`rounded-full border px-1.5 py-[1px] text-micro uppercase tracking-[0.07em] ${railStatusTone}`}>
+                              <span className={`rounded-full border px-1.5 py-0.5 text-micro uppercase tracking-[0.08em] ${railStatusTone}`}>
                                 {railStatusLabel}
                               </span>
                             )}
@@ -2612,7 +2612,7 @@ function MissionControlInner({
                             <button
                               type="button"
                               onClick={onOpenSettings}
-                              className="h-10 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-4 text-body font-semibold text-[#D8FFA1] transition-colors hover:bg-[#BFFF00]/20"
+                              className="h-10 rounded-full border border-lime/30 bg-lime/15 px-4 text-body font-semibold text-lime transition-colors hover:bg-lime/20"
                             >
                               Open settings
                             </button>
@@ -2830,7 +2830,7 @@ function MissionControlInner({
                               {...missionControlMotion.segmentedTap}
                               className={`control-pill relative h-7 px-2 text-micro font-semibold ${
                                 railSurface === 'next-up'
-                                  ? 'text-[#E8FFD0]'
+                                  ? 'text-lime'
                                   : 'text-secondary'
                               }`}
                             >
@@ -2838,7 +2838,7 @@ function MissionControlInner({
                                 <motion.span
                                   layoutId="next-up-rail-surface-indicator"
                                   transition={nextUpMorphTransition}
-                                  className="pointer-events-none absolute inset-0 rounded-md border border-[#BFFF00]/34 bg-[#BFFF00]/[0.12]"
+                                  className="pointer-events-none absolute inset-0 rounded-md border border-lime/34 bg-lime/[0.12]"
                                   aria-hidden
                                 />
                               ) : null}
@@ -2980,7 +2980,7 @@ function MissionControlInner({
                               {...missionControlMotion.segmentedTap}
                               className={`control-pill relative h-7 px-2 text-micro font-semibold ${
                                 railSurface === 'next-up'
-                                  ? 'text-[#E8FFD0]'
+                                  ? 'text-lime'
                                   : 'text-secondary'
                               }`}
                             >
@@ -2988,7 +2988,7 @@ function MissionControlInner({
                                 <motion.span
                                   layoutId="next-up-rail-surface-indicator-mobile"
                                   transition={nextUpMorphTransition}
-                                  className="pointer-events-none absolute inset-0 rounded-md border border-[#BFFF00]/34 bg-[#BFFF00]/[0.12]"
+                                  className="pointer-events-none absolute inset-0 rounded-md border border-lime/34 bg-lime/[0.12]"
                                   aria-hidden
                                 />
                               ) : null}

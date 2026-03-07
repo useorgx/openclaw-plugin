@@ -30,15 +30,15 @@ export function CostRollupCard({ usage, className }: CostRollupCardProps) {
       <p className="section-kicker font-semibold mb-3">Budget & Spend</p>
       <div className="grid grid-cols-2 gap-6">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">Spent</p>
-          <p className="mt-1 text-[20px] font-light tabular-nums text-primary">
+          <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">Spent</p>
+          <p className="mt-1 text-title font-light tabular-nums text-primary">
             {formatCents(spent)}
           </p>
         </div>
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-muted">Remaining</p>
+          <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">Remaining</p>
           <p
-            className="mt-1 text-[20px] font-light tabular-nums"
+            className="mt-1 text-title font-light tabular-nums"
             style={{ color: remainingColor }}
           >
             {formatCents(remaining)}

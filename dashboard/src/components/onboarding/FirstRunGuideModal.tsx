@@ -121,7 +121,7 @@ export function FirstRunGuideModal({
               </div>
               <div className="mt-2 h-1.5 w-full max-w-[340px] overflow-hidden rounded-full bg-white/[0.08]">
                 <div
-                  className="h-full rounded-full bg-[#BFFF00]/80"
+                  className="h-full rounded-full bg-lime/80"
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
@@ -187,7 +187,7 @@ export function FirstRunGuideModal({
                             ? 'true'
                             : undefined
                       }
-                      className="shrink-0 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1]"
+                      className="shrink-0 rounded-full border border-lime/30 bg-lime/15 px-3 py-1.5 text-caption font-semibold text-lime"
                     >
                       {step.action.label}
                     </button>
@@ -201,7 +201,7 @@ export function FirstRunGuideModal({
                 type="button"
                 onClick={onOpenSettings}
                 data-modal-autofocus={recommendedAction === 'settings' ? 'true' : undefined}
-                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1]"
+                className="rounded-full border border-lime/30 bg-lime/15 px-3 py-1.5 text-caption font-semibold text-lime"
               >
                 Open settings
               </button>

@@ -800,7 +800,7 @@ export function InitiativeSection({
       id={`initiative-${initiative.id}`}
       className={`surface-tier-1 overflow-visible rounded-2xl transition-[background-color,border-color,box-shadow,opacity] duration-200 ${
         isExpanded ? 'bg-[--orgx-surface-elevated]' : 'bg-[--orgx-surface]'
-      } ${selected ? 'ring-1 ring-[#BFFF00]/30 shadow-[0_0_0_1px_rgba(191,255,0,0.12)]' : ''} ${healthBorderClass} ${isDimmed ? 'opacity-60' : ''}`}
+      } ${selected ? 'ring-1 ring-lime/30 shadow-[0_0_0_1px_rgba(191,255,0,0.12)]' : ''} ${healthBorderClass} ${isDimmed ? 'opacity-60' : ''}`}
       style={{ ['--mc-initiative-header-offset' as string]: `${initiativeHeaderOffset}px` }}
     >
       <div
@@ -860,7 +860,7 @@ export function InitiativeSection({
               }}
               onClick={(event) => event.stopPropagation()}
               aria-label={`Select initiative ${initiative.name}`}
-              className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-[#BFFF00] focus:ring-[#BFFF00]/35"
+              className="h-3.5 w-3.5 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/35"
             />
           </div>
         )}
@@ -1001,7 +1001,7 @@ export function InitiativeSection({
                     ? `${startActionLabel} initiative`
                     : `Cannot start while status is ${formatEntityStatus(startableStatus)}`
                 }
-                className={`control-pill inline-flex items-center justify-center gap-1.5 text-micro font-semibold text-[#D8FFA1] disabled:cursor-not-allowed disabled:text-white/35 disabled:opacity-55 ${
+                className={`control-pill inline-flex items-center justify-center gap-1.5 text-micro font-semibold text-lime disabled:cursor-not-allowed disabled:text-white/35 disabled:opacity-55 ${
                   isSquished ? 'h-8 w-8 px-0' : 'h-8 px-2.5'
                 }`}
                 data-state="active"
@@ -1058,7 +1058,7 @@ export function InitiativeSection({
           aria-live="polite"
           className={`mx-3 mb-2 rounded-lg border px-2.5 py-1.5 text-micro ${
             queueNotice.tone === 'success'
-              ? 'border-[#BFFF00]/24 bg-[#BFFF00]/[0.1] text-[#D8FFA1]'
+              ? 'border-lime/24 bg-lime/[0.1] text-lime'
               : 'border-red-400/24 bg-red-500/[0.1] text-red-100'
           }`}
         >
@@ -1177,7 +1177,7 @@ export function InitiativeSection({
                   )}
 
                   {focusedWorkstreamId && (
-                    <div className="subsection-shell flex items-center justify-between rounded-lg px-3 py-2 text-caption text-[#D8FFA1]">
+                    <div className="subsection-shell flex items-center justify-between rounded-lg px-3 py-2 text-caption text-lime">
                       <span>
                         Focused on workstream {nodeById.get(focusedWorkstreamId)?.title ?? focusedWorkstreamId}
                       </span>

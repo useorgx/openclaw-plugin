@@ -32,7 +32,7 @@ export function HealthScoreCard({
         <ProgressRing percent={healthScore} size={56} />
         <div className="min-w-0 flex-1">
           <p
-            className="text-[28px] font-light"
+            className="text-display font-light"
             style={{
               color: score >= 7 ? colors.lime : score >= 5 ? colors.amber : colors.red,
               fontVariantNumeric: 'tabular-nums',

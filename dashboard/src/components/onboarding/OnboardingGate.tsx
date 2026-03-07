@@ -70,7 +70,7 @@ function dotState(status: OnboardingStatus): DotState {
 
 const dotStyle: Record<DotState, string> = {
   idle: 'bg-white/40',
-  active: 'bg-[#BFFF00]',
+  active: 'bg-lime',
   error: 'bg-red-400',
 };
 
@@ -220,7 +220,7 @@ export function OnboardingGate({
                   href={state.connectUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rounded-full border border-[#BFFF00]/25 bg-[#BFFF00]/[0.05] px-3 py-1 text-caption font-medium text-[#D8FFA1] transition hover:bg-[#BFFF00]/[0.1]"
+                  className="rounded-full border border-lime/25 bg-lime/[0.05] px-3 py-1 text-caption font-medium text-lime transition hover:bg-lime/[0.1]"
                 >
                   Approve in browser
                 </a>
@@ -252,7 +252,7 @@ export function OnboardingGate({
             <div className="mt-2 flex items-center gap-2">
               <a
                 href="/orgx/live?view=mission-control"
-                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1 text-caption font-medium text-[#D8FFA1]"
+                className="rounded-full border border-lime/30 bg-lime/15 px-3 py-1 text-caption font-medium text-lime"
               >
                 Open Mission Control
               </a>

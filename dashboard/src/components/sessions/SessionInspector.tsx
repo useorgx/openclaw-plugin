@@ -683,7 +683,7 @@ export const SessionInspector = memo(function SessionInspector({
         <div className="flex items-center gap-2.5">
           <p className="section-kicker">Session Detail</p>
           <span className={cn(
-            'inline-flex items-center gap-1.5 rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-widest',
+            'inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em]',
             statusTone
           )}>
             {isRunning && (
@@ -748,7 +748,7 @@ export const SessionInspector = memo(function SessionInspector({
               <div className="flex items-start gap-3.5">
                 <AgentAvatar name={session.agentName ?? 'OrgX'} size="md" hint={session.agentName} />
                 <div className="min-w-0 flex-1 pt-0.5">
-                  <h2 className="text-[28px] font-medium leading-tight text-white truncate">
+                  <h2 className="text-display font-medium leading-tight text-white truncate">
                     {sanitizeDisplayText(session.title)}
                   </h2>
                   <p className="mt-1 text-micro uppercase tracking-[0.12em] text-muted">

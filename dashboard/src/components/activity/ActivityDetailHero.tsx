@@ -58,7 +58,7 @@ export function ActivityDetailHero({ item, className }: ActivityDetailHeroProps)
         <AgentAvatar name={agentName} hint={agentName} size="sm" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h4 className="text-[20px] font-medium text-white truncate">
+            <h4 className="text-title font-medium text-white truncate">
               {summary.taskDescription ?? item.title ?? 'Activity'}
             </h4>
             <span className={`inline-flex items-center gap-1.5 chip text-[9px] ${styles.label}`}>

@@ -42,8 +42,8 @@ function formatRelative(value: string | null): string {
 }
 
 const statusTone: Record<string, string> = {
-  run_completed: 'text-[#BFFF00]',
-  milestone_completed: 'text-[#7dd3c0]',
+  run_completed: 'text-lime',
+  milestone_completed: 'text-teal-200',
   artifact_created: 'text-cyan-200',
   handoff_fulfilled: 'text-violet-200',
   decision_resolved: 'text-amber-200',
@@ -90,7 +90,7 @@ export const CompletedPanel = memo(function CompletedPanel({
             delay: Math.min(index, 6) * 0.035,
             ease: [0.22, 1, 0.36, 1],
           }}
-          className="rounded-xl border border-subtle bg-white/[0.02] p-3"
+          className="rounded-2xl border border-subtle bg-white/[0.02] px-3 py-2.5"
         >
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0">
@@ -109,7 +109,7 @@ export const CompletedPanel = memo(function CompletedPanel({
             </Pill>
           </div>
 
-          <div className="mt-2 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2">
+          <div className="mt-2 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2.5">
             <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">Hierarchy</p>
             <p className="mt-1 text-caption text-primary">
               {sanitizeDisplayText(
@@ -123,7 +123,7 @@ export const CompletedPanel = memo(function CompletedPanel({
             </div>
           </div>
 
-          <div className="mt-2 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2">
+          <div className="mt-2 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2.5">
             <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">
               Artifacts ({row.artifactCount})
             </p>
@@ -158,7 +158,7 @@ export const CompletedPanel = memo(function CompletedPanel({
             )}
           </div>
 
-          <div className="mt-2 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2">
+          <div className="mt-2 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2.5">
             <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">
               Timeline ({row.timelineEvents.length})
             </p>
@@ -208,7 +208,7 @@ export const CompletedPanel = memo(function CompletedPanel({
               <button
                 type="button"
                 onClick={onOpenNextUp}
-                className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-3 py-1 text-caption font-semibold text-[#E3FFAE] transition hover:bg-[#BFFF00]/18"
+                className="rounded-full border border-lime/28 bg-lime/12 px-3 py-1 text-caption font-semibold text-lime transition hover:bg-lime/18"
               >
                 Connect back to Next Up
               </button>

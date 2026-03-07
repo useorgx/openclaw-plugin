@@ -82,11 +82,11 @@ export function SliceDetailHero({
       >
         <AgentAvatar name={agentName ?? 'OrgX'} hint={agentHint ?? agentName} size="md" />
         <div className="min-w-0 flex-1">
-          <h3 className="text-[28px] font-medium leading-none text-white truncate">
+          <h3 className="text-display font-medium leading-none text-white truncate">
             {workstreamTitle}
           </h3>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <span className={`inline-flex items-center rounded-full border px-2 py-[1px] text-micro font-semibold uppercase tracking-widest ${statusClass}`}>
+            <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] ${statusClass}`}>
               {isRunning && (
                 <span className="relative mr-1.5 inline-block h-1.5 w-1.5">
                   <span className="absolute inset-0 rounded-full bg-current live-pulse" />
@@ -97,7 +97,7 @@ export function SliceDetailHero({
             </span>
             {confidence && (
               <span className={`chip text-[9px] font-semibold ${
-                confidence === 'high' ? 'border-[#BFFF00]/30 bg-[#BFFF00]/[0.12] text-[#d8ffa1]'
+                confidence === 'high' ? 'border-lime/30 bg-lime/[0.12] text-lime'
                 : confidence === 'medium' ? 'border-[#F5B700]/30 bg-[#F5B700]/[0.12] text-[#FFE7A8]'
                 : 'border-white/[0.12] bg-white/[0.05] text-white/60'
               }`}>

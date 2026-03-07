@@ -64,7 +64,7 @@ export function ConnectedEmptyRunway({
               <button
                 type="button"
                 onClick={onCreateInitiative}
-                className="flex min-h-[56px] items-center justify-between rounded-2xl border border-[#BFFF00]/28 bg-[#BFFF00]/10 px-4 py-3 text-left transition hover:bg-[#BFFF00]/14"
+                className="flex min-h-[56px] items-center justify-between rounded-2xl border border-lime/28 bg-lime/10 px-4 py-3 text-left transition hover:bg-lime/14"
               >
                 <div>
                   <p className="text-body font-semibold text-[#E4FFAD]">Create first initiative</p>
@@ -113,7 +113,7 @@ export function ConnectedEmptyRunway({
           <div className="p-6 sm:p-8">
             <div className="rounded-2xl border border-white/[0.08] bg-white/[0.025] p-4">
               <div className="flex items-center gap-2">
-                <EntityIcon type="workstream" size={13} className="text-[#BFFF00]" />
+                <EntityIcon type="workstream" size={13} className="text-lime" />
                 <p className="text-caption font-semibold uppercase tracking-[0.1em] text-secondary">
                   What happens next
                 </p>

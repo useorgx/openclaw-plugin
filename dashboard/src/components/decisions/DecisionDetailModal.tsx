@@ -721,7 +721,7 @@ export function DecisionDetailModal({
           {/* 8. Options as selectable cards */}
           {options.length > 0 && (
             <div className="mt-8">
-              <p className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-widest text-muted">
+              <p className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
                 Options
               </p>
               <div className="space-y-1 relative">

@@ -261,7 +261,7 @@ export const ThreadView = memo(function ThreadView({
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ duration: 0.2, delay: index * 0.02 }}
                     onClick={() => onOpenItem?.(item)}
-                    className="group relative flex w-full items-start gap-2.5 rounded-lg py-1.5 pl-0 pr-2 text-left transition-colors hover:bg-white/[0.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#BFFF00]/35 focus-visible:ring-offset-1 focus-visible:ring-offset-[#02040A]"
+                    className="group relative flex w-full items-start gap-2.5 rounded-lg py-1.5 pl-0 pr-2 text-left transition-colors hover:bg-white/[0.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/35 focus-visible:ring-offset-1 focus-visible:ring-offset-background"
                   >
                     {/* Dot on the timeline */}
                     <span

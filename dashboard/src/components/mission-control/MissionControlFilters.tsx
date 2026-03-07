@@ -267,7 +267,7 @@ export function MissionControlFilters({
                   <select
                     value={groupBy}
                     onChange={(event) => setGroupBy(event.target.value as GroupByOption)}
-                    className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-caption text-primary focus:border-[#BFFF00]/40 focus:outline-none"
+                    className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-caption text-primary focus:border-lime/40 focus:outline-none"
                   >
                     {GROUP_BY_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -282,7 +282,7 @@ export function MissionControlFilters({
                   <select
                     value={sortBy}
                     onChange={(event) => setSortBy(event.target.value as SortByOption)}
-                    className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-caption text-primary focus:border-[#BFFF00]/40 focus:outline-none"
+                    className="h-9 rounded-lg border border-white/[0.08] bg-black/30 px-2 text-caption text-primary focus:border-lime/40 focus:outline-none"
                   >
                     {SORT_BY_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -315,7 +315,7 @@ export function MissionControlFilters({
                       key={option.key}
                       className={`flex cursor-pointer items-center justify-between rounded-md border px-2.5 py-1.5 text-caption transition-colors ${
                         checked
-                          ? 'border-[#BFFF00]/30 bg-[#BFFF00]/10 text-bright'
+                          ? 'border-lime/30 bg-lime/10 text-bright'
                           : 'border-white/[0.08] bg-white/[0.02] text-primary hover:border-white/[0.15]'
                       }`}
                     >
@@ -324,7 +324,7 @@ export function MissionControlFilters({
                           type="checkbox"
                           checked={checked}
                           onChange={() => toggleStatusFilter(option.key)}
-                          className="h-3.5 w-3.5 accent-[#BFFF00]"
+                          className="h-3.5 w-3.5 accent-lime"
                         />
                         <span>{statusLabel(option.key)}</span>
                       </span>
@@ -360,7 +360,7 @@ export function MissionControlFilters({
                     onChange={(event) =>
                       setDateField(event.target.value as MissionControlDateField)
                     }
-                    className="h-9 rounded-lg border border-strong bg-black/30 px-2 text-caption text-white focus:border-[#BFFF00]/40 focus:outline-none"
+                    className="h-9 rounded-lg border border-strong bg-black/30 px-2 text-caption text-white focus:border-lime/40 focus:outline-none"
                   >
                     {DATE_FIELD_OPTIONS.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -379,7 +379,7 @@ export function MissionControlFilters({
                     onChange={(event) =>
                       setDatePreset(event.target.value as MissionControlDatePreset)
                     }
-                    className="h-9 rounded-lg border border-strong bg-black/30 px-2 text-caption text-white focus:border-[#BFFF00]/40 focus:outline-none"
+                    className="h-9 rounded-lg border border-strong bg-black/30 px-2 text-caption text-white focus:border-lime/40 focus:outline-none"
                   >
                     {datePresetOptions.map((option) => (
                       <option key={option.value} value={option.value}>
@@ -400,7 +400,7 @@ export function MissionControlFilters({
                       type="date"
                       value={dateStart}
                       onChange={(event) => setDateStart(event.target.value)}
-                      className="h-9 rounded-lg border border-strong bg-black/30 px-2 text-caption text-white focus:border-[#BFFF00]/40 focus:outline-none"
+                      className="h-9 rounded-lg border border-strong bg-black/30 px-2 text-caption text-white focus:border-lime/40 focus:outline-none"
                     />
                   </label>
                   <label className="flex flex-col gap-1">
@@ -411,7 +411,7 @@ export function MissionControlFilters({
                       type="date"
                       value={dateEnd}
                       onChange={(event) => setDateEnd(event.target.value)}
-                      className="h-9 rounded-lg border border-strong bg-black/30 px-2 text-caption text-white focus:border-[#BFFF00]/40 focus:outline-none"
+                      className="h-9 rounded-lg border border-strong bg-black/30 px-2 text-caption text-white focus:border-lime/40 focus:outline-none"
                     />
                   </label>
                 </div>

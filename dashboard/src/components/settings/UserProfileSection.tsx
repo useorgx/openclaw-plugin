@@ -59,12 +59,12 @@ export function UserProfileSection({
     <div className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)]">
       <div className="rounded-xl border border-white/[0.08] bg-black/20 p-4">
         <div className="flex items-center justify-between gap-2">
-          <p className="text-micro uppercase tracking-[0.14em] text-[#D8FFA1]/78">Visual signature</p>
+          <p className="text-micro uppercase tracking-[0.14em] text-lime/78">Visual signature</p>
           <span
             className={cn(
               'rounded-full border px-2 py-0.5 text-micro uppercase tracking-[0.08em]',
               isConnected
-                ? 'border-lime/28 bg-lime/[0.10] text-[#D8FFA1]'
+                ? 'border-lime/28 bg-lime/[0.10] text-lime'
                 : connectionPhase === 'error'
                   ? 'border-rose-300/25 bg-rose-500/[0.12] text-rose-100'
                   : 'border-white/[0.14] bg-white/[0.04] text-secondary'
@@ -108,7 +108,7 @@ export function UserProfileSection({
       <div className="rounded-xl border border-white/[0.08] bg-white/[0.02] p-4 sm:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-white/[0.06] pb-4">
           <div className="min-w-0">
-            <p className="text-micro uppercase tracking-[0.14em] text-[#D8FFA1]/78">Operator profile</p>
+            <p className="text-micro uppercase tracking-[0.14em] text-lime/78">Operator profile</p>
             {!editing ? (
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <h4 className="truncate text-[24px] font-semibold leading-tight tracking-[-0.02em] text-white">

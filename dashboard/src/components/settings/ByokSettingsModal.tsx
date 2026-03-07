@@ -295,7 +295,7 @@ export function ByokSettingsModal({
                           setDirty((prev) => ({ ...prev, [provider.id]: true }));
                         }}
                         placeholder={`Paste ${provider.label} key…`}
-                        className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/30"
+                        className="mt-1 w-full rounded-xl border border-white/[0.1] bg-black/30 px-3 py-2 text-body text-primary placeholder:text-faint focus:outline-none focus:ring-1 focus:ring-lime/30"
                         autoComplete="off"
                         spellCheck={false}
                         data-modal-autofocus={provider.id === 'openai' ? 'true' : undefined}
@@ -308,7 +308,7 @@ export function ByokSettingsModal({
                       className={cn(
                         'h-10 rounded-xl px-4 text-body font-semibold transition-all',
                         canSave
-                          ? 'bg-[#BFFF00] text-black hover:bg-[#d3ff42]'
+                          ? 'bg-lime text-black hover:bg-[#d3ff42]'
                           : 'cursor-not-allowed border border-strong bg-white/[0.03] text-secondary'
                       )}
                     >

@@ -70,7 +70,7 @@ export function DependencyEditorPopover({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search by title or id..."
-            className="mt-1.5 h-9 w-full rounded-md border border-strong bg-black/25 px-2.5 text-caption text-bright outline-none transition-colors placeholder:text-muted focus:border-[#BFFF00]/35"
+            className="mt-1.5 h-9 w-full rounded-md border border-strong bg-black/25 px-2.5 text-caption text-bright outline-none transition-colors placeholder:text-muted focus:border-lime/35"
           />
 
           <div className="mt-2 flex max-h-[84px] flex-wrap gap-1.5 overflow-y-auto rounded-md border border-white/[0.08] bg-black/20 p-1.5">
@@ -108,7 +108,7 @@ export function DependencyEditorPopover({
                     onClick={() => toggleSelected(node.id)}
                     className={`flex w-full items-center justify-between rounded-md border px-2 py-1 text-left text-micro transition-colors ${
                       checked
-                        ? 'border-[#BFFF00]/32 bg-[#BFFF00]/12 text-[#D8FFA1]'
+                        ? 'border-lime/32 bg-lime/12 text-lime'
                         : 'border-white/[0.1] bg-white/[0.03] text-primary hover:bg-white/[0.08]'
                     }`}
                   >
@@ -134,7 +134,7 @@ export function DependencyEditorPopover({
             <button
               type="button"
               onClick={save}
-              className="rounded-md border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-2 py-1 text-micro text-[#D8FFA1] transition-colors hover:bg-[#BFFF00]/22"
+              className="rounded-md border border-lime/30 bg-lime/15 px-2 py-1 text-micro text-lime transition-colors hover:bg-lime/22"
             >
               Save links
             </button>

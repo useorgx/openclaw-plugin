@@ -41,9 +41,9 @@ function derivePhase(status: OnboardingStatus, verified: boolean): ConnectionPha
 function StatusDot({ phase }: { phase: ConnectionPhase }) {
   const color =
     phase === 'connected'
-      ? 'bg-[#BFFF00]'
+      ? 'bg-lime'
       : phase === 'connecting'
-        ? 'bg-[#BFFF00]'
+        ? 'bg-lime'
         : phase === 'error'
           ? 'bg-red-400'
           : 'bg-white/30';
@@ -71,7 +71,7 @@ function StatusHeadline({ phase }: { phase: ConnectionPhase }) {
 
   const color =
     phase === 'connected'
-      ? 'text-[#BFFF00]'
+      ? 'text-lime'
       : phase === 'error'
         ? 'text-red-400'
         : 'text-primary';
@@ -152,7 +152,7 @@ function ConnectionStepRail({
                   className={cn(
                     'inline-flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-semibold',
                     step.done
-                      ? 'border-lime/35 bg-lime/[0.18] text-[#D8FFA1]'
+                      ? 'border-lime/35 bg-lime/[0.18] text-lime'
                       : active
                         ? 'border-teal/35 bg-teal/[0.16] text-teal-100'
                         : 'border-white/[0.14] bg-white/[0.03] text-secondary'
@@ -247,7 +247,7 @@ export function OrgxConnectionPanel({
   // Border glow varies by state
   const cardBorder =
     phase === 'connected'
-      ? 'border-[#BFFF00]/15'
+      ? 'border-lime/15'
       : phase === 'error'
         ? 'border-rose-400/20'
         : 'border-white/[0.07]';
@@ -278,7 +278,7 @@ export function OrgxConnectionPanel({
         <div className={cn('rounded-2xl border bg-white/[0.02] p-5', cardBorder)}>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-4">
             <div>
-              <p className="text-micro uppercase tracking-[0.12em] text-[#D8FFA1]/80">Live state</p>
+              <p className="text-micro uppercase tracking-[0.12em] text-lime/80">Live state</p>
               <div className="mt-1">
                 <StatusHeadline phase={phase} />
               </div>
@@ -372,8 +372,8 @@ export function OrgxConnectionPanel({
             </div>
 
             {showPairing && state.connectUrl && (
-              <div className="rounded-xl border border-[#BFFF00]/20 bg-[#BFFF00]/[0.06] px-4 py-3">
-                <p className="text-caption uppercase tracking-[0.1em] text-[#D8FFA1]">Pairing pending</p>
+              <div className="rounded-xl border border-lime/20 bg-lime/[0.06] px-4 py-3">
+                <p className="text-caption uppercase tracking-[0.1em] text-lime">Pairing pending</p>
                 <p className="mt-1 text-body leading-relaxed text-secondary">
                   {phase === 'connected'
                     ? 'Approve the reconnect in your browser. Your current connection remains active until approval completes.'
@@ -384,7 +384,7 @@ export function OrgxConnectionPanel({
                     href={state.connectUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/15 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition-colors hover:bg-[#BFFF00]/25"
+                    className="rounded-full border border-lime/30 bg-lime/15 px-3 py-1.5 text-caption font-semibold text-lime transition-colors hover:bg-lime/25"
                   >
                     Open approval page
                   </a>
@@ -450,7 +450,7 @@ export function OrgxConnectionPanel({
                   onClick={() => { void onStartPairing(); }}
                   disabled={isStarting}
                   data-modal-autofocus="true"
-                  className="inline-flex items-center gap-2 rounded-full bg-[#BFFF00] px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-full bg-lime px-4 py-2 text-body font-semibold text-black transition-colors hover:bg-[#d3ff42] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {isStarting ? 'Connecting...' : 'Connect in browser'}
                 </button>

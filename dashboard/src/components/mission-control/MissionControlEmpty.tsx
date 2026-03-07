@@ -116,7 +116,7 @@ export function MissionControlEmpty({
               <button
                 type="button"
                 onClick={onCreateInitiative}
-                className="rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/12 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18"
+                className="rounded-full border border-lime/30 bg-lime/12 px-3 py-1.5 text-caption font-semibold text-lime transition hover:bg-lime/18"
               >
                 Create initiative
               </button>

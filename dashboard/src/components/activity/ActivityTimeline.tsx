@@ -5374,7 +5374,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                   <button
                     type="button"
                     onClick={() => setShowSyncEvents(false)}
-                    className="hidden flex-shrink-0 rounded-full border border-lime/30 bg-lime/[0.10] px-2 py-0.5 text-micro text-[#E1FFB2] transition-colors hover:bg-lime/[0.16] sm:inline-flex"
+                    className="hidden flex-shrink-0 rounded-full border border-lime/30 bg-lime/[0.10] px-2 py-0.5 text-micro text-lime transition-colors hover:bg-lime/[0.16] sm:inline-flex"
                     title="Hide low-signal sync replay events"
                   >
                     Sync visible
@@ -5404,7 +5404,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       value={query}
                       onChange={(event) => setQuery(event.target.value)}
                       placeholder="Search..."
-                      className="h-7 w-full rounded-full border border-white/[0.08] bg-white/[0.03] pl-7 pr-2 text-micro text-primary placeholder:text-muted transition-colors focus:border-[#BFFF00]/30 focus:outline-none"
+                      className="h-7 w-full rounded-full border border-white/[0.08] bg-white/[0.03] pl-7 pr-2 text-micro text-primary placeholder:text-muted transition-colors focus:border-lime/30 focus:outline-none"
                       aria-label="Search activity"
                     />
                   </div>
@@ -5425,7 +5425,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                     className={cn(
                       'inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-micro font-semibold transition-colors',
                       timeRangeMenuOpen
-                        ? 'border-lime/30 bg-lime/[0.10] text-[#E1FFB2]'
+                        ? 'border-lime/30 bg-lime/[0.10] text-lime'
                         : 'border-white/[0.14] bg-white/[0.03] text-secondary hover:bg-white/[0.08] hover:text-primary'
                     )}
                   >
@@ -5473,7 +5473,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                       className={cn(
                                         'rounded-full border px-2.5 py-1 text-micro font-semibold transition-colors',
                                         active
-                                          ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                                          ? 'border-lime/30 bg-lime/[0.12] text-lime'
                                           : 'border-white/[0.08] bg-white/[0.02] text-secondary hover:bg-white/[0.06] hover:text-primary'
                                       )}
                                     >
@@ -5577,7 +5577,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                     type="button"
                                     onClick={applyCustomTimeRange}
                                     disabled={!customRangeValid}
-                                    className="rounded-full border border-lime/30 bg-lime/[0.14] px-2.5 py-1 text-micro font-semibold text-[#E1FFB2] transition-colors hover:bg-lime/[0.2] disabled:opacity-45"
+                                    className="rounded-full border border-lime/30 bg-lime/[0.14] px-2.5 py-1 text-micro font-semibold text-lime transition-colors hover:bg-lime/[0.2] disabled:opacity-45"
                                   >
                                     Apply
                                   </button>
@@ -5672,7 +5672,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           className={cn(
                             'rounded-full px-3 py-1.5 text-micro font-semibold transition-colors',
                             active
-                              ? 'border border-lime/25 bg-lime/[0.10] text-[#E1FFB2]'
+                              ? 'border border-lime/25 bg-lime/[0.10] text-lime'
                               : 'border border-transparent text-secondary hover:bg-white/[0.08] hover:text-bright'
                           )}
                         >
@@ -5696,7 +5696,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       className={cn(
                         'inline-flex h-8 items-center gap-1.5 rounded-full border px-2.5 text-caption font-semibold transition-colors',
                         viewMenuOpen
-                          ? 'border-lime/30 bg-lime/[0.10] text-[#E1FFB2]'
+                          ? 'border-lime/30 bg-lime/[0.10] text-lime'
                           : 'border-white/[0.1] bg-white/[0.03] text-primary hover:bg-white/[0.08]'
                       )}
                     >
@@ -5750,7 +5750,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                     className={cn(
                                       'rounded-lg border px-2 py-1.5 text-caption font-medium transition-colors',
                                       sortOrder === option.id
-                                        ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                                        ? 'border-lime/30 bg-lime/[0.12] text-lime'
                                         : 'border-white/[0.08] bg-white/[0.02] text-secondary hover:bg-white/[0.06] hover:text-primary'
                                     )}
                                   >
@@ -5787,7 +5787,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                       className={cn(
                                         'rounded-lg border px-2 py-1.5 text-caption font-medium transition-colors',
                                         active
-                                          ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                                          ? 'border-lime/30 bg-lime/[0.12] text-lime'
                                           : 'border-white/[0.08] bg-white/[0.02] text-secondary hover:bg-white/[0.06] hover:text-primary'
                                       )}
                                     >
@@ -5810,7 +5810,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                 className={cn(
                                   'w-full rounded-lg border px-2.5 py-2 text-left text-caption transition-colors',
                                   showSyncEvents
-                                    ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                                    ? 'border-lime/30 bg-lime/[0.12] text-lime'
                                     : 'border-white/[0.08] bg-white/[0.02] text-secondary hover:bg-white/[0.06] hover:text-primary'
                                 )}
                               >
@@ -5875,7 +5875,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           className={cn(
                             'rounded-full border px-2.5 py-1 text-caption font-semibold transition-colors',
                             active
-                              ? 'border-lime/30 bg-lime/[0.12] text-[#E1FFB2]'
+                              ? 'border-lime/30 bg-lime/[0.12] text-lime'
                               : 'border-white/[0.1] bg-white/[0.03] text-secondary hover:bg-white/[0.08] hover:text-primary'
                           )}
                         >
@@ -5917,7 +5917,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                         type="button"
                         onClick={() => void runEmptyAction('play', onPlayNextUp)}
                         disabled={emptyActionPending !== null}
-                        className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18 disabled:opacity-45"
+                        className="rounded-full border border-lime/28 bg-lime/12 px-3 py-1.5 text-caption font-semibold text-lime transition hover:bg-lime/18 disabled:opacity-45"
                       >
                         {emptyActionPending === 'play' ? 'Starting...' : 'Start next session'}
                       </button>
@@ -5926,7 +5926,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                       <button
                         type="button"
                         onClick={onOpenMissionControl}
-                        className="rounded-full border border-[#BFFF00]/28 bg-[#BFFF00]/12 px-3 py-1.5 text-caption font-semibold text-[#D8FFA1] transition hover:bg-[#BFFF00]/18"
+                        className="rounded-full border border-lime/28 bg-lime/12 px-3 py-1.5 text-caption font-semibold text-lime transition hover:bg-lime/18"
                       >
                         Browse initiatives
                       </button>
@@ -6120,9 +6120,9 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             >
               <div className="flex items-center gap-2.5">
                 <div className="flex gap-1" aria-label="Loading older events">
-                  <span className="h-1 w-1 rounded-full bg-[#BFFF00]/70 animate-[pulse_1.4s_ease-in-out_infinite]" />
-                  <span className="h-1 w-1 rounded-full bg-[#BFFF00]/50 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
-                  <span className="h-1 w-1 rounded-full bg-[#BFFF00]/30 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
+                  <span className="h-1 w-1 rounded-full bg-lime/70 animate-[pulse_1.4s_ease-in-out_infinite]" />
+                  <span className="h-1 w-1 rounded-full bg-lime/50 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
+                  <span className="h-1 w-1 rounded-full bg-lime/30 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
                 </div>
               </div>
             </div>
@@ -6502,7 +6502,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                 "rounded-full border px-3 py-1 text-caption font-semibold transition disabled:opacity-50",
                                 activeAutoFixTarget.isBlockedFlow
                                   ? "border-amber-300/30 bg-amber-500/[0.12] text-amber-100 hover:bg-amber-500/[0.18]"
-                                  : "border-lime/30 bg-lime/[0.12] text-[#D8FFA1] hover:bg-lime/[0.18]"
+                                  : "border-lime/30 bg-lime/[0.12] text-lime hover:bg-lime/[0.18]"
                               )}
                             >
                               {autoFixPending ? "Scheduling..." : activeAutoFixTarget.actionLabel}
@@ -6718,7 +6718,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               type="button"
                               onClick={() => void runAutoFixAction()}
                               disabled={autoFixPending}
-                              className="rounded-full border border-lime/30 bg-lime/[0.12] px-3 py-1 text-caption font-semibold text-[#D8FFA1] transition hover:bg-lime/[0.18] disabled:opacity-50"
+                              className="rounded-full border border-lime/30 bg-lime/[0.12] px-3 py-1 text-caption font-semibold text-lime transition hover:bg-lime/[0.18] disabled:opacity-50"
                             >
                               {autoFixPending ? 'Scheduling...' : 'Retry now'}
                             </button>
@@ -7022,7 +7022,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                 </div>
                                 <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.10]">
                                   <div
-                                    className="h-full rounded-full bg-[#BFFF00]/80"
+                                    className="h-full rounded-full bg-lime/80"
                                     style={{ width: `${Math.max(4, activeExecutionBreakdown.initiativeWorkstreamPct)}%` }}
                                   />
                                 </div>

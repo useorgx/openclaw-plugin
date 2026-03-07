@@ -37,12 +37,12 @@ export function AgentPresenceBar({
   if (hasActiveAgents) {
     return (
       <div className="flex w-full min-w-0 items-center justify-end gap-2" aria-label="Agent presence">
-        <span className="inline-flex items-center gap-1 rounded-full border border-[#BFFF00]/30 bg-[#BFFF00]/14 px-2 py-0.5 text-micro font-semibold text-[#D8FFA1]">
-          <span className="h-1.5 w-1.5 rounded-full bg-[#BFFF00] status-breathe" />
+        <span className="inline-flex items-center gap-1 rounded-full border border-lime/30 bg-lime/14 px-2 py-0.5 text-micro font-semibold text-lime">
+          <span className="h-1.5 w-1.5 rounded-full bg-lime status-breathe" />
           {hasKnownCapacity ? `${activeCount}/${totalCount} live` : `${activeCount} live`}
         </span>
         {namesLabel && (
-          <span className="hidden max-w-[132px] truncate text-micro text-[#D8FFA1]/88 lg:inline">
+          <span className="hidden max-w-[132px] truncate text-micro text-lime/88 lg:inline">
             {namesLabel}
           </span>
         )}

@@ -300,13 +300,13 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-3">
               <IwmtLevelIcon level="initiative" size={16} />
-              <h2 className="text-[28px] font-medium leading-none text-white truncate">
+              <h2 className="text-display font-medium leading-none text-white truncate">
                 {initiative.name}
               </h2>
             </div>
             <div className="mt-2 flex items-center gap-2">
               <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest ${initiativeStatusClass[currentStatus] ?? initiativeStatusClass.active}`}
+                className={`rounded-full px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] ${initiativeStatusClass[currentStatus] ?? initiativeStatusClass.active}`}
               >
                 {formatEntityStatus(currentStatus)}
               </span>

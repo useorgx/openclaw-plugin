@@ -3333,7 +3333,7 @@ function DashboardShell({
                       <span className="text-micro tabular-nums text-muted">{inProgressCount}</span>
                       <span
                         className={cn(
-                          'pointer-events-none absolute -bottom-px left-0 right-0 h-[2px] rounded-full bg-[#BFFF00] transition-opacity',
+                          'pointer-events-none absolute -bottom-px left-0 right-0 h-[2px] rounded-full bg-lime transition-opacity',
                           initiativesSidebarTab === 'in_progress' ? 'opacity-100' : 'opacity-0'
                         )}
                       />
@@ -3357,7 +3357,7 @@ function DashboardShell({
                       <span className="text-micro tabular-nums text-muted">{activityNextUpCount}</span>
                       <span
                         className={cn(
-                          'pointer-events-none absolute -bottom-px left-0 right-0 h-[2px] rounded-full bg-[#BFFF00] transition-opacity',
+                          'pointer-events-none absolute -bottom-px left-0 right-0 h-[2px] rounded-full bg-lime transition-opacity',
                           initiativesSidebarTab === 'next_up' ? 'opacity-100' : 'opacity-0'
                         )}
                       />
@@ -3403,7 +3403,7 @@ function DashboardShell({
                         activityAutopilotState === 'blocked'
                           ? 'bg-amber-400/18 text-amber-100'
                           : activityAutopilotActive
-                          ? 'bg-[#BFFF00]/18 text-[#E3FFAE]'
+                          ? 'bg-lime/18 text-[#E3FFAE]'
                           : 'bg-white/[0.08] text-secondary'
                       )}
                     >
@@ -3722,7 +3722,7 @@ function DashboardShell({
               autoFocus
               data-modal-autofocus="true"
               placeholder={entityModal?.type === 'workstream' ? 'e.g. User Onboarding Flow' : 'e.g. Q1 Product Launch'}
-              className="w-full rounded-lg border border-strong bg-black/30 px-3 py-2.5 text-body text-white placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-[#BFFF00]/40"
+              className="w-full rounded-lg border border-strong bg-black/30 px-3 py-2.5 text-body text-white placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-lime/40"
             />
           </div>
           <div className="flex items-center justify-end gap-2 border-t border-subtle px-5 py-3">

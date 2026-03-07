@@ -126,7 +126,7 @@ function SettingsSubspace({
   return (
     <section className="grid gap-4 border-t border-white/[0.06] pt-6 first:border-t-0 first:pt-0">
       <div className="max-w-3xl">
-        <p className="text-micro uppercase tracking-[0.16em] text-[#D8FFA1]/72">{step}</p>
+        <p className="text-micro uppercase tracking-[0.16em] text-lime/72">{step}</p>
         <h4 className="mt-2 text-[18px] font-semibold leading-tight text-white">{title}</h4>
         <p className="mt-1.5 text-body leading-relaxed text-secondary">{description}</p>
       </div>
@@ -361,10 +361,10 @@ export function SettingsModal({
         <div className="relative z-[1] flex h-full min-h-0 flex-1 flex-col px-5 pb-3 pt-5 sm:px-7 sm:pt-6">
           <div className="flex items-start justify-between gap-4 border-b border-white/[0.06] pb-5">
             <div className="min-w-0 max-w-3xl">
-              <p className="text-micro uppercase tracking-[0.18em] text-[#D8FFA1]/75">
+              <p className="text-micro uppercase tracking-[0.08em] text-lime/75">
                 Control Surfaces
               </p>
-              <h3 className="mt-2 text-[32px] font-semibold leading-none tracking-[-0.03em] text-white sm:text-[36px]">
+              <h3 className="mt-2 text-display font-semibold leading-none tracking-[-0.02em] text-white sm:text-[36px]">
                 Settings
               </h3>
               <p className="mt-3 max-w-2xl text-body leading-relaxed text-secondary">
@@ -376,7 +376,7 @@ export function SettingsModal({
               type="button"
               onClick={onClose}
               aria-label="Close settings"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/[0.12] bg-white/[0.02] text-secondary transition-colors hover:bg-white/[0.07] hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/45"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-strong bg-transparent text-secondary transition-colors hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/45"
             >
               <svg
                 width="15"
@@ -430,7 +430,7 @@ export function SettingsModal({
                         className={cn(
                           'relative z-[1] mt-[1px] inline-flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border text-[11px]',
                           selected
-                            ? 'border-lime/30 bg-lime/[0.14] text-[#D8FFA1]'
+                            ? 'border-lime/30 bg-lime/[0.14] text-lime'
                             : 'border-white/[0.12] bg-white/[0.03] text-secondary'
                         )}
                       >
@@ -463,7 +463,7 @@ export function SettingsModal({
                       className={cn(
                         'relative whitespace-nowrap rounded-full border px-3 py-1.5 text-caption font-semibold transition-colors',
                         selected
-                          ? 'border-lime/32 bg-lime/[0.12] text-[#D8FFA1]'
+                          ? 'border-lime/32 bg-lime/[0.12] text-lime'
                           : 'border-white/[0.12] bg-white/[0.02] text-secondary'
                       )}
                     >
@@ -477,7 +477,7 @@ export function SettingsModal({
                 <div className="border-b border-white/[0.08] px-4 py-4 sm:px-6 sm:py-5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="max-w-2xl">
-                      <p className="text-micro uppercase tracking-[0.16em] text-[#D8FFA1]/72">
+                      <p className="text-micro uppercase tracking-[0.16em] text-lime/72">
                         Control area
                       </p>
                       <h4 className="mt-2 text-[24px] font-semibold leading-tight tracking-[-0.02em] text-white">
@@ -487,7 +487,7 @@ export function SettingsModal({
                         {activeMeta.subtitle}
                       </p>
                     </div>
-                    <div className="inline-flex items-center gap-2 rounded-full border border-lime/15 bg-lime/[0.08] px-3 py-1.5 text-caption font-medium text-[#D8FFA1]">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-lime/15 bg-lime/[0.08] px-3 py-1.5 text-caption font-medium text-lime">
                       <span className="h-1.5 w-1.5 rounded-full bg-lime/80" />
                       Live configuration surface
                     </div>

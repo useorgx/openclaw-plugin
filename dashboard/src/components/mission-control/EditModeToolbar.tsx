@@ -11,7 +11,7 @@ export function EditModeToolbar({ editMode, onToggleEditMode }: EditModeToolbarP
         onClick={onToggleEditMode}
         className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-caption transition-colors ${
           editMode
-            ? 'bg-[#BFFF00]/12 text-[#D8FFA1]'
+            ? 'bg-lime/12 text-lime'
             : 'text-muted hover:text-secondary hover:bg-white/[0.04]'
         }`}
       >

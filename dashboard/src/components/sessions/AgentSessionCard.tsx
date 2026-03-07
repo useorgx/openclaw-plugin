@@ -41,7 +41,7 @@ export function AgentSessionCard({
       onClick={onClick}
       className={cn(
         'surface-tier-2 w-full rounded-xl px-4 py-3 text-left hover-lift relative overflow-hidden',
-        isSelected && 'ring-1 ring-[#BFFF00]/20'
+        isSelected && 'ring-1 ring-lime/20'
       )}
       variants={listItemVariants}
       custom={index}
