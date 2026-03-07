@@ -1,3 +1,4 @@
+export const SANDBOX_MODE_STORAGE_KEY = 'orgx.sandbox_mode';
 export const DEMO_MODE_STORAGE_KEY = 'orgx.demo_mode';
 export const DEV_MODE_STORAGE_KEY = 'orgx.dev_mode';
 export const SHOW_SYNTHETIC_ENTITIES_STORAGE_KEY = 'orgx.show_synthetic_entities';

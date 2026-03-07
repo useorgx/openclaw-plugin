@@ -235,8 +235,8 @@ export function SettingsModal({
                 />
                 <div className={cn('border-t border-white/[0.06]', devMode ? '' : 'pointer-events-none opacity-45')}>
                   <PreferenceToggle
-                    label="Demo mode"
-                    description="Load local demo data for walkthroughs."
+                    label="Guided sandbox"
+                    description="Load local sandbox data for walkthroughs without touching a real workspace."
                     enabled={demoMode}
                     onToggle={onToggleDemoMode}
                   />

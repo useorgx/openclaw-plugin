@@ -1,4 +1,5 @@
 import { memo } from 'react';
+import { motion } from 'framer-motion';
 import type { LiveActivityItem, SliceRunArtifactSummary } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { Pill } from '@/components/shared/Pill';
@@ -79,9 +80,16 @@ export const CompletedPanel = memo(function CompletedPanel({
 
   return (
     <div className={`flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2 ${className ?? ''}`}>
-      {rows.map((row) => (
-        <section
+      {rows.map((row, index) => (
+        <motion.section
           key={row.key}
+          initial={{ opacity: 0, y: 10, scale: 0.985 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          transition={{
+            duration: 0.26,
+            delay: Math.min(index, 6) * 0.035,
+            ease: [0.22, 1, 0.36, 1],
+          }}
           className="rounded-xl border border-subtle bg-white/[0.02] p-3"
         >
           <div className="flex flex-wrap items-start justify-between gap-2">
@@ -156,11 +164,14 @@ export const CompletedPanel = memo(function CompletedPanel({
             </p>
             {row.timelineEvents.length > 0 ? (
               <ul className="mt-1.5 space-y-1">
-                {row.timelineEvents.map((event) => {
+                {row.timelineEvents.map((event, evtIndex) => {
                   const tone = statusTone[event.type] ?? 'text-primary';
                   return (
-                    <li
+                    <motion.li
                       key={`${row.key}:event:${event.id}`}
+                      initial={{ opacity: 0, x: -4 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.2, delay: Math.min(evtIndex, 8) * 0.025, ease: [0.22, 1, 0.36, 1] }}
                       className="flex items-start justify-between gap-2 text-caption"
                     >
                       <div className="min-w-0">
@@ -174,7 +185,7 @@ export const CompletedPanel = memo(function CompletedPanel({
                       <span className="whitespace-nowrap text-micro text-muted">
                         {formatRelativeTime(event.timestamp)}
                       </span>
-                    </li>
+                    </motion.li>
                   );
                 })}
               </ul>
@@ -203,7 +214,7 @@ export const CompletedPanel = memo(function CompletedPanel({
               </button>
             ) : null}
           </div>
-        </section>
+        </motion.section>
       ))}
     </div>
   );

@@ -1,0 +1,90 @@
+{
+  "startedAt": "2026-03-06T17:34:55.260Z",
+  "finishedAt": "2026-03-06T17:35:08.081Z",
+  "baseUrl": "http://127.0.0.1:18890",
+  "liveUrl": "http://127.0.0.1:18890/orgx/live?workspace_id=7af01a51-49b1-47d8-98b9-91a198debca8&command_center_id=7af01a51-49b1-47d8-98b9-91a198debca8&center=7af01a51-49b1-47d8-98b9-91a198debca8",
+  "workspaceId": "7af01a51-49b1-47d8-98b9-91a198debca8",
+  "urls": {
+    "snapshot": "http://127.0.0.1:18890/orgx/api/live/snapshot-v2?sessionsLimit=180&activityLimit=280&decisionsLimit=120&workspace_id=7af01a51-49b1-47d8-98b9-91a198debca8&command_center_id=7af01a51-49b1-47d8-98b9-91a198debca8&center=7af01a51-49b1-47d8-98b9-91a198debca8",
+    "initiatives": "http://127.0.0.1:18890/orgx/api/live/initiatives?limit=400&offset=0&workspace_id=7af01a51-49b1-47d8-98b9-91a198debca8&command_center_id=7af01a51-49b1-47d8-98b9-91a198debca8&center=7af01a51-49b1-47d8-98b9-91a198debca8",
+    "decisions": "http://127.0.0.1:18890/orgx/api/live/decisions?status=pending&limit=200&workspace_id=7af01a51-49b1-47d8-98b9-91a198debca8&command_center_id=7af01a51-49b1-47d8-98b9-91a198debca8&center=7af01a51-49b1-47d8-98b9-91a198debca8",
+    "nextUp": "http://127.0.0.1:18890/orgx/api/mission-control/next-up?limit=120&workspace_id=7af01a51-49b1-47d8-98b9-91a198debca8&command_center_id=7af01a51-49b1-47d8-98b9-91a198debca8&center=7af01a51-49b1-47d8-98b9-91a198debca8"
+  },
+  "api": {
+    "inProgressCount": 1,
+    "needsAttentionCount": 21,
+    "liveInitiatives": 49,
+    "pendingDecisions": 7,
+    "nextUpItems": 120,
+    "nextUpCount": 130,
+    "nextUpMissingInitiativeIds": []
+  },
+  "ui": {
+    "gatewayUnauthorized": false,
+    "panes": {
+      "agents": false,
+      "activity": false,
+      "rightRail": false
+    },
+    "autopilotControlVisible": false,
+    "sessionRowVisible": false,
+    "decisionsLabelVisible": false,
+    "decisionsPositiveBadgeVisible": false,
+    "needsInputSignalVisible": false,
+    "nextUpActionVisible": false,
+    "counts": {
+      "inProgress": null,
+      "nextUp": null,
+      "needsAttention": null
+    }
+  },
+  "checks": [
+    {
+      "id": "P0-0",
+      "ok": true,
+      "detail": "gateway authorized"
+    },
+    {
+      "id": "P0-1",
+      "ok": false,
+      "detail": "agents=false activity=false rightRail=false"
+    },
+    {
+      "id": "P0-2",
+      "ok": false,
+      "detail": "autopilotControlVisible=false"
+    },
+    {
+      "id": "P0-3",
+      "ok": false,
+      "detail": "apiInProgress=1 uiInProgress=null sessionRowVisible=false"
+    },
+    {
+      "id": "P0-4",
+      "ok": false,
+      "detail": "apiNextUp=130 uiNextUp=null nextUpActionVisible=false"
+    },
+    {
+      "id": "P0-5",
+      "ok": false,
+      "detail": "apiNeedsAttention=21 uiNeedsAttention=null apiPending=7 decisionsLabelVisible=false decisionsPositiveBadgeVisible=false needsInputSignalVisible=false"
+    },
+    {
+      "id": "P0-6",
+      "ok": true,
+      "detail": "next-up initiatives are scoped correctly"
+    }
+  ],
+  "screenshots": {
+    "main": "/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-03-06/live-ui-p0-audit/2026-03-06T17-34-55-077Z/live-ui-p0-1772818508043.png"
+  },
+  "errors": [
+    "P0-1 failed: agents=false activity=false rightRail=false",
+    "P0-2 failed: autopilotControlVisible=false",
+    "P0-3 failed: apiInProgress=1 uiInProgress=null sessionRowVisible=false",
+    "P0-4 failed: apiNextUp=130 uiNextUp=null nextUpActionVisible=false",
+    "P0-5 failed: apiNeedsAttention=21 uiNeedsAttention=null apiPending=7 decisionsLabelVisible=false decisionsPositiveBadgeVisible=false needsInputSignalVisible=false"
+  ],
+  "passed": false,
+  "resultPath": "/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-03-06/live-ui-p0-audit/2026-03-06T17-34-55-077Z/live-ui-p0-audit-1772818508081.json"
+}

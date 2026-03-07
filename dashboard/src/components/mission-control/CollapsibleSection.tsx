@@ -110,7 +110,8 @@ export function CollapsibleSection({
           fill="none"
           stroke="currentColor"
           strokeWidth="2.5"
-          className={`text-muted transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          className={`text-muted transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          style={{ transitionDuration: '320ms', transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
         >
           <path d="m6 9 6 6 6-6" />
         </svg>
@@ -142,7 +143,7 @@ export function CollapsibleSection({
                     badge.action!.onClick();
                   }
                 }}
-                className={`text-micro font-semibold text-[#D8FFA1] transition-colors hover:text-white ${
+                className={`text-micro font-semibold text-[#D8FFA1] transition-colors hover:text-white active:scale-95 ${
                   badge.action.busy ? 'pointer-events-none opacity-45' : 'cursor-pointer'
                 }`}
               >

@@ -1,0 +1,128 @@
+{
+  "startedAt": "2026-03-06T17:35:59.011Z",
+  "finishedAt": "2026-03-06T17:36:50.601Z",
+  "baseUrl": "http://127.0.0.1:18890",
+  "liveUrl": "http://127.0.0.1:18890/orgx/live?workspace_id=7af01a51-49b1-47d8-98b9-91a198debca8&command_center_id=7af01a51-49b1-47d8-98b9-91a198debca8&center=7af01a51-49b1-47d8-98b9-91a198debca8",
+  "workspaceId": "7af01a51-49b1-47d8-98b9-91a198debca8",
+  "urls": {
+    "snapshot": "http://127.0.0.1:18890/orgx/api/live/snapshot-v2?sessionsLimit=180&activityLimit=280&decisionsLimit=120&workspace_id=7af01a51-49b1-47d8-98b9-91a198debca8&command_center_id=7af01a51-49b1-47d8-98b9-91a198debca8&center=7af01a51-49b1-47d8-98b9-91a198debca8",
+    "initiatives": "http://127.0.0.1:18890/orgx/api/live/initiatives?limit=400&offset=0&workspace_id=7af01a51-49b1-47d8-98b9-91a198debca8&command_center_id=7af01a51-49b1-47d8-98b9-91a198debca8&center=7af01a51-49b1-47d8-98b9-91a198debca8",
+    "decisions": "http://127.0.0.1:18890/orgx/api/live/decisions?status=pending&limit=200&workspace_id=7af01a51-49b1-47d8-98b9-91a198debca8&command_center_id=7af01a51-49b1-47d8-98b9-91a198debca8&center=7af01a51-49b1-47d8-98b9-91a198debca8",
+    "nextUp": "http://127.0.0.1:18890/orgx/api/mission-control/next-up?limit=120&workspace_id=7af01a51-49b1-47d8-98b9-91a198debca8&command_center_id=7af01a51-49b1-47d8-98b9-91a198debca8&center=7af01a51-49b1-47d8-98b9-91a198debca8"
+  },
+  "api": {
+    "inProgressCount": 0,
+    "needsAttentionCount": 0,
+    "liveInitiatives": 0,
+    "pendingDecisions": 0,
+    "nextUpItems": 120,
+    "nextUpCount": 130,
+    "nextUpMissingInitiativeIds": [
+      "74768c87-564f-4fb3-aa9f-adce12b9d7c2",
+      "772d984a-88fc-4870-9321-328eeafd1a2d",
+      "9cb1ce04-03f0-4562-ab3a-ae839b8e8e33",
+      "d35e5cbc-5ec7-44c9-84ee-ea2fe6344d92",
+      "64e6f482-4209-4f5b-aee8-4f21f035b08c",
+      "855f11a2-3bff-44d8-80a0-eef58a45b790",
+      "99aceceb-d8b0-4c43-86ae-278fbd7d59ea",
+      "7efdf0af-1120-4b2f-ae5a-10e057447930",
+      "06210308-6a9d-40b4-8ea7-e27fa0d4b38f",
+      "db2671e4-635b-483f-9aa9-589a6c713bc3",
+      "31f3e9cc-3d94-41c6-beb5-bc86c2d52467",
+      "aa6d16dc-d450-417f-8a17-fd89bd597195",
+      "7906cc8b-d60c-43d6-b714-8a91502d6ceb",
+      "9cca40bb-d789-454d-b193-c5e760eb0632",
+      "62631dde-1909-43ee-aa89-44035e5ac499",
+      "b2df4c97-1111-4680-a8da-7e880d9cd901",
+      "bc464413-d1be-45a3-9df2-114818512c22",
+      "b712349c-0bf1-4252-ac85-8072681a60ee",
+      "e181d7a3-25f7-47ab-848e-ec03e2096d08",
+      "c766ef3c-a5ac-4fa9-b2fb-d7b59a05c249",
+      "373264c4-eae8-4df4-a241-dd3318371c7f",
+      "1138b81e-c7f1-488e-8ab5-b46c488ecc44",
+      "f064e59e-fb27-46d0-84a7-44a586bf1758",
+      "b0796333-4a2e-444e-936a-fa5f86684588",
+      "6bf86b8b-893c-45b6-a165-565266d511cf",
+      "efc4453c-e3b1-4eac-b007-24e00172a879",
+      "c6519c14-72de-4c7d-b14c-9b2faed71d2e",
+      "61ac8f19-804b-48a8-9371-e3478b6d878c",
+      "2aa0b265-034c-4ce0-8cda-02ce98e0cdb1",
+      "a23072f7-07ca-4749-81e0-17169621d021",
+      "c091defd-9d6c-48e0-8603-927c223c7c47",
+      "3f80190a-8402-433f-a55f-353cab001e41",
+      "0dba70b0-1e7e-4102-813e-22e5983d00f5",
+      "cfac78e6-f8f9-40c9-9d68-f398dc6547aa",
+      "6b3d7ed7-aaa9-42f9-a11c-339048ca38af",
+      "99ccf4f0-aaa6-47e5-982c-87085fc93b8c",
+      "4c88b11e-94e3-40fe-9613-58ea8f69fe89",
+      "2d65ca1f-cc51-4aa8-9edc-ee0881ab0f06"
+    ]
+  },
+  "ui": {
+    "gatewayUnauthorized": false,
+    "panes": {
+      "agents": false,
+      "activity": false,
+      "rightRail": false
+    },
+    "autopilotControlVisible": false,
+    "sessionRowVisible": false,
+    "decisionsLabelVisible": false,
+    "decisionsPositiveBadgeVisible": false,
+    "needsInputSignalVisible": false,
+    "nextUpActionVisible": false,
+    "counts": {
+      "inProgress": null,
+      "nextUp": null,
+      "needsAttention": null
+    }
+  },
+  "checks": [
+    {
+      "id": "P0-0",
+      "ok": true,
+      "detail": "gateway authorized"
+    },
+    {
+      "id": "P0-1",
+      "ok": false,
+      "detail": "agents=false activity=false rightRail=false"
+    },
+    {
+      "id": "P0-2",
+      "ok": false,
+      "detail": "autopilotControlVisible=false"
+    },
+    {
+      "id": "P0-3",
+      "ok": true,
+      "detail": "apiInProgress=0 uiInProgress=null sessionRowVisible=false"
+    },
+    {
+      "id": "P0-4",
+      "ok": false,
+      "detail": "apiNextUp=130 uiNextUp=null nextUpActionVisible=false"
+    },
+    {
+      "id": "P0-5",
+      "ok": true,
+      "detail": "apiNeedsAttention=0 uiNeedsAttention=null apiPending=0 decisionsLabelVisible=false decisionsPositiveBadgeVisible=false needsInputSignalVisible=false"
+    },
+    {
+      "id": "P0-6",
+      "ok": false,
+      "detail": "missing initiativeIds: 74768c87-564f-4fb3-aa9f-adce12b9d7c2, 772d984a-88fc-4870-9321-328eeafd1a2d, 9cb1ce04-03f0-4562-ab3a-ae839b8e8e33, d35e5cbc-5ec7-44c9-84ee-ea2fe6344d92, 64e6f482-4209-4f5b-aee8-4f21f035b08c, 855f11a2-3bff-44d8-80a0-eef58a45b790, 99aceceb-d8b0-4c43-86ae-278fbd7d59ea, 7efdf0af-1120-4b2f-ae5a-10e057447930, 06210308-6a9d-40b4-8ea7-e27fa0d4b38f, db2671e4-635b-483f-9aa9-589a6c713bc3, 31f3e9cc-3d94-41c6-beb5-bc86c2d52467, aa6d16dc-d450-417f-8a17-fd89bd597195, 7906cc8b-d60c-43d6-b714-8a91502d6ceb, 9cca40bb-d789-454d-b193-c5e760eb0632, 62631dde-1909-43ee-aa89-44035e5ac499, b2df4c97-1111-4680-a8da-7e880d9cd901, bc464413-d1be-45a3-9df2-114818512c22, b712349c-0bf1-4252-ac85-8072681a60ee, e181d7a3-25f7-47ab-848e-ec03e2096d08, c766ef3c-a5ac-4fa9-b2fb-d7b59a05c249, 373264c4-eae8-4df4-a241-dd3318371c7f, 1138b81e-c7f1-488e-8ab5-b46c488ecc44, f064e59e-fb27-46d0-84a7-44a586bf1758, b0796333-4a2e-444e-936a-fa5f86684588, 6bf86b8b-893c-45b6-a165-565266d511cf, efc4453c-e3b1-4eac-b007-24e00172a879, c6519c14-72de-4c7d-b14c-9b2faed71d2e, 61ac8f19-804b-48a8-9371-e3478b6d878c, 2aa0b265-034c-4ce0-8cda-02ce98e0cdb1, a23072f7-07ca-4749-81e0-17169621d021, c091defd-9d6c-48e0-8603-927c223c7c47, 3f80190a-8402-433f-a55f-353cab001e41, 0dba70b0-1e7e-4102-813e-22e5983d00f5, cfac78e6-f8f9-40c9-9d68-f398dc6547aa, 6b3d7ed7-aaa9-42f9-a11c-339048ca38af, 99ccf4f0-aaa6-47e5-982c-87085fc93b8c, 4c88b11e-94e3-40fe-9613-58ea8f69fe89, 2d65ca1f-cc51-4aa8-9edc-ee0881ab0f06"
+    }
+  ],
+  "screenshots": {
+    "main": "/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-03-06/live-ui-p0-audit/2026-03-06T17-35-58-822Z/live-ui-p0-1772818610550.png"
+  },
+  "errors": [
+    "P0-1 failed: agents=false activity=false rightRail=false",
+    "P0-2 failed: autopilotControlVisible=false",
+    "P0-4 failed: apiNextUp=130 uiNextUp=null nextUpActionVisible=false",
+    "P0-6 failed: missing initiativeIds: 74768c87-564f-4fb3-aa9f-adce12b9d7c2, 772d984a-88fc-4870-9321-328eeafd1a2d, 9cb1ce04-03f0-4562-ab3a-ae839b8e8e33, d35e5cbc-5ec7-44c9-84ee-ea2fe6344d92, 64e6f482-4209-4f5b-aee8-4f21f035b08c, 855f11a2-3bff-44d8-80a0-eef58a45b790, 99aceceb-d8b0-4c43-86ae-278fbd7d59ea, 7efdf0af-1120-4b2f-ae5a-10e057447930, 06210308-6a9d-40b4-8ea7-e27fa0d4b38f, db2671e4-635b-483f-9aa9-589a6c713bc3, 31f3e9cc-3d94-41c6-beb5-bc86c2d52467, aa6d16dc-d450-417f-8a17-fd89bd597195, 7906cc8b-d60c-43d6-b714-8a91502d6ceb, 9cca40bb-d789-454d-b193-c5e760eb0632, 62631dde-1909-43ee-aa89-44035e5ac499, b2df4c97-1111-4680-a8da-7e880d9cd901, bc464413-d1be-45a3-9df2-114818512c22, b712349c-0bf1-4252-ac85-8072681a60ee, e181d7a3-25f7-47ab-848e-ec03e2096d08, c766ef3c-a5ac-4fa9-b2fb-d7b59a05c249, 373264c4-eae8-4df4-a241-dd3318371c7f, 1138b81e-c7f1-488e-8ab5-b46c488ecc44, f064e59e-fb27-46d0-84a7-44a586bf1758, b0796333-4a2e-444e-936a-fa5f86684588, 6bf86b8b-893c-45b6-a165-565266d511cf, efc4453c-e3b1-4eac-b007-24e00172a879, c6519c14-72de-4c7d-b14c-9b2faed71d2e, 61ac8f19-804b-48a8-9371-e3478b6d878c, 2aa0b265-034c-4ce0-8cda-02ce98e0cdb1, a23072f7-07ca-4749-81e0-17169621d021, c091defd-9d6c-48e0-8603-927c223c7c47, 3f80190a-8402-433f-a55f-353cab001e41, 0dba70b0-1e7e-4102-813e-22e5983d00f5, cfac78e6-f8f9-40c9-9d68-f398dc6547aa, 6b3d7ed7-aaa9-42f9-a11c-339048ca38af, 99ccf4f0-aaa6-47e5-982c-87085fc93b8c, 4c88b11e-94e3-40fe-9613-58ea8f69fe89, 2d65ca1f-cc51-4aa8-9edc-ee0881ab0f06"
+  ],
+  "passed": false,
+  "resultPath": "/Users/hopeatina/Code/orgx-openclaw-plugin/docs/qa/2026-03-06/live-ui-p0-audit/2026-03-06T17-35-58-822Z/live-ui-p0-audit-1772818610601.json"
+}

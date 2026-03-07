@@ -212,6 +212,47 @@ function createScopedHarness() {
   return { client };
 }
 
+function createScopedActivityHarness() {
+  const harness = createScopedHarness();
+  harness.client.getLiveActivity = async () => ({
+    activities: [
+      {
+        id: "act-a-1",
+        type: "run_started",
+        title: "Workspace A started",
+        description: null,
+        agentId: null,
+        agentName: null,
+        requesterAgentId: null,
+        requesterAgentName: null,
+        executorAgentId: null,
+        executorAgentName: null,
+        runId: "run-a-1",
+        initiativeId: "init-a",
+        timestamp: "2026-03-07T12:00:00.000Z",
+        metadata: { initiativeId: "init-a" },
+      },
+      {
+        id: "act-b-1",
+        type: "run_started",
+        title: "Workspace B started",
+        description: null,
+        agentId: null,
+        agentName: null,
+        requesterAgentId: null,
+        requesterAgentName: null,
+        executorAgentId: null,
+        executorAgentName: null,
+        runId: "run-b-1",
+        initiativeId: "init-b",
+        timestamp: "2026-03-07T11:59:00.000Z",
+        metadata: { initiativeId: "init-b" },
+      },
+    ],
+  });
+  return harness;
+}
+
 function createProjectFallbackHarness() {
   const initiatives = [
     {
@@ -579,6 +620,33 @@ test("workspace scope filters mission-control slices and accepts level alias", a
         slicesBody.items.every((item) => item.initiativeId === "init-a"),
         "slices should only include workspace-a initiatives"
       );
+    }
+  );
+});
+
+test("workspace scope filters legacy live activity pages", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-workspace-activity-page-"));
+  await withEnv(
+    {
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+      ORGX_AUTOPILOT_WORKER_KIND: "mock",
+      ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
+    },
+    async () => {
+      const handler = await createHandler(createScopedActivityHarness);
+
+      const activityRes = await call(handler, {
+        method: "GET",
+        url: "/orgx/api/live/activity/page?workspace_id=workspace-a&limit=50",
+        headers: {},
+      });
+      assert.equal(activityRes.status, 200);
+      const body = JSON.parse(activityRes.body);
+      assert.deepEqual(
+        (body.activities ?? []).map((item) => item.id),
+        ["act-a-1"]
+      );
+      assert.equal(body.total, 1);
     }
   );
 });

@@ -1,5 +1,5 @@
 import { memo, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import type { Initiative, SliceRunProjection } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { EntityIcon } from '@/components/shared/EntityIcon';
@@ -216,6 +216,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
         />
       ) : (
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-2">
+          <AnimatePresence mode="popLayout">
           {rows.map(({ item, duplicateCount }, index) => {
             const primaryInitiativeId =
               (Array.isArray(item.initiativeIds) && item.initiativeIds.length > 0
@@ -248,11 +249,13 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
               <motion.article
                 initial={{ opacity: 0, y: 10, scale: 0.985 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.97, y: -6 }}
                 transition={{
                   duration: 0.24,
                   delay: Math.min(index, 7) * 0.022,
                   ease: [0.22, 1, 0.36, 1],
                 }}
+                layout
                 key={item.sliceRunId}
                 className={`group hover-lift relative overflow-visible rounded-2xl border bg-white/[0.02] px-3 py-2.5 transition-colors hover:border-white/[0.14] ${
                   item.status === 'failed'
@@ -363,6 +366,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
               </motion.article>
             );
           })}
+          </AnimatePresence>
         </div>
       )}
     </PremiumCard>

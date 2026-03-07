@@ -1,3 +1,4 @@
+import { AnimatePresence, motion } from 'framer-motion';
 import { Modal } from '@/components/shared/Modal';
 import type { EntityModalTarget } from './MissionControlContext';
 import { InitiativeDetail } from './EntityDetailModal.Initiative';
@@ -135,10 +136,13 @@ export function EntityDetailModal({ target, onClose }: EntityDetailModalProps) {
                 <span className="font-semibold text-white/82">{hierarchyTag(target)}</span>
                 <span>{target.type}</span>
               </span>
-              <button
+              <motion.button
                 type="button"
                 onClick={onClose}
                 aria-label="Close detail"
+                whileHover={{ scale: 1.06 }}
+                whileTap={{ scale: 0.92 }}
+                transition={{ duration: 0.12 }}
                 className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full border border-strong bg-white/[0.03] text-primary transition-colors hover:bg-white/[0.08] hover:text-white"
               >
                 <svg
@@ -154,30 +158,40 @@ export function EntityDetailModal({ target, onClose }: EntityDetailModalProps) {
                   <path d="M18 6L6 18" />
                   <path d="M6 6l12 12" />
                 </svg>
-              </button>
+              </motion.button>
             </div>
           </div>
 
           {/* Content */}
           <div className="flex-1 min-h-0 overflow-y-auto">
-            {target.type === 'initiative' && (
-              <InitiativeDetail initiative={target.entity} />
-            )}
-            {target.type === 'workstream' && (
-              <WorkstreamDetail
-                workstream={target.entity}
-                initiative={target.initiative}
-              />
-            )}
-            {target.type === 'milestone' && (
-              <MilestoneDetail
-                milestone={target.entity}
-                initiative={target.initiative}
-              />
-            )}
-            {target.type === 'task' && (
-              <TaskDetail task={target.entity} initiative={target.initiative} />
-            )}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={`${target.type}-${target.entity.id}`}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+              >
+                {target.type === 'initiative' && (
+                  <InitiativeDetail initiative={target.entity} />
+                )}
+                {target.type === 'workstream' && (
+                  <WorkstreamDetail
+                    workstream={target.entity}
+                    initiative={target.initiative}
+                  />
+                )}
+                {target.type === 'milestone' && (
+                  <MilestoneDetail
+                    milestone={target.entity}
+                    initiative={target.initiative}
+                  />
+                )}
+                {target.type === 'task' && (
+                  <TaskDetail task={target.entity} initiative={target.initiative} />
+                )}
+              </motion.div>
+            </AnimatePresence>
           </div>
         </div>
       )}

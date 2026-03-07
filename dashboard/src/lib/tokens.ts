@@ -299,10 +299,10 @@ export const listItemVariants = {
 
 /** Cross-fade transition for tab/filter content switching. */
 export const tabCrossFade = {
-  initial: { opacity: 0, y: 4 },
+  initial: { opacity: 0, y: 6 },
   animate: { opacity: 1, y: 0 },
   exit: { opacity: 0, y: -4 },
-  transition: { duration: 0.15 },
+  transition: { duration: 0.2, ease: motion.easingStandard as unknown as number[] },
 };
 
 /** Popover/overflow menu animation. */

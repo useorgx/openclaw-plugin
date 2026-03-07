@@ -6114,8 +6114,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
             {/* Minimal loading affordance — fades in/out without layout shift. */}
             <div
               className={cn(
-                'flex items-center justify-center py-6 transition-opacity duration-500 ease-out',
-                isLoadingMore ? 'opacity-100' : hasMore ? 'opacity-0' : 'opacity-0 pointer-events-none'
+                'flex items-center justify-center py-6 transition-[opacity,transform] duration-500 ease-out',
+                isLoadingMore ? 'opacity-100 translate-y-0' : hasMore ? 'opacity-0 translate-y-2' : 'opacity-0 translate-y-2 pointer-events-none'
               )}
             >
               <div className="flex items-center gap-2.5">
