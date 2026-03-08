@@ -113,6 +113,7 @@ Remaining blockers:
 - canonical `next-up` summary is now recomputed from the full scoped canonical queue instead of the returned page slice, fixing `Next Up` semantic drift in the runtime contract
 - shell attention summary now derives blocked pressure from canonical `needsInputTotal`, so the live shell can express `running + blocked + decisions` truthfully
 - the remaining open issue is verifier stability: `scripts/agent-browser-live-ui-p0-audit.mjs` still intermittently captures a blank shell from the local live gateway even after readiness waits and one reload retry, so Phase 5 stays open until the semantic audit passes on a stable mounted runtime
+- merged-main revalidation on `2026-03-07` confirmed the plugin clean-install flow is green (`npm run verify:clean-install`) and the OrgX merged-main code/tests are green (`npm run type-check`, targeted Vitest, `npm run build`), but the cross-repo browser pass still has one first-run blocker: `tests/e2e/landing.proof-pack.e2e.ts` fails on mobile because the proof-pack preview starts below the first viewport (`y=869.28`, expected `< 692`)
 
 ## Notes
 
