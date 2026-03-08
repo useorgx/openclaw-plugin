@@ -2,6 +2,20 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.23 - 2026-03-07
+
+### Release Management
+- Patch release bump for npm package metadata.
+
+### First-Run + Onboarding Truth
+- Added the connected-empty first-value runway so a newly connected workspace with zero initiatives lands in a focused creation/import state instead of a dead shell.
+- Hardened onboarding truth so stale demo state no longer overrides disconnected or empty-workspace reality.
+- Fixed scoped empty-workspace live activity so empty OrgX workspaces render empty instead of leaking global/live-looking data.
+
+### Design System + Intervention Flow
+- Deepened the mission-control design audit pass across typography, spacing, and token usage.
+- Refined the decision/blocker intervention funnel so blocker and decision moments read more clearly and route into the right intervention surface.
+
 ## 0.7.22 - 2026-03-07
 
 ### Release Management
