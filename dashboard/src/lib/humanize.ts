@@ -412,6 +412,15 @@ export interface HumanizedActivitySummary {
   nextStep: string | null;
 }
 
+export interface HumanizedActivityNarrative {
+  update: string | null;
+  scope: string | null;
+  status: string | null;
+  artifacts: string[];
+  outcomes: string[];
+  nextUp: string[];
+}
+
 /**
  * Extract a human-readable 3-part summary from a LiveActivityItem.
  * Returns task description, outcome, and next step by reading structured metadata.
@@ -422,6 +431,16 @@ export function humanizeActivitySummary(item: {
   summary?: string | null;
   metadata?: Record<string, unknown>;
 }): HumanizedActivitySummary {
+  const narrative = humanizeActivityNarrative(item);
+  if (narrative.update || narrative.nextUp.length > 0) {
+    const taskDescription =
+      uniqueStrings([narrative.scope, item.title ?? null])[0] ?? null;
+    return {
+      taskDescription,
+      outcomeDescription: narrative.update,
+      nextStep: narrative.nextUp[0] ?? null,
+    };
+  }
   const meta = item.metadata ?? {};
 
   // Task description: what was supposed to happen
@@ -473,6 +492,163 @@ function readMeta(meta: Record<string, unknown>, key: string): string | null {
   const value = meta[key];
   if (typeof value === 'string' && value.trim().length > 0) return value.trim();
   return null;
+}
+
+function readFirstString(meta: Record<string, unknown> | null, keys: string[]): string | null {
+  if (!meta) return null;
+  for (const key of keys) {
+    const value = meta[key];
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return null;
+}
+
+function readFirstStringArray(meta: Record<string, unknown> | null, keys: string[]): string[] {
+  if (!meta) return [];
+  for (const key of keys) {
+    const raw = meta[key];
+    if (!Array.isArray(raw)) continue;
+    const values = raw
+      .filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => sanitizeDisplayText(entry))
+      .filter(Boolean);
+    if (values.length > 0) return values;
+  }
+  return [];
+}
+
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const value of values) {
+    if (!value) continue;
+    const cleaned = sanitizeDisplayText(value);
+    if (!cleaned) continue;
+    const key = cleaned.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(cleaned);
+  }
+  return unique;
+}
+
+function summarizeEntityUpdates(
+  raw: unknown,
+  scope: 'Task' | 'Milestone'
+): string[] {
+  if (!Array.isArray(raw)) return [];
+  const updates: string[] = [];
+  for (const entry of raw) {
+    const record = asRecord(entry);
+    if (!record) continue;
+    const title =
+      readFirstString(record, [`${scope.toLowerCase()}_title`, `${scope.toLowerCase()}Title`, 'title', 'name']) ??
+      readFirstString(record, [`${scope.toLowerCase()}_id`, `${scope.toLowerCase()}Id`]);
+    const status = readFirstString(record, ['status', 'state']);
+    const reason = readFirstString(record, ['reason', 'summary', 'description', 'note']);
+    const parts = [
+      title ? `${scope}: ${title}` : scope,
+      status ? `-> ${humanizeText(status)}` : null,
+      reason ? `· ${sanitizeDisplayText(reason)}` : null,
+    ].filter(Boolean) as string[];
+    if (parts.length > 0) updates.push(parts.join(' '));
+  }
+  return updates;
+}
+
+function collectArtifactLabels(meta: Record<string, unknown> | null): string[] {
+  if (!meta) return [];
+  const artifacts = meta.artifacts;
+  if (Array.isArray(artifacts)) {
+    return uniqueStrings(
+      artifacts.map((entry) => {
+        if (typeof entry === 'string') return entry;
+        const record = asRecord(entry);
+        if (!record) return null;
+        return (
+          readFirstString(record, ['title', 'name', 'artifact_title', 'artifactTitle']) ??
+          readFirstString(record, ['url', 'path']) ??
+          readFirstString(record, ['type', 'artifact_type', 'artifactType'])
+        );
+      })
+    );
+  }
+  return uniqueStrings([
+    readFirstString(meta, ['artifact_title', 'artifactTitle']),
+    readFirstString(meta, ['pr_url', 'prUrl']) ? 'Pull request attached' : null,
+    readFirstString(meta, ['commit_sha', 'commitSha']) ? 'Commit attached' : null,
+  ]);
+}
+
+export function humanizeActivityNarrative(item: {
+  title?: string | null;
+  description?: string | null;
+  summary?: string | null;
+  metadata?: Record<string, unknown>;
+}): HumanizedActivityNarrative {
+  const meta = asRecord(item.metadata) ?? {};
+  const result = asRecord(meta.result);
+  const outcomes = asRecord(meta.outcomes);
+  const sources = [meta, result, outcomes].filter((entry): entry is Record<string, unknown> => Boolean(entry));
+  const firstString = (keys: string[]): string | null => {
+    for (const source of sources) {
+      const value = readFirstString(source, keys);
+      if (value) return value;
+    }
+    return null;
+  };
+  const firstArray = (keys: string[]): string[] => {
+    for (const source of sources) {
+      const values = readFirstStringArray(source, keys);
+      if (values.length > 0) return values;
+    }
+    return [];
+  };
+
+  const scopeHierarchy = firstArray(['scope_hierarchy', 'scopeHierarchy']);
+  const scope = uniqueStrings([
+    scopeHierarchy.length > 0 ? scopeHierarchy.join(' › ') : null,
+    [firstString(['initiative_title', 'initiativeTitle']), firstString(['workstream_title', 'workstreamTitle']), firstString(['task_title', 'taskTitle'])]
+      .filter(Boolean)
+      .join(' › '),
+  ])[0] ?? null;
+
+  const update = uniqueStrings([
+    firstString(['user_summary', 'userSummary', 'decision_summary', 'decisionSummary', 'summary', 'description', 'message']),
+    item.summary,
+    item.description,
+  ])[0] ?? null;
+
+  const stopReason = firstString(['stop_reason', 'stopReason']);
+  const rawStatus =
+    firstString(['parsed_status', 'parsedStatus', 'current_run_state', 'currentRunState', 'runtime_state', 'runtimeState', 'status', 'state']) ??
+    stopReason;
+  const status = rawStatus ? sanitizeDisplayText(humanizeStopReason(rawStatus) ?? humanizeText(rawStatus)) : null;
+
+  const artifactSources = uniqueStrings(sources.flatMap((source) => collectArtifactLabels(source)));
+  const outcomeUpdates = uniqueStrings([
+    ...sources.flatMap((source) => summarizeEntityUpdates(source.task_updates ?? source.taskUpdates, 'Task')),
+    ...sources.flatMap((source) => summarizeEntityUpdates(source.milestone_updates ?? source.milestoneUpdates, 'Milestone')),
+    firstString(['required_action', 'requiredAction']) ? `Required action: ${firstString(['required_action', 'requiredAction'])}` : null,
+    firstString(['recommended_action', 'recommendedAction']) ? `Recommended: ${firstString(['recommended_action', 'recommendedAction'])}` : null,
+    firstString(['impact_if_delayed', 'impactIfDelayed']) ? `Impact if delayed: ${firstString(['impact_if_delayed', 'impactIfDelayed'])}` : null,
+  ]);
+  const nextUp = uniqueStrings([
+    firstString(['next_step', 'nextStep']),
+    ...firstArray(['next_actions', 'nextActions']),
+    firstString(['required_action', 'requiredAction']),
+  ]);
+
+  return {
+    update,
+    scope,
+    status,
+    artifacts: artifactSources.slice(0, 6),
+    outcomes: outcomeUpdates.slice(0, 6),
+    nextUp: nextUp.slice(0, 5),
+  };
 }
 
 // ---------------------------------------------------------------------------

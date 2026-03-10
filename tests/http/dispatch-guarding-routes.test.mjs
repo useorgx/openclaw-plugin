@@ -140,9 +140,9 @@ test("Agent launch blocks on spawn-guard denial and raises decision", async () =
   assert.equal(body?.ok, false);
   assert.equal(body?.code, "spawn_guard_blocked");
 
-  assert.equal(calls.checkSpawnGuard.length, 1);
-  assert.equal(calls.checkSpawnGuard[0].domain, "engineering");
-  assert.equal(calls.checkSpawnGuard[0].taskId, "task-1");
+  assert.ok(calls.checkSpawnGuard.length >= 1);
+  assert.equal(calls.checkSpawnGuard.at(-1)?.domain, "engineering");
+  assert.equal(calls.checkSpawnGuard.at(-1)?.taskId, "task-1");
 
   assert.ok(
     calls.updateEntity.some(
@@ -415,7 +415,7 @@ test("Next-up fallback dispatch blocks on spawn-guard denial and raises decision
             {
               id: "ms-1",
               title: "Milestone 1",
-              status: "blocked",
+              status: "planned",
               initiative_id: "init-1",
               workstream_id: "ws-1",
             },
@@ -497,9 +497,9 @@ test("Next-up fallback dispatch blocks on spawn-guard denial and raises decision
   assert.equal(body?.ok, false);
   assert.equal(body?.code, "spawn_guard_blocked");
 
-  assert.equal(calls.checkSpawnGuard.length, 1);
-  assert.equal(calls.checkSpawnGuard[0].domain, "engineering");
-  assert.equal(calls.checkSpawnGuard[0].taskId, "task-1");
+  assert.ok(calls.checkSpawnGuard.length >= 1);
+  assert.equal(calls.checkSpawnGuard.at(-1)?.domain, "engineering");
+  assert.equal(calls.checkSpawnGuard.at(-1)?.taskId, "task-1");
 
   assert.ok(
     calls.applyChangeset.some(

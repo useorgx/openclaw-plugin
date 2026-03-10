@@ -90,7 +90,13 @@ export function registerLiveTriageRoutes<TReq, TRes>(
     "live/triage",
     async ({ res, query }) => {
       const workspaceId = query.get("workspace_id") || null;
-      const statusFilter = query.get("status") || "open";
+      const requestedStatus = query.get("status") || "open";
+      const statusFilter =
+        requestedStatus === "pending"
+          ? "open"
+          : requestedStatus === "closed"
+            ? "resolved"
+            : requestedStatus;
       const limitStr = query.get("limit");
       const limit = limitStr ? Math.min(Math.max(1, parseInt(limitStr, 10) || 50), 200) : 50;
 

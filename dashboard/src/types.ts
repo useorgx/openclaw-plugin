@@ -91,6 +91,7 @@ export interface LiveData {
   runtimeInstances?: RuntimeInstance[];
   agentSuite?: AgentSuitePlan;
   workSliceProjections?: WorkSliceProjectionV2[];
+  needsInputItems?: WorkSliceProjectionV2[];
   timelineNarrative?: SliceTimelineNarrativeProjectionV2[];
   nextUpByInitiative?: NextUpInitiativeProjection[];
   runningWorkSlices?: number;
@@ -957,6 +958,13 @@ export interface NextUpExecutionPolicy {
   dependencyMode?: 'strict' | 'relaxed' | null;
 }
 
+export interface NextUpDispatchableTask {
+  id: string;
+  title: string;
+  scope: 'task' | 'milestone' | 'workstream';
+  milestoneId?: string | null;
+}
+
 export interface NextUpQueueItem {
   initiativeId: string;
   initiativeTitle: string;
@@ -995,6 +1003,10 @@ export interface NextUpQueueItem {
   sliceMilestoneId?: string | null;
   milestoneBreakdown?: MilestoneBreakdownEntry[];
   executionPolicy?: NextUpExecutionPolicy | null;
+  canStartNow?: boolean;
+  startReasonCode?: string | null;
+  startReasonLabel?: string | null;
+  dispatchableTask?: NextUpDispatchableTask | null;
   autoContinue: {
     status: AutoContinueStatus;
     activeTaskId: string | null;

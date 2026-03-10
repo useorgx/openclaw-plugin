@@ -25,7 +25,7 @@ import {
   SHOW_SYNTHETIC_ENTITIES_STORAGE_KEY,
 } from '@/lib/storageKeys';
 import { cutoffEpochForActivityFilter } from '@/lib/activityTimeFilters';
-import { humanizeWarning } from '@/lib/humanize';
+import { humanizeActivityNarrative, humanizeWarning } from '@/lib/humanize';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
 import type {
   Agent,
@@ -36,6 +36,7 @@ import type {
   NextUpQueueItem,
   SessionTreeNode,
   SliceRunProjection,
+  WorkSliceProjectionV2,
 } from '@/types';
 import { OnboardingGate } from '@/components/onboarding/OnboardingGate';
 import { Badge } from '@/components/shared/Badge';
@@ -169,6 +170,10 @@ type HeaderNotification = {
   onAction?: () => void;
 };
 
+type FocusSidebarOptions = {
+  closeNotifications?: boolean;
+};
+
 type WorkspaceOption = {
   id: string;
   title: string;
@@ -271,6 +276,30 @@ function resolveActivityRunId(item: LiveActivityItem): string | null {
     }
   }
   return null;
+}
+
+function selectCanonicalNeedsInputRows(
+  sliceRuns: SliceRunProjection[],
+  needsInputItems: WorkSliceProjectionV2[] | undefined
+) {
+  const canonicalNeedsInputIds = Array.isArray(needsInputItems)
+    ? needsInputItems
+        .map((item) => (typeof item?.sliceRunId === 'string' ? item.sliceRunId.trim() : ''))
+        .filter((value) => value.length > 0)
+    : [];
+  if (canonicalNeedsInputIds.length === 0) {
+    return selectNeedsInputRows(sliceRuns);
+  }
+
+  const canonicalIdSet = new Set(canonicalNeedsInputIds);
+  const canonicalSliceRuns = sliceRuns.filter((slice) =>
+    canonicalIdSet.has(slice.sliceRunId)
+  );
+  if (canonicalSliceRuns.length > 0) {
+    return selectNeedsInputRows(canonicalSliceRuns);
+  }
+
+  return selectNeedsInputRows(sliceRuns);
 }
 
 function resolveActivitySliceRunId(item: LiveActivityItem): string | null {
@@ -390,6 +419,7 @@ function selectStartableQueueItem(
   if (!Array.isArray(items) || items.length === 0) return null;
   const pick = (pool: NextUpQueueItem[]) =>
     pool.find((item) => {
+      if (typeof item.canStartNow === 'boolean') return item.canStartNow;
       const queueState = item.queueState;
       const playbackState = item.playbackState ?? null;
       const autoStatus = item.autoContinue?.status ?? null;
@@ -932,6 +962,28 @@ function DashboardShell({
           return false;
         })
         .sort((a, b) => toEpoch(a.timestamp) - toEpoch(b.timestamp));
+      const latestNarrative =
+        [...timelineEvents]
+          .reverse()
+          .map((event) => humanizeActivityNarrative(event))
+          .find((narrative) => narrative.update || narrative.outcomes.length > 0 || narrative.nextUp.length > 0) ??
+        null;
+      const whatChanged =
+        latestNarrative?.update ??
+        slice.statusExplainer ??
+        slice.lastEventSummary ??
+        session?.lastEventSummary ??
+        null;
+      const whatThisUnlocked =
+        latestNarrative?.outcomes[0] ??
+        (slice.artifactCount > 0
+          ? `${slice.artifactCount} artifact${slice.artifactCount === 1 ? '' : 's'} ready for the next step.`
+          : null);
+      const nextUp = Array.from(
+        new Set(
+          timelineEvents.flatMap((event) => humanizeActivityNarrative(event).nextUp).filter(Boolean)
+        )
+      ).slice(0, 5);
 
       rows.push({
         key: `completed:${slice.sliceRunId}`,
@@ -945,6 +997,9 @@ function DashboardShell({
           slice.lastEventSummary ??
           session?.lastEventSummary ??
           null,
+        whatChanged,
+        whatThisUnlocked,
+        nextUp,
         initiativeTitle: initiativeId ? initiativeTitleById.get(initiativeId) ?? initiativeId : null,
         workstreamTitle: slice.workstreamTitle ?? session?.title ?? null,
         scope: slice.scope ?? null,
@@ -1552,8 +1607,26 @@ function DashboardShell({
       ? Math.max(0, Math.floor(data.runningWorkSlices))
       : inProgressRows.length;
   const needsInputRows = useMemo(
-    () => selectNeedsInputRows(actionableSliceRuns),
-    [actionableSliceRuns]
+    () => selectCanonicalNeedsInputRows(actionableSliceRuns, data.needsInputItems),
+    [actionableSliceRuns, data.needsInputItems]
+  );
+  const blockedAttentionCount = useMemo(
+    () => {
+      const snapshotNeedsInputCount = Array.isArray(data.needsInputItems)
+        ? data.needsInputItems.length
+        : 0;
+      if (snapshotNeedsInputCount > 0) {
+        return snapshotNeedsInputCount;
+      }
+      return typeof data.needsInputTotal === 'number' && Number.isFinite(data.needsInputTotal)
+        ? Math.max(Math.max(0, Math.floor(data.needsInputTotal)), needsInputRows.length)
+        : needsInputRows.length;
+    },
+    [data.needsInputItems, data.needsInputTotal, needsInputRows.length]
+  );
+  const pendingDecisionCount = useMemo(
+    () => (decisionsVisible ? data.decisions.length : 0),
+    [data.decisions.length, decisionsVisible]
   );
   const uncoveredDecisionCount = useMemo(
     () =>
@@ -1565,16 +1638,13 @@ function DashboardShell({
         : 0,
     [data.decisions, decisionsVisible, needsInputRows]
   );
-  const needsInputCount =
-    typeof data.needsInputTotal === 'number' && Number.isFinite(data.needsInputTotal)
-      ? Math.max(0, Math.floor(data.needsInputTotal))
-      : needsInputRows.length + uncoveredDecisionCount;
+  const needsInputCount = blockedAttentionCount + uncoveredDecisionCount;
 
   const activeSessionCount = inProgressCount;
 
   const blockedCount = useMemo(
-    () => Math.max(0, needsInputCount - uncoveredDecisionCount),
-    [needsInputCount, uncoveredDecisionCount]
+    () => blockedAttentionCount,
+    [blockedAttentionCount]
   );
 
   const failedCount = useMemo(
@@ -1707,8 +1777,36 @@ function DashboardShell({
       ),
     [dismissedNotificationIds, headerNotifications]
   );
-  const notificationDecisionCount = uncoveredDecisionCount;
+  const notificationDecisionCount = pendingDecisionCount;
   const notificationAttentionCount = needsInputCount;
+
+  const focusInitiativesSidebar = useCallback(
+    (view: DashboardView, options?: FocusSidebarOptions) => {
+      switchDashboardView(view);
+      setExpandedRightPanel('initiatives');
+      setMobileTab('initiatives');
+      setInitiativesSidebarTab('in_progress');
+      setInProgressSubFilter('needs_attention');
+      if (options?.closeNotifications) {
+        setNotificationTrayOpen(false);
+      }
+    },
+    [switchDashboardView]
+  );
+
+  const focusNeedsAttention = useCallback(
+    (options?: FocusSidebarOptions) => {
+      focusInitiativesSidebar('mission-control', options);
+    },
+    [focusInitiativesSidebar]
+  );
+
+  const focusDecisionQueue = useCallback(
+    (options?: FocusSidebarOptions) => {
+      focusInitiativesSidebar('activity', options);
+    },
+    [focusInitiativesSidebar]
+  );
 
   const dismissNotification = useCallback((id: string) => {
     setDismissedNotificationIds((previous) =>
@@ -2848,13 +2946,8 @@ function DashboardShell({
                 blocked={blockedCount}
                 decisionsCount={notificationDecisionCount}
                 completedToday={completedToday}
-                onDecisionsClick={() => {
-                  switchDashboardView('activity');
-                  setExpandedRightPanel('initiatives');
-                  setMobileTab('initiatives');
-                  setInitiativesSidebarTab('in_progress');
-                  setInProgressSubFilter('needs_attention');
-                }}
+                onNeedsAttentionClick={() => focusNeedsAttention()}
+                onDecisionsClick={() => focusDecisionQueue()}
                 onBlockedClick={() => {
                   if (actionableSliceRuns.length > 0) {
                     switchDashboardView('mission-control');
@@ -3063,14 +3156,12 @@ function DashboardShell({
                     blocked={blockedCount}
                     decisionsCount={notificationDecisionCount}
                     completedToday={completedToday}
-                    onDecisionsClick={() => {
-                      switchDashboardView('activity');
-                      setMobileTab('initiatives');
-                      setExpandedRightPanel('initiatives');
-                      setInitiativesSidebarTab('in_progress');
-                      setInProgressSubFilter('needs_attention');
-                      setNotificationTrayOpen(false);
-                    }}
+                    onNeedsAttentionClick={() =>
+                      focusNeedsAttention({ closeNotifications: true })
+                    }
+                    onDecisionsClick={() =>
+                      focusDecisionQueue({ closeNotifications: true })
+                    }
                     onBlockedClick={() => {
                       if (actionableSliceRuns.length > 0) {
                         switchDashboardView('mission-control');
@@ -3413,46 +3504,59 @@ function DashboardShell({
                 </div>
 
                 {initiativesSidebarTab === 'in_progress' ? (
-                  <div className="flex items-center gap-1.5 border-b border-subtle px-4 py-2">
-                    <button
-                      type="button"
-                      onClick={() => setInProgressSubFilter('all')}
-                      className={cn(
-                        'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro font-semibold transition-colors',
-                        inProgressSubFilter === 'all'
-                          ? 'bg-white/[0.09] text-primary'
-                          : 'text-secondary hover:bg-white/[0.06] hover:text-bright'
-                      )}
-                    >
-                      <span>All active</span>
-                      <span className="tabular-nums opacity-75">{inProgressCount}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setInProgressSubFilter('needs_attention')}
-                      className={cn(
-                        'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro font-semibold transition-colors',
-                        inProgressSubFilter === 'needs_attention'
-                          ? 'bg-[#F5B700]/14 text-[#FFE7A8]'
-                          : 'text-secondary hover:bg-white/[0.06] hover:text-bright'
-                      )}
-                    >
-                      <span>Needs attention</span>
-                      <span className="tabular-nums opacity-80">{needsInputCount}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setInProgressSubFilter('completed')}
-                      className={cn(
-                        'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro font-semibold transition-colors',
-                        inProgressSubFilter === 'completed'
-                          ? 'bg-[#14B8A6]/16 text-[#A9FFF3]'
-                          : 'text-secondary hover:bg-white/[0.06] hover:text-bright'
-                      )}
-                    >
-                      <span>Completed</span>
-                      <span className="tabular-nums opacity-80">{completedInProgressCount}</span>
-                    </button>
+                  <div className="border-b border-subtle px-4 py-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setInProgressSubFilter('all')}
+                        className={cn(
+                          'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro font-semibold transition-colors',
+                          inProgressSubFilter === 'all'
+                            ? 'bg-white/[0.09] text-primary'
+                            : 'text-secondary hover:bg-white/[0.06] hover:text-bright'
+                        )}
+                      >
+                        <span>All active</span>
+                        <span className="tabular-nums opacity-75">{inProgressCount}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInProgressSubFilter('needs_attention')}
+                        className={cn(
+                          'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro font-semibold transition-colors',
+                          inProgressSubFilter === 'needs_attention'
+                            ? 'bg-[#F5B700]/14 text-[#FFE7A8]'
+                            : 'text-secondary hover:bg-white/[0.06] hover:text-bright'
+                        )}
+                      >
+                        <span>Needs attention</span>
+                        <span className="tabular-nums opacity-80">{needsInputCount}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInProgressSubFilter('completed')}
+                        className={cn(
+                          'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro font-semibold transition-colors',
+                          inProgressSubFilter === 'completed'
+                            ? 'bg-[#14B8A6]/16 text-[#A9FFF3]'
+                            : 'text-secondary hover:bg-white/[0.06] hover:text-bright'
+                        )}
+                      >
+                        <span>Completed</span>
+                        <span className="tabular-nums opacity-80">{completedInProgressCount}</span>
+                      </button>
+                      {decisionsVisible && data.decisions.length > 0 ? (
+                        <div className="ml-auto inline-flex h-6 items-center gap-1 rounded-full border border-[#F5B700]/18 bg-[#F5B700]/10 px-2.5 text-micro font-semibold text-[#FFE7A8]">
+                          <span>Decisions</span>
+                          <span className="tabular-nums">{data.decisions.length}</span>
+                        </div>
+                      ) : null}
+                    </div>
+                    {decisionsVisible && data.decisions.length > 0 ? (
+                      <p className="mt-1.5 pl-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[#FFE7A8]/78">
+                        {data.decisions.length} {data.decisions.length === 1 ? 'decision needs' : 'decisions need'} your input.
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
 
@@ -3483,7 +3587,7 @@ function DashboardShell({
                             <div className="border-b border-subtle px-3 py-2.5">
                               <div className="flex items-center justify-between gap-2">
                                 <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/45">
-                                  Decision queue
+                                  Decisions
                                 </p>
                                 <span className="rounded-full bg-white/[0.08] px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-white/55">
                                   {data.decisions.length}

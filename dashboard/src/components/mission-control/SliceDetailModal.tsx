@@ -18,6 +18,8 @@ import { projectRunStatus } from '@/lib/runStatusModel';
 import type { Initiative, NextUpQueueItem, SliceRunProjection } from '@/types';
 import type { InProgressRow } from './InProgressPanel';
 
+const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.userAgent);
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -201,6 +203,8 @@ function extractData(target: SliceDetailTarget) {
           ? Math.max(0, Math.floor(item.sliceTaskCount))
           : item.sliceTaskIds?.length ?? null,
       autoContinue: item.autoContinue,
+      canStartNow: typeof item.canStartNow === 'boolean' ? item.canStartNow : null,
+      startReasonLabel: item.startReasonLabel ?? null,
       milestoneBreakdown: item.milestoneBreakdown ?? null,
       sliceRun: linkedSliceRun,
       sessionId: null as string | null,
@@ -234,6 +238,8 @@ function extractData(target: SliceDetailTarget) {
             )
           : sliceRun?.taskIds?.length ?? null,
       autoContinue: null as NextUpQueueItem['autoContinue'] | null,
+      canStartNow: null as boolean | null,
+      startReasonLabel: null as string | null,
       milestoneBreakdown: null as NextUpQueueItem['milestoneBreakdown'] | null,
       sliceRun: sliceRun,
       sessionId: row.session?.id ?? null,
@@ -278,6 +284,8 @@ function extractData(target: SliceDetailTarget) {
           )
         : sliceRun.taskIds?.length ?? null,
     autoContinue: null as NextUpQueueItem['autoContinue'] | null,
+    canStartNow: null as boolean | null,
+    startReasonLabel: null as string | null,
     milestoneBreakdown: null as NextUpQueueItem['milestoneBreakdown'] | null,
     sliceRun: sliceRun,
     sessionId: null as string | null,
@@ -328,8 +336,14 @@ export function SliceDetailModal({
       if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
         e.preventDefault();
         const d = extractData(target);
-        if (d.initiativeId && d.workstreamId) {
-          onPlayWorkstream?.(d.initiativeId, d.workstreamId, d.agentId ?? undefined);
+        const initiativeId = d.initiativeId;
+        const workstreamId = d.workstreamId;
+        const startable =
+          initiativeId &&
+          workstreamId &&
+          (target.source !== 'queue' || d.canStartNow !== false);
+        if (startable && initiativeId && workstreamId) {
+          onPlayWorkstream?.(initiativeId, workstreamId, d.agentId ?? undefined);
         }
       }
     },
@@ -424,7 +438,22 @@ export function SliceDetailModal({
   ];
 
   const isRunning = canonicalProjection.status === 'in_progress';
-  const canStart = Boolean(d.initiativeId && d.workstreamId && !isRunning);
+  const canStart = Boolean(
+    d.initiativeId &&
+      d.workstreamId &&
+      !isRunning &&
+      (target.source !== 'queue' || d.canStartNow !== false)
+  );
+  const startActionLabel =
+    canonicalProjection.status === 'completed'
+      ? 'Restart'
+      : canonicalProjection.status === 'needs_attention'
+        ? 'Retry'
+        : 'Start';
+  const startActionTitle =
+    target.source === 'queue' && typeof d.startReasonLabel === 'string' && d.startReasonLabel.trim().length > 0
+      ? d.startReasonLabel.trim()
+      : startActionLabel;
   const nextActionLabel =
     canonicalProjection.nextAction ??
     (target.source === 'needs_input' && sr
@@ -742,16 +771,12 @@ export function SliceDetailModal({
                 onClose();
               }}
               className={`inline-flex h-8 items-center gap-1.5 rounded-lg border border-lime/25 bg-lime/10 px-4 text-[12px] font-semibold text-lime transition-colors hover:bg-lime/20 ${highlightedButton === 'start' ? 'ring-1 ring-lime/50 shadow-[0_0_10px_rgba(191,255,0,0.2)]' : ''}`}
-              title="Start (⌘ Enter)"
+              title={`${startActionTitle} (${isMac ? '⌘' : 'Ctrl'} Enter)`}
             >
               <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5">
                 <path d="M7 5.4v9.2c0 .7.75 1.15 1.38.83l7.6-4.6a.95.95 0 0 0 0-1.62l-7.6-4.64A.95.95 0 0 0 7 5.4Z" fill="currentColor" />
               </svg>
-              {canonicalProjection.status === 'completed'
-                ? 'Restart'
-                : canonicalProjection.status === 'needs_attention'
-                  ? 'Retry'
-                  : 'Start'}
+              {startActionLabel}
             </button>
           )}
           {hasTerminal && (

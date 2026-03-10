@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { motion as motionTokens } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
-import { humanizeActivitySummary } from '@/lib/humanize';
+import { humanizeActivityNarrative } from '@/lib/humanize';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import type { LiveActivityItem, SliceRunArtifactSummary } from '@/types';
 import { ArtifactGallery } from '@/components/mission-control/ArtifactGallery';
@@ -32,7 +32,7 @@ const TONE_STYLES = {
 
 export function ActivityDetailHero({ item, className }: ActivityDetailHeroProps) {
   const [showDetails, setShowDetails] = useState(false);
-  const summary = humanizeActivitySummary(item);
+  const narrative = humanizeActivityNarrative(item);
   const tone = resolveTone(item);
   const styles = TONE_STYLES[tone];
   const agentName = item.agentName ?? 'OrgX';
@@ -57,30 +57,33 @@ export function ActivityDetailHero({ item, className }: ActivityDetailHeroProps)
       <div className="flex items-start gap-3">
         <AgentAvatar name={agentName} hint={agentName} size="sm" />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h4 className="text-title font-medium text-white truncate">
-              {summary.taskDescription ?? item.title ?? 'Activity'}
-            </h4>
-            <span className={`inline-flex items-center gap-1.5 chip text-[9px] ${styles.label}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} />
-              {agentName}
-            </span>
-          </div>
-          {timestamp && (
-            <p className="mt-0.5 text-micro text-muted tabular-nums">{timestamp}</p>
-          )}
-          {summary.outcomeDescription && (
-            <p className="mt-2 text-body text-secondary leading-relaxed">
-              {summary.outcomeDescription}
-            </p>
-          )}
-          {summary.nextStep && (
-            <p className="mt-1 text-caption text-muted">
-              Next: {summary.nextStep}
-            </p>
-          )}
+        <div className="flex items-center gap-2">
+          <h4 className="text-title font-medium text-white truncate">
+            {narrative.scope ?? item.title ?? 'Activity'}
+          </h4>
+          <span className={`inline-flex items-center gap-1.5 chip text-[9px] ${styles.label}`}>
+            <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} />
+            {agentName}
+          </span>
         </div>
+        {timestamp && (
+          <p className="mt-0.5 text-micro text-muted tabular-nums">{timestamp}</p>
+        )}
+        {narrative.status && (
+          <p className="mt-1 text-caption text-muted">{narrative.status}</p>
+        )}
+        {narrative.update && (
+          <p className="mt-2 text-body text-secondary leading-relaxed">
+            {narrative.update}
+          </p>
+        )}
+        {narrative.nextUp[0] && (
+          <p className="mt-1 text-caption text-muted">
+            Next: {narrative.nextUp[0]}
+          </p>
+        )}
       </div>
+    </div>
 
       {/* Artifacts */}
       {artifacts.length > 0 && (

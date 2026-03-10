@@ -7,6 +7,7 @@ import {
 } from '@tanstack/react-query';
 import type {
   AutoContinueRun,
+  NextUpDispatchableTask,
   NextUpQueueItem,
   NextUpQueueResponse,
   NextUpQueueState,
@@ -92,7 +93,11 @@ export interface NextUpPlayResponse {
   workstreamId?: string;
   agentId?: string;
   dispatchMode?: 'slice' | 'fallback' | 'none' | 'pending' | string;
+  outcome?: string;
+  reasonCode?: string;
+  message?: string;
   sessionId?: string | null;
+  dispatchableTask?: NextUpDispatchableTask | null;
   slice?: {
     scope?: 'task' | 'milestone' | 'workstream';
     taskIds?: string[];
@@ -107,7 +112,6 @@ export interface NextUpPlayResponse {
   } | null;
   run?: unknown;
   error?: string;
-  message?: string;
   code?: string;
 }
 
@@ -116,13 +120,52 @@ export interface StartAutoContinueResponse {
   initiativeId?: string;
   workstreamIds?: string[];
   run?: AutoContinueRun | null;
-  error?: string;
+  outcome?: string;
+  reasonCode?: string;
   message?: string;
+  error?: string;
 }
 
 type QueueMutationContext = {
   previous: InfiniteData<NextUpQueueResponse> | undefined;
 };
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function extractPlayRunState(result: NextUpPlayResponse): {
+  status: string | null;
+  stopReason: string | null;
+  activeRunId: string | null;
+  activeTaskId: string | null;
+  activeRunIds: string[];
+} {
+  const run = asRecord(result.run);
+  const activeRunIds = Array.isArray(run?.activeSliceRunIds)
+    ? run!.activeSliceRunIds
+        .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        .map((entry) => entry.trim())
+    : [];
+  const activeRunId =
+    (typeof run?.activeRunId === 'string' && run.activeRunId.trim()) ||
+    activeRunIds[0] ||
+    (typeof result.sessionId === 'string' && result.sessionId.trim()) ||
+    null;
+  const activeTaskId =
+    (typeof run?.activeTaskId === 'string' && run.activeTaskId.trim()) || null;
+  const stopReason =
+    (typeof run?.stopReason === 'string' && run.stopReason.trim()) || null;
+  const status = (typeof run?.status === 'string' && run.status.trim()) || null;
+  return {
+    status,
+    stopReason,
+    activeRunId,
+    activeTaskId,
+    activeRunIds,
+  };
+}
 
 function patchInfiniteQueueData(
   previous: InfiniteData<NextUpQueueResponse> | undefined,
@@ -1040,21 +1083,9 @@ export function useNextUpQueue({
         }
       );
     },
-    onMutate: async (input: NextUpActionInput) => {
+    onMutate: async () => {
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData<InfiniteData<NextUpQueueResponse>>(queryKey);
-      queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(
-        queryKey,
-        patchInfiniteQueueData(previous, (item) => {
-          if (
-            item.initiativeId !== input.initiativeId ||
-            item.workstreamId !== input.workstreamId
-          ) {
-            return item;
-          }
-          return { ...item, queueState: 'running', playbackState: 'running' };
-        })
-      );
       return { previous };
     },
     onError: (_err, _input, ctx) => {
@@ -1063,30 +1094,35 @@ export function useNextUpQueue({
       }
     },
     onSuccess: (result, input) => {
+      const playRun = extractPlayRunState(result);
+      const playStarted =
+        result.outcome === 'started' ||
+        result.outcome === 'fallback_started' ||
+        result.outcome === 'dispatch_pending';
       if (input.initiativeId) {
         setAutoContinueStatusCache(
           input.initiativeId,
-          result.dispatchMode === 'none'
+          !playStarted
             ? null
             : ({
-                id: result.sessionId ?? `${input.initiativeId}:${input.workstreamId}:play`,
+                id: playRun.activeRunId ?? `${input.initiativeId}:${input.workstreamId}:play`,
                 initiativeId: input.initiativeId,
                 agentId: input.agentId ?? 'auto',
                 agentName: null,
                 tokenBudget: null,
                 tokensUsed: 0,
-                status: 'running',
+                status: playRun.status === 'stopping' ? 'stopping' : 'running',
                 stopRequested: false,
                 updatedAt: new Date().toISOString(),
                 startedAt: new Date().toISOString(),
                 stoppedAt: null,
                 lastError: null,
-                lastTaskId: null,
-                lastRunId: result.sessionId ?? null,
-                activeTaskId: null,
-                activeRunId: result.sessionId ?? null,
-                stopReason: null,
-                activeSliceRunIds: result.sessionId ? [result.sessionId] : [],
+                lastTaskId: playRun.activeTaskId,
+                lastRunId: playRun.activeRunId ?? null,
+                activeTaskId: playRun.activeTaskId,
+                activeRunId: playRun.activeRunId ?? null,
+                stopReason: playRun.stopReason,
+                activeSliceRunIds: playRun.activeRunIds,
                 activeTaskIds: [],
                 maxParallelSlices: input.maxParallelSlices ?? 1,
                 parallelMode: input.parallelMode ?? 'iwmt',
@@ -1105,8 +1141,22 @@ export function useNextUpQueue({
             }
             return {
               ...item,
-              queueState: result.dispatchMode === 'none' ? item.queueState : 'running',
-              playbackState: result.dispatchMode === 'none' ? item.playbackState : 'running',
+              queueState:
+                result.outcome === 'started' || result.outcome === 'fallback_started'
+                  ? 'running'
+                  : result.outcome === 'slice_completed'
+                    ? 'completed'
+                    : result.outcome === 'slice_blocked'
+                      ? 'blocked'
+                      : item.queueState,
+              playbackState:
+                result.outcome === 'started' || result.outcome === 'fallback_started'
+                  ? 'running'
+                  : result.outcome === 'slice_completed'
+                    ? 'completed'
+                    : result.outcome === 'slice_blocked'
+                      ? 'blocked'
+                      : item.playbackState,
             };
           })
       );
@@ -1165,37 +1215,9 @@ export function useNextUpQueue({
       }
       return body ?? { ok: true, initiativeId: input.initiativeId, workstreamIds: [input.workstreamId], run: null };
     },
-    onMutate: async (input) => {
+    onMutate: async () => {
       await queryClient.cancelQueries({ queryKey });
       const previous = queryClient.getQueryData<InfiniteData<NextUpQueueResponse>>(queryKey);
-      queryClient.setQueryData<InfiniteData<NextUpQueueResponse>>(
-        queryKey,
-        patchInfiniteQueueData(previous, (item) => {
-          if (item.initiativeId !== input.initiativeId) return item;
-          const isTargetWorkstream =
-            item.workstreamId === input.workstreamId || input.scope !== 'workstream';
-          if (!isTargetWorkstream) return item;
-          return {
-            ...item,
-            autoContinue: {
-              ...(item.autoContinue ?? {
-                status: 'running' as const,
-                activeTaskId: null,
-                activeRunId: null,
-                stopReason: null,
-                maxParallelSlices: input.maxParallelSlices ?? 1,
-                parallelMode: input.parallelMode ?? 'iwmt',
-                updatedAt: new Date().toISOString(),
-              }),
-              status: 'running',
-              stopReason: null,
-              maxParallelSlices: input.maxParallelSlices ?? item.autoContinue?.maxParallelSlices ?? 1,
-              parallelMode: input.parallelMode ?? item.autoContinue?.parallelMode ?? 'iwmt',
-              updatedAt: new Date().toISOString(),
-            },
-          };
-        })
-      );
       return { previous };
     },
     onError: (_err, _input, context) => {

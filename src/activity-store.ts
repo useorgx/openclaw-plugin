@@ -87,11 +87,70 @@ function compareActivity(a: LiveActivityItem, b: LiveActivityItem): number {
   return String(b.id).localeCompare(String(a.id));
 }
 
+function activityString(meta: Record<string, unknown> | null | undefined, keys: string[]): string | null {
+  if (!meta) return null;
+  for (const key of keys) {
+    const value = meta[key];
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed.length > 0) return trimmed;
+  }
+  return null;
+}
+
+function activityStringArray(meta: Record<string, unknown> | null | undefined, keys: string[]): string[] {
+  if (!meta) return [];
+  for (const key of keys) {
+    const raw = meta[key];
+    if (!Array.isArray(raw)) continue;
+    const values = raw
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    if (values.length > 0) return values;
+  }
+  return [];
+}
+
+function activitySemanticKey(item: LiveActivityItem): string {
+  const meta =
+    item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
+      ? (item.metadata as Record<string, unknown>)
+      : null;
+  const bucket = Math.floor(toEpoch(item.timestamp) / 60_000);
+  const event =
+    activityString(meta, ["event", "event_name", "eventName"]) ??
+    item.type ??
+    "activity";
+  const initiativeId =
+    (typeof item.initiativeId === "string" && item.initiativeId.trim().length > 0
+      ? item.initiativeId.trim()
+      : null) ?? activityString(meta, ["initiative_id", "initiativeId"]);
+  const workstreamId = activityString(meta, ["workstream_id", "workstreamId", "source_stream_id"]);
+  const runId =
+    (typeof item.runId === "string" && item.runId.trim().length > 0 ? item.runId.trim() : null) ??
+    activityString(meta, ["run_id", "runId", "source_run_id", "session_id", "sessionId"]);
+  const decisionIds = activityStringArray(meta, ["decision_ids", "decisionIds"]).slice(0, 3).join(",");
+  const title =
+    activityString(meta, ["decision_title", "task_title", "artifact_title", "title"]) ??
+    (typeof item.title === "string" ? item.title.trim() : "");
+  return [
+    event.toLowerCase(),
+    initiativeId ?? "",
+    workstreamId ?? "",
+    runId ?? "",
+    decisionIds,
+    title.toLowerCase(),
+    String(bucket),
+  ].join("|");
+}
+
 function normalizeItems(source: LiveActivityItem[]): LiveActivityItem[] {
   const now = Date.now();
   const cutoffEpoch = now - RETENTION_DAYS * 24 * 60 * 60_000;
 
   const byId = new Map<string, LiveActivityItem>();
+  const bySemantic = new Map<string, LiveActivityItem>();
   for (const item of source) {
     if (!item || typeof item !== "object") continue;
     if (typeof (item as any).id !== "string") continue;
@@ -102,6 +161,15 @@ function normalizeItems(source: LiveActivityItem[]): LiveActivityItem[] {
     if (!epoch) continue;
     if (epoch < cutoffEpoch) continue;
     if (shouldHideActivityItem(item)) continue;
+    const semanticKey = activitySemanticKey(item);
+    const existingSemantic = bySemantic.get(semanticKey);
+    if (existingSemantic) {
+      if (compareActivity(item, existingSemantic) >= 0) {
+        continue;
+      }
+      byId.delete(existingSemantic.id);
+    }
+    bySemantic.set(semanticKey, item);
     byId.set(id, item);
   }
 
@@ -241,13 +309,8 @@ export function appendActivityItems(items: LiveActivityItem[]): { appended: numb
     return { appended: 0, updated: 0, total: state.items.length };
   }
 
-  // Rebuild sorted list from map, bounded by MAX_ITEMS.
-  // Skip full normalizeItems (enrichment + dedup) for small batches — items are already validated above.
-  if (appended + updated > 50) {
-    state.items = normalizeItems(Array.from(state.byId.values()));
-  } else {
-    state.items = Array.from(state.byId.values()).sort(compareActivity).slice(0, MAX_ITEMS);
-  }
+  // Rebuild via normalizeItems every time so semantic dedupe stays consistent.
+  state.items = normalizeItems(Array.from(state.byId.values()));
   state.byId = new Map(state.items.map((item) => [item.id, item]));
   state.dirty = true;
   scheduleFlush(state);

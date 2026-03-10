@@ -177,6 +177,22 @@ function queueTaskFallback(item: NextUpQueueItem): string {
   return 'Idle. Ready to dispatch when started.';
 }
 
+function canStartQueueItem(item: NextUpQueueItem): boolean {
+  if (typeof item.canStartNow === 'boolean') return item.canStartNow;
+  if (item.queueState === QueueState.RUNNING || item.queueState === QueueState.BLOCKED) return false;
+  if (item.queueState === QueueState.COMPLETED) return false;
+  if (item.autoContinue?.status === 'running' || item.autoContinue?.status === 'stopping') return false;
+  return item.queueState === QueueState.QUEUED || item.queueState === QueueState.IDLE;
+}
+
+function startButtonTitle(item: NextUpQueueItem, isRunningRow: boolean): string {
+  if (isRunningRow) return 'Already running';
+  if (canStartQueueItem(item)) {
+    return item.startReasonLabel?.trim() || 'Start now';
+  }
+  return item.startReasonLabel?.trim() || item.blockReason?.trim() || 'This workstream is not ready to start';
+}
+
 function toInitiativePriorityLabel(item: NextUpQueueItem): {
   shortLabel: string;
   longLabel: string;
@@ -356,6 +372,23 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function playDispatchNotice(item: NextUpQueueItem, payload: unknown): string {
   const workstreamLabel = sanitizeDisplayText(item.workstreamTitle);
   const record = asRecord(payload);
+  const message =
+    record && typeof record.message === 'string' ? sanitizeDisplayText(record.message) : null;
+  if (message) return message;
+  const outcome =
+    record && typeof record.outcome === 'string' ? record.outcome : null;
+  if (outcome === 'slice_completed') {
+    return `${workstreamLabel} completed before the queue refreshed.`;
+  }
+  if (outcome === 'slice_blocked') {
+    return item.startReasonLabel?.trim() || `${workstreamLabel} needs your input before it can continue.`;
+  }
+  if (outcome === 'fallback_started') {
+    return `Dispatched ${workstreamLabel} using fallback runner.`;
+  }
+  if (outcome === 'dispatch_pending') {
+    return `Dispatching ${workstreamLabel}; waiting for slice start…`;
+  }
   const dispatchMode =
     record && typeof record.dispatchMode === 'string' ? record.dispatchMode : null;
   const run = asRecord(record?.run);
@@ -376,6 +409,32 @@ function playDispatchNotice(item: NextUpQueueItem, payload: unknown): string {
     return `Dispatched ${workstreamLabel} using fallback runner.`;
   }
   return `Dispatched ${workstreamLabel}.`;
+}
+
+function autoContinueNotice(item: NextUpQueueItem, payload: unknown): string {
+  const initiativeLabel = sanitizeDisplayText(item.initiativeTitle);
+  const workstreamLabel = sanitizeDisplayText(item.workstreamTitle);
+  const record = asRecord(payload);
+  const outcome = record && typeof record.outcome === 'string' ? record.outcome : null;
+  if (outcome === 'blocked') {
+    return `${workstreamLabel} started under autopilot, but it immediately needs your input.`;
+  }
+  if (outcome === 'completed') {
+    return `${workstreamLabel} completed immediately under autopilot in ${initiativeLabel}.`;
+  }
+  if (outcome === 'error') {
+    return `${workstreamLabel} hit an error before autopilot could continue ${initiativeLabel}.`;
+  }
+  if (outcome === 'pending') {
+    return `Autopilot is preparing the next slice for ${initiativeLabel}.`;
+  }
+  if (outcome === 'started') {
+    return `Autopilot started ${workstreamLabel} in ${initiativeLabel}.`;
+  }
+  const message =
+    record && typeof record.message === 'string' ? sanitizeDisplayText(record.message) : null;
+  if (message) return message;
+  return `Auto enabled for ${initiativeLabel}.`;
 }
 
 function nextUpClearNotice(payload: unknown, defaultCount: number): string {
@@ -1350,11 +1409,7 @@ export function NextUpPanel({
           <AnimatePresence initial={false}>
             {visibleInitiativeGroups.map((group, index) => {
               const firstRunnable =
-                group.items.find(
-                  (item) =>
-                    item.queueState !== QueueState.RUNNING &&
-                    item.queueState !== 'completed'
-                ) ?? group.items[0] ?? null;
+                group.items.find((item) => canStartQueueItem(item)) ?? group.items[0] ?? null;
               const label = resolveEntityLabel(
                 group.initiativeTitle,
                 group.initiativeId,
@@ -1436,10 +1491,15 @@ export function NextUpPanel({
                         void runAction(
                           `initiative:${group.initiativeId}`,
                           () => launchWorkstream(firstRunnable),
-                          `Dispatched ${sanitizeDisplayText(firstRunnable.workstreamTitle)}.`
+                          (result) => playDispatchNotice(firstRunnable, result)
                         );
                       }}
                       className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
+                      title={
+                        firstRunnable
+                          ? startButtonTitle(firstRunnable, firstRunnable.queueState === QueueState.RUNNING)
+                          : 'No dispatchable workstream is available'
+                      }
                     >
                       Dispatch
                     </button>
@@ -1505,7 +1565,7 @@ export function NextUpPanel({
                     </button>
                     <button
                       type="button"
-                      disabled={actionKey === busyKey || group.queueState === QueueState.RUNNING}
+                      disabled={actionKey === busyKey || !canStartQueueItem(item)}
                       onClick={() =>
                         void runAction(
                           busyKey,
@@ -1514,8 +1574,9 @@ export function NextUpPanel({
                         )
                       }
                       className="control-pill h-7 px-2.5 text-micro font-semibold disabled:opacity-45"
+                      title={startButtonTitle(item, group.queueState === QueueState.RUNNING)}
                     >
-                      {group.queueState === QueueState.RUNNING ? 'Running' : 'Start'}
+                      {group.queueState === QueueState.RUNNING ? 'Running' : canStartQueueItem(item) ? 'Start' : 'Unavailable'}
                     </button>
                   </div>
                 </motion.article>
@@ -1705,7 +1766,7 @@ export function NextUpPanel({
                   <div className="mt-1.5 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
-                      disabled={isRowBusy || isRunningRow}
+                      disabled={isRowBusy || !canStartQueueItem(item)}
                       onClick={() =>
                         void runAction(
                           key,
@@ -1714,11 +1775,11 @@ export function NextUpPanel({
                         )
                       }
                       className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-                      title={isRunningRow ? 'Already running' : 'Start now'}
+                      title={startButtonTitle(item, isRunningRow)}
                     >
                       <span className="inline-flex items-center gap-1">
                         <PlayGlyph className="h-3 w-3 opacity-85" />
-                        <span>{isRunningRow ? 'Running' : 'Start'}</span>
+                        <span>{isRunningRow ? 'Running' : canStartQueueItem(item) ? 'Start' : 'Unavailable'}</span>
                       </span>
                     </button>
                     <div className="relative ml-auto">
@@ -1787,7 +1848,7 @@ export function NextUpPanel({
                                     agentId: item.runnerAgentId,
                                     scope: 'initiative',
                                   }),
-                                `Auto enabled for ${initiativeTitle}.`
+                                (result) => autoContinueNotice(item, result)
                               );
                             }}
                             className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"
@@ -2165,7 +2226,7 @@ function NextUpReorderRow({
         <div className="mt-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
-            disabled={isRowBusy || isRunningRow}
+            disabled={isRowBusy || !canStartQueueItem(item)}
             onClick={() =>
               void runAction(
                 key,
@@ -2174,11 +2235,11 @@ function NextUpReorderRow({
               )
             }
             className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
-            title={isRunningRow ? 'Already running' : 'Start this workstream now'}
+            title={startButtonTitle(item, isRunningRow)}
           >
             <span className="inline-flex items-center gap-1">
               <PlayGlyph className="h-3 w-3 opacity-85" />
-              <span>{isRunningRow ? 'Running' : 'Start'}</span>
+              <span>{isRunningRow ? 'Running' : canStartQueueItem(item) ? 'Start' : 'Unavailable'}</span>
             </span>
           </button>
           <button
@@ -2255,7 +2316,7 @@ function NextUpReorderRow({
                           agentId: item.runnerAgentId,
                           scope: 'initiative',
                         }),
-                      `Auto enabled for ${initiativeTitle}.`
+                      (result) => autoContinueNotice(item, result)
                     );
                   }}
                   className="flex h-8 w-full items-center rounded-md px-2.5 text-left text-caption text-primary transition-colors hover:bg-white/[0.08]"

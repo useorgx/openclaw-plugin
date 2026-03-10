@@ -57,6 +57,15 @@ type NextUpQueueItem = {
   sliceTaskCount?: number | null;
   sliceMilestoneId?: string | null;
   milestoneBreakdown?: MilestoneBreakdownEntry[];
+  canStartNow?: boolean;
+  startReasonCode?: string | null;
+  startReasonLabel?: string | null;
+  dispatchableTask?: {
+    id: string;
+    title: string;
+    scope: "task" | "milestone" | "workstream";
+    milestoneId?: string | null;
+  } | null;
   isPinned?: boolean;
   pinnedRank?: number | null;
   compositeScore?: number;
@@ -733,6 +742,27 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
       ? runnerSourceHint ?? "inferred"
       : "fallback";
     const queueState = normalizeQueueState(record.queueState ?? record.queue_state);
+    const dispatchableTaskRecord = asRecord(
+      record.dispatchableTask ?? record.dispatchable_task
+    );
+    const dispatchableTaskId =
+      asString(dispatchableTaskRecord?.id) ??
+      asString(record.dispatchableTaskId) ??
+      asString(record.dispatchable_task_id);
+    const dispatchableTaskTitle =
+      asString(dispatchableTaskRecord?.title) ??
+      asString(record.dispatchableTaskTitle) ??
+      asString(record.dispatchable_task_title);
+    const dispatchableTaskScopeRaw =
+      asString(dispatchableTaskRecord?.scope) ??
+      asString(record.dispatchableTaskScope) ??
+      asString(record.dispatchable_task_scope);
+    const dispatchableTaskScope =
+      dispatchableTaskScopeRaw === "task" ||
+      dispatchableTaskScopeRaw === "milestone" ||
+      dispatchableTaskScopeRaw === "workstream"
+        ? dispatchableTaskScopeRaw
+        : null;
     const normalizedSliceScope = normalizeMissionControlStatus(
       asString(record.sliceScope) ?? asString(record.slice_scope)
     );
@@ -780,6 +810,28 @@ function normalizeQueueItems(input: unknown[]): NextUpQueueItem[] {
           ? Math.max(0, Math.floor(sliceTaskCountRaw))
           : sliceTaskIds.length,
       sliceMilestoneId: asString(record.sliceMilestoneId) ?? asString(record.slice_milestone_id),
+      canStartNow:
+        typeof record.canStartNow === "boolean"
+          ? record.canStartNow
+          : typeof record.can_start_now === "boolean"
+            ? record.can_start_now
+            : queueState === "queued" || queueState === "idle",
+      startReasonCode: asString(record.startReasonCode) ?? asString(record.start_reason_code),
+      startReasonLabel:
+        asString(record.startReasonLabel) ?? asString(record.start_reason_label),
+      dispatchableTask:
+        dispatchableTaskId && dispatchableTaskTitle && dispatchableTaskScope
+          ? {
+              id: dispatchableTaskId,
+              title: dispatchableTaskTitle,
+              scope: dispatchableTaskScope,
+              milestoneId:
+                asString(dispatchableTaskRecord?.milestoneId) ??
+                asString(dispatchableTaskRecord?.milestone_id) ??
+                asString(record.dispatchableTaskMilestoneId) ??
+                asString(record.dispatchable_task_milestone_id),
+            }
+          : null,
       isPinned: Boolean(record.isPinned ?? record.is_pinned),
       pinnedRank: asNumber(record.pinnedRank ?? record.pinned_rank),
       compositeScore: asNumber(record.compositeScore ?? record.composite_score) ?? undefined,

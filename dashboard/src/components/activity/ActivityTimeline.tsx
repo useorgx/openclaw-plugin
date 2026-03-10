@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils';
 import { colors, getAgentColor, getAgentRole } from '@/lib/tokens';
 import { formatRelativeTime } from '@/lib/time';
 import { buildOrgxHeaders } from '@/lib/http';
-import { humanizeText, humanizeModel, humanizeActorName, humanizeWarning, formatTokens, humanizeStopReason, humanizePath, humanizeId, isOpaqueId, deriveActivityFallbackTitle } from '@/lib/humanize';
+import { humanizeText, humanizeModel, humanizeActorName, humanizeWarning, formatTokens, humanizeStopReason, humanizePath, humanizeId, isOpaqueId, deriveActivityFallbackTitle, humanizeActivityNarrative } from '@/lib/humanize';
 import { EmptyState } from '@/components/shared/EmptyState';
 import { projectRunStatus, type CanonicalRunProjection } from '@/lib/runStatusModel';
 import type {
@@ -1656,8 +1656,16 @@ function extractArtifactSnippet(item: LiveActivityItem): ArtifactSnippet | null 
     } else if (Array.isArray(v)) {
       preview = `${v.length} item${v.length === 1 ? '' : 's'}`;
     } else if (v && typeof v === 'object') {
-      const keys = Object.keys(v as Record<string, unknown>);
-      preview = keys.length <= 4 ? keys.join(', ') : `${keys.length} fields`;
+      const narrative = collectArtifactNarrative(v);
+      if (narrative?.summary) {
+        preview = narrative.summary;
+      } else if (narrative?.artifactsCreated[0]?.title) {
+        preview = narrative.artifactsCreated[0].title;
+      } else if (narrative?.updatesApplied[0]) {
+        preview = narrative.updatesApplied[0];
+      } else {
+        preview = 'Structured artifact details attached';
+      }
     }
   }
 
@@ -3153,8 +3161,36 @@ const SYSTEM_NOISE_PATTERNS = [
   /changeset replayed/i,
 ];
 
+const DIRECTIVE_NOISE_PATTERNS = [
+  /^User:\s*Read /i,
+  /Read HEARTBEAT\.md/i,
+  /Follow it strictly/i,
+  /reply HEARTBEAT_OK/i,
+  /Current time:/i,
+  /workspace context/i,
+];
+
 function isSystemNoise(title: string): boolean {
   return SYSTEM_NOISE_PATTERNS.some((pattern) => pattern.test(title));
+}
+
+function isDirectiveNoise(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const normalized = text.trim();
+  if (!normalized) return false;
+  return DIRECTIVE_NOISE_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+function pickMeaningfulActivityCopy(...candidates: Array<string | null | undefined>): string | null {
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (!trimmed) continue;
+    if (isDirectiveNoise(trimmed)) continue;
+    if (trimmed === 'System event' || trimmed === 'Untitled session') continue;
+    return trimmed;
+  }
+  return null;
 }
 
 /**
@@ -3236,8 +3272,8 @@ function narrativeActivityTitle(item: LiveActivityItem): string | null {
   }
 
   // Decision events
-  if (eventName === 'decision_needed') {
-    const decisionTitle = metadataString(metadata, ['decision_title', 'decisionTitle', 'title']);
+  if (eventName === 'decision_needed' || eventName === 'question_asked' || eventName === 'review_item_created') {
+    const decisionTitle = metadataString(metadata, ['decision_title', 'decisionTitle', 'decision_prompt', 'decisionPrompt', 'question', 'title']);
     return decisionTitle ? `Decision needed: ${decisionTitle}` : 'Decision needed';
   }
   if (eventName === 'decision_resolved') {
@@ -5249,10 +5285,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const runId = decorated.runId;
     const syncSummary = syncReplaySummary(item);
     const updatesSummary = summarizeStatusUpdatesForCard(item);
-    const { title: displayTitle } = cleanSystemTitle(item);
-    const displaySummary = syncSummary ?? updatesSummary ?? humanizeActivityBody(item.summary);
-    const displayDesc = humanizeActivityBody(item.description);
-    const headline = summarizeDetailHeadline(item, displaySummary ?? displayDesc ?? null);
+    const narrative = humanizeActivityNarrative(item);
+    const { title: cleanedTitle } = cleanSystemTitle(item);
     const metadata = metadataForItem(item);
     const initiativeName = firstReadableContextLabel([
       {
@@ -5281,6 +5315,35 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       },
     ]);
     const breadcrumb = [initiativeName, workstreamName].filter(Boolean).join(' > ');
+    const displayTitle =
+      pickMeaningfulActivityCopy(
+        narrative.scope,
+        breadcrumb,
+        cleanedTitle,
+        humanizeActivityBody(item.description),
+        humanizeText(labelForType(item.type))
+      ) ?? humanizeText(labelForType(item.type));
+    const displaySummary =
+      pickMeaningfulActivityCopy(
+        syncSummary,
+        updatesSummary,
+        narrative.update,
+        humanizeActivityBody(item.summary)
+      );
+    const displayDesc =
+      pickMeaningfulActivityCopy(
+        narrative.status,
+        narrative.outcomes[0],
+        narrative.nextUp[0] ? `Next up: ${narrative.nextUp[0]}` : null,
+        humanizeActivityBody(item.description)
+      );
+    const headline =
+      pickMeaningfulActivityCopy(
+        narrative.update,
+        summarizeDetailHeadline(item, displaySummary ?? displayDesc ?? null),
+        cleanedTitle,
+        displayTitle
+      ) ?? displayTitle;
     const eventContextLabel = readableContextLabel(
       metadataString(metadata, ['event', 'event_name', 'eventName']),
       null
@@ -5321,7 +5384,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
           setDetailDirection(1);
           setActiveItemId(item.id);
         }}
-        ariaLabel={`Open activity details for ${displayTitle || labelForType(item.type)}`}
+        ariaLabel={`Open activity details for ${headline || displayTitle || labelForType(item.type)}`}
         artifactSnippet={artifactSnippet}
         evidenceChips={evidenceChips.length > 0 ? evidenceChips : undefined}
         actorCategory={actorCategory}

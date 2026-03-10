@@ -261,6 +261,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     dueAt: string;
     timer: NodeJS.Timeout | null;
     decisionIds: string[];
+    eventMetadata?: Record<string, unknown> | null;
   };
   const questionAutoAnswerPolicyByScope = new Map<string, QuestionAutoAnswerPolicy>();
   const pendingQuestionAutoAnswerByScope = new Map<string, PendingQuestionAutoAnswer>();
@@ -604,10 +605,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               event: "question_timeout_started",
               action_type: normalizeActivityActionType("question_timeout_started"),
               action_phase: normalizeActivityActionPhase("review"),
-              initiative_id: pending.initiativeId,
-              workstream_id: pending.workstreamId,
-              source_run_id: pending.sourceRunId,
-              source_client: pending.sourceClient,
+              ...(pending.eventMetadata ?? {}),
               decision_ids: pending.decisionIds,
               decision_count: pending.decisionIds.length,
               decision_action: pending.action,
@@ -652,6 +650,206 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     pending.timer.unref?.();
   };
 
+  type QueuedDecisionOptionSummary = {
+    id?: string | null;
+    label: string;
+    description?: string | null;
+    consequences?: string | null;
+    action_type?: string | null;
+    implied_status?: string | null;
+    requires_note?: boolean;
+    recommended?: boolean;
+  };
+
+  type QueuedDecisionEvidenceSummary = {
+    title: string;
+    summary?: string | null;
+    source_url?: string | null;
+    source_pointer?: string | null;
+    evidence_type?: string | null;
+    confidence?: number | null;
+  };
+
+  const pickMetadataString = (
+    record: Record<string, unknown> | null | undefined,
+    keys: string[]
+  ): string | null => {
+    if (!record) return null;
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value !== "string") continue;
+      const trimmed = value.trim();
+      if (trimmed.length > 0) return trimmed;
+    }
+    return null;
+  };
+
+  const pickMetadataStringArray = (
+    record: Record<string, unknown> | null | undefined,
+    keys: string[]
+  ): string[] => {
+    if (!record) return [];
+    for (const key of keys) {
+      const raw = record[key];
+      if (!Array.isArray(raw)) continue;
+      const values = raw
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim())
+        .filter(Boolean);
+      if (values.length > 0) return values;
+    }
+    return [];
+  };
+
+  const normalizeQueuedDecisionOptions = (
+    value: Array<string | Record<string, unknown>> | null | undefined,
+    recommendedAction: string | null
+  ): QueuedDecisionOptionSummary[] => {
+    if (!Array.isArray(value)) return [];
+    const normalized: QueuedDecisionOptionSummary[] = [];
+    const seen = new Set<string>();
+    const recommendedLower = recommendedAction?.trim().toLowerCase() ?? null;
+    for (const rawOption of value) {
+      if (typeof rawOption === "string") {
+        const label = rawOption.trim();
+        if (!label) continue;
+        const key = label.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        normalized.push({
+          label,
+          recommended: recommendedLower !== null && label.toLowerCase() === recommendedLower,
+        });
+        continue;
+      }
+      if (!rawOption || typeof rawOption !== "object" || Array.isArray(rawOption)) continue;
+      const optionRecord = rawOption as Record<string, unknown>;
+      const label =
+        pickMetadataString(optionRecord, ["label", "title", "name"]) ??
+        pickMetadataString(optionRecord, ["action", "action_type", "actionType"]);
+      if (!label) continue;
+      const id = pickMetadataString(optionRecord, ["id", "option_id", "optionId"]);
+      const description = pickMetadataString(optionRecord, ["description", "summary"]);
+      const consequences = pickMetadataString(optionRecord, ["consequences", "impact"]);
+      const actionType = pickMetadataString(optionRecord, ["action_type", "actionType", "action"]);
+      const impliedStatus = pickMetadataString(optionRecord, ["implied_status", "impliedStatus", "status"]);
+      const requiresNote =
+        optionRecord.requires_note === true ||
+        optionRecord.requiresNote === true ||
+        optionRecord.note_required === true;
+      const recommended =
+        optionRecord.recommended === true ||
+        optionRecord.is_recommended === true ||
+        optionRecord.isRecommended === true ||
+        (recommendedLower !== null && label.toLowerCase() === recommendedLower);
+      const key = `${(id ?? "").toLowerCase()}|${label.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      normalized.push({
+        ...(id ? { id } : {}),
+        label,
+        ...(description ? { description } : {}),
+        ...(consequences ? { consequences } : {}),
+        ...(actionType ? { action_type: actionType } : {}),
+        ...(impliedStatus ? { implied_status: impliedStatus } : {}),
+        ...(requiresNote ? { requires_note: true } : {}),
+        ...(recommended ? { recommended: true } : {}),
+      });
+    }
+    return normalized.slice(0, 8);
+  };
+
+  const normalizeQueuedDecisionEvidence = (
+    value: Array<Record<string, unknown>> | null | undefined
+  ): QueuedDecisionEvidenceSummary[] => {
+    if (!Array.isArray(value)) return [];
+    const normalized: QueuedDecisionEvidenceSummary[] = [];
+    const seen = new Set<string>();
+    for (const rawEvidence of value) {
+      if (!rawEvidence || typeof rawEvidence !== "object" || Array.isArray(rawEvidence)) continue;
+      const record = rawEvidence as Record<string, unknown>;
+      const title =
+        pickMetadataString(record, ["title", "label", "name"]) ??
+        pickMetadataString(record, ["source_pointer", "sourcePointer", "source_url", "sourceUrl"]) ??
+        "Evidence";
+      const summary = pickMetadataString(record, ["summary", "description"]);
+      const sourceUrl = pickMetadataString(record, ["source_url", "sourceUrl", "url"]);
+      const sourcePointer = pickMetadataString(record, ["source_pointer", "sourcePointer", "path"]);
+      const evidenceType = pickMetadataString(record, ["evidence_type", "evidenceType", "type"]);
+      const confidenceRaw = record.confidence ?? record.confidence_score;
+      const confidence =
+        typeof confidenceRaw === "number" && Number.isFinite(confidenceRaw)
+          ? Math.max(0, Math.min(1, confidenceRaw))
+          : null;
+      const key = `${title.toLowerCase()}|${sourceUrl ?? ""}|${sourcePointer ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      normalized.push({
+        title,
+        ...(summary ? { summary } : {}),
+        ...(sourceUrl ? { source_url: sourceUrl } : {}),
+        ...(sourcePointer ? { source_pointer: sourcePointer } : {}),
+        ...(evidenceType ? { evidence_type: evidenceType } : {}),
+        ...(confidence !== null ? { confidence } : {}),
+      });
+    }
+    return normalized.slice(0, 8);
+  };
+
+  const buildQuestionEventMetadata = (input: {
+    initiativeId: string | null;
+    workstreamId: string | null;
+    sourceRunId: string | null;
+    sourceClient: RuntimeSourceClient;
+    decisionIds: string[];
+    blocking: boolean;
+    title: string;
+    summary: string | null;
+    decisionType: string | null;
+    options: QueuedDecisionOptionSummary[];
+    recommendedAction: string | null;
+    evidenceRefs: QueuedDecisionEvidenceSummary[];
+    scopeHierarchy: string[];
+    initiativeTitle: string | null;
+    workstreamTitle: string | null;
+    taskTitle: string | null;
+    nextActions: string[];
+    currentRunState: string | null;
+    impactIfDelayed: string | null;
+    reason: string | null;
+  }): Record<string, unknown> => {
+    const metadata: Record<string, unknown> = {
+      initiative_id: input.initiativeId,
+      workstream_id: input.workstreamId,
+      source_run_id: input.sourceRunId,
+      source_client: input.sourceClient,
+      decision_ids: input.decisionIds,
+      decision_count: input.decisionIds.length,
+      blocking: input.blocking,
+      decision_title: input.title,
+      decision_prompt: input.title,
+      question: input.title,
+      required_action: input.recommendedAction,
+      recommended_action: input.recommendedAction,
+      current_run_state: input.currentRunState,
+      impact_if_delayed: input.impactIfDelayed,
+      reason: input.reason,
+      decision_type: input.decisionType,
+    };
+    if (input.summary) metadata.decision_summary = input.summary;
+    if (input.options.length > 0) {
+      metadata.decision_options = input.options;
+      metadata.decision_option_labels = input.options.map((option) => option.label);
+    }
+    if (input.evidenceRefs.length > 0) metadata.evidence_refs = input.evidenceRefs;
+    if (input.scopeHierarchy.length > 0) metadata.scope_hierarchy = input.scopeHierarchy;
+    if (input.initiativeTitle) metadata.initiative_title = input.initiativeTitle;
+    if (input.workstreamTitle) metadata.workstream_title = input.workstreamTitle;
+    if (input.taskTitle) metadata.task_title = input.taskTitle;
+    if (input.nextActions.length > 0) metadata.next_actions = input.nextActions;
+    return metadata;
+  };
+
   const scheduleQuestionAutoAnswer = async (input: {
     initiativeId: string | null;
     workstreamId: string | null;
@@ -660,6 +858,19 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     decisionIds: string[];
     blocking: boolean;
     reason: string | null;
+    title: string;
+    summary: string | null;
+    decisionType: string | null;
+    options: QueuedDecisionOptionSummary[];
+    recommendedAction: string | null;
+    evidenceRefs: QueuedDecisionEvidenceSummary[];
+    scopeHierarchy: string[];
+    initiativeTitle: string | null;
+    workstreamTitle: string | null;
+    taskTitle: string | null;
+    nextActions: string[];
+    currentRunState: string | null;
+    impactIfDelayed: string | null;
   }): Promise<void> => {
     const decisionIds = dedupeStrings(
       input.decisionIds
@@ -668,6 +879,28 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     );
     if (decisionIds.length === 0) return;
     const policy = resolveQuestionPolicy(input.initiativeId, input.workstreamId);
+    const questionMetadata = buildQuestionEventMetadata({
+      initiativeId: input.initiativeId,
+      workstreamId: input.workstreamId,
+      sourceRunId: input.sourceRunId,
+      sourceClient: input.sourceClient,
+      decisionIds,
+      blocking: input.blocking,
+      title: input.title,
+      summary: input.summary,
+      decisionType: input.decisionType,
+      options: input.options,
+      recommendedAction: input.recommendedAction,
+      evidenceRefs: input.evidenceRefs,
+      scopeHierarchy: input.scopeHierarchy,
+      initiativeTitle: input.initiativeTitle,
+      workstreamTitle: input.workstreamTitle,
+      taskTitle: input.taskTitle,
+      nextActions: input.nextActions,
+      currentRunState: input.currentRunState,
+      impactIfDelayed: input.impactIfDelayed,
+      reason: input.reason,
+    });
     await emitActivitySafe({
       initiativeId: input.initiativeId,
       runId: input.sourceRunId,
@@ -685,13 +918,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         event: "question_asked",
         action_type: normalizeActivityActionType("question_asked"),
         action_phase: normalizeActivityActionPhase("review"),
-        initiative_id: input.initiativeId,
-        workstream_id: input.workstreamId,
-        source_run_id: input.sourceRunId,
-        source_client: input.sourceClient,
-        decision_ids: decisionIds,
-        decision_count: decisionIds.length,
-        blocking: input.blocking,
+        ...questionMetadata,
         question_policy_mode: policy.mode,
         question_policy_version: policy.policyVersion,
         timeout_seconds_applied: policy.timeoutSeconds,
@@ -719,12 +946,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           event: "review_item_created",
           action_type: normalizeActivityActionType("review_item_created"),
           action_phase: normalizeActivityActionPhase("blocked"),
-          initiative_id: input.initiativeId,
-          workstream_id: input.workstreamId,
-          source_run_id: input.sourceRunId,
-          source_client: input.sourceClient,
-          decision_ids: decisionIds,
-          decision_count: decisionIds.length,
+          ...questionMetadata,
           blocking: true,
           reason: "blocking_question_requires_human",
           question_policy_mode: policy.mode,
@@ -748,11 +970,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           event: "review_item_created",
           action_type: normalizeActivityActionType("review_item_created"),
           action_phase: normalizeActivityActionPhase("review"),
-          initiative_id: input.initiativeId,
-          workstream_id: input.workstreamId,
-          source_run_id: input.sourceRunId,
-          source_client: input.sourceClient,
-          decision_ids: decisionIds,
+          ...questionMetadata,
           reason: "policy_disabled",
           question_policy_mode: policy.mode,
           question_policy_version: policy.policyVersion,
@@ -772,6 +990,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       existing.policyVersion = policy.policyVersion;
       existing.timeoutSeconds = policy.timeoutSeconds;
       existing.dueAt = new Date(dueAtEpoch).toISOString();
+      existing.eventMetadata = questionMetadata;
       armQuestionAutoAnswerTimer(key, existing, policy.timeoutSeconds);
       await emitActivitySafe({
         initiativeId: input.initiativeId,
@@ -786,10 +1005,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           event: "question_timeout_started",
           action_type: normalizeActivityActionType("question_timeout_started"),
           action_phase: normalizeActivityActionPhase("review"),
-          initiative_id: input.initiativeId,
-          workstream_id: input.workstreamId,
-          source_run_id: input.sourceRunId,
-          source_client: input.sourceClient,
+          ...questionMetadata,
           decision_ids: existing.decisionIds,
           decision_count: existing.decisionIds.length,
           decision_action: existing.action,
@@ -815,6 +1031,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       dueAt: new Date(dueAtEpoch).toISOString(),
       timer: null,
       decisionIds,
+      eventMetadata: questionMetadata,
     };
     armQuestionAutoAnswerTimer(key, pending, policy.timeoutSeconds);
     pendingQuestionAutoAnswerByScope.set(key, pending);
@@ -831,12 +1048,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         event: "question_timeout_started",
         action_type: normalizeActivityActionType("question_timeout_started"),
         action_phase: normalizeActivityActionPhase("review"),
-        initiative_id: input.initiativeId,
-        workstream_id: input.workstreamId,
-        source_run_id: input.sourceRunId,
-        source_client: input.sourceClient,
-        decision_ids: decisionIds,
-        decision_count: decisionIds.length,
+        ...questionMetadata,
         decision_action: policy.action,
         timeout_seconds_applied: policy.timeoutSeconds,
         question_policy_mode: policy.mode,
@@ -1009,6 +1221,42 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         inferredStreamId ??
         linkedSlice?.workstreamId ??
         null);
+    const initiativeTitle =
+      pickMetadataString(metadataBase, ["initiative_title", "initiativeTitle"]) ??
+      pickMetadataString(sourceRefBase, ["initiative_title", "initiativeTitle"]) ??
+      null;
+    const workstreamTitle =
+      pickMetadataString(metadataBase, ["workstream_title", "workstreamTitle"]) ??
+      pickMetadataString(sourceRefBase, ["workstream_title", "workstreamTitle"]) ??
+      linkedSlice?.workstreamTitle ??
+      null;
+    const taskTitle =
+      pickMetadataString(metadataBase, ["task_title", "taskTitle", "dispatch_task_title"]) ??
+      null;
+    const recommendedAction =
+      typeof normalizedInput.recommendedAction === "string" && normalizedInput.recommendedAction.trim().length > 0
+        ? normalizedInput.recommendedAction.trim()
+        : pickMetadataString(metadataBase, ["recommended_action", "recommendedAction"]);
+    const decisionOptions = normalizeQueuedDecisionOptions(normalizedInput.options ?? [], recommendedAction);
+    const decisionEvidenceRefs = normalizeQueuedDecisionEvidence(normalizedInput.evidenceRefs ?? []);
+    const scopeHierarchy = [
+      ...pickMetadataStringArray(metadataBase, ["scope_hierarchy", "scopeHierarchy"]),
+      ...pickMetadataStringArray(sourceRefBase, ["scope_hierarchy", "scopeHierarchy"]),
+      ...[initiativeTitle, workstreamTitle, taskTitle].filter(
+        (entry): entry is string => typeof entry === "string" && entry.trim().length > 0
+      ),
+    ].filter((entry, index, source) => source.indexOf(entry) === index);
+    const nextActions = [
+      ...pickMetadataStringArray(metadataBase, ["next_actions", "nextActions"]),
+      ...(recommendedAction ? [recommendedAction] : []),
+    ].filter((entry, index, source) => source.indexOf(entry) === index);
+    const currentRunState =
+      pickMetadataString(metadataBase, ["current_run_state", "currentRunState", "runtime_state", "runtimeState", "parsed_status", "parsedStatus"]) ??
+      linkedSlice?.status ??
+      null;
+    const impactIfDelayed =
+      pickMetadataString(metadataBase, ["impact_if_delayed", "impactIfDelayed"]) ??
+      null;
     const result = await requestDecisionSafe(normalizedInput);
     if (typeof result === "boolean") {
       return { queued: result, decisionIds: [] };
@@ -1036,6 +1284,25 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           sourceClient,
           decisionIds,
           blocking: Boolean(normalizedInput.blocking),
+          title: normalizedInput.title,
+          summary:
+            typeof normalizedInput.summary === "string" && normalizedInput.summary.trim().length > 0
+              ? normalizedInput.summary.trim()
+              : null,
+          decisionType:
+            typeof normalizedInput.decisionType === "string" && normalizedInput.decisionType.trim().length > 0
+              ? normalizedInput.decisionType.trim()
+              : null,
+          options: decisionOptions,
+          recommendedAction,
+          evidenceRefs: decisionEvidenceRefs,
+          scopeHierarchy,
+          initiativeTitle,
+          workstreamTitle,
+          taskTitle,
+          nextActions,
+          currentRunState,
+          impactIfDelayed,
           reason:
             typeof normalizedInput.conflictSource === "string"
               ? normalizedInput.conflictSource
