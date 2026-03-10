@@ -49,6 +49,59 @@ interface FetchJsonOptions {
   timeoutMs?: number;
 }
 
+interface LiveDecisionsResponse {
+  decisions?: LiveDecision[];
+  total?: number;
+}
+
+interface LiveSnapshotV2Input {
+  workSliceProjections?: WorkSliceProjectionV2[] | null;
+  needsInputItems?: WorkSliceProjectionV2[] | null;
+  timelineNarrative?: SliceTimelineNarrativeProjectionV2[] | null;
+  nextUpByInitiative?: NextUpInitiativeProjection[] | null;
+  runningWorkSlices?: number | null;
+  needsInputTotal?: number | null;
+  failedActionableTotal?: number | null;
+  completedTodayTotal?: number | null;
+  consistencyFlags?: string[] | null;
+  dataHealth?: SliceDataHealthSummary | null;
+}
+
+interface LiveStreamSnapshotPayload {
+  sessions: SessionTreeResponse;
+  activity?: LiveActivityItem[];
+  handoffs?: HandoffSummary[];
+  decisions?: LiveDecision[];
+  sliceRuns?: SliceRunProjection[];
+  projections?: WorkSliceProjectionV2[];
+  needsInputItems?: WorkSliceProjectionV2[];
+  timelineNarrative?: SliceTimelineNarrativeProjectionV2[];
+  nextUpByInitiative?: NextUpInitiativeProjection[];
+  runningWorkSlices?: number;
+  needsInput?: number;
+  failedActionable?: number;
+  completedToday?: number;
+  consistencyFlags?: string[];
+  dataHealth?: SliceDataHealthSummary;
+  outbox?: OutboxStatus;
+  generatedAt?: string;
+  runtimeInstances?: RuntimeInstance[];
+  chat?: LiveChatSnapshot;
+}
+
+interface PendingSnapshotState {
+  sessions: SessionTreeResponse;
+  activity: LiveActivityItem[];
+  handoffs: HandoffSummary[];
+  decisions: LiveDecision[] | null;
+  sliceRuns: SliceRunProjection[] | null;
+  outbox: OutboxStatus | null;
+  generatedAt: string;
+  runtimeInstances: RuntimeInstance[] | null;
+  chat: LiveChatSnapshot | null;
+  v2: LiveSnapshotV2Input | null;
+}
+
 interface DecisionMutationResult {
   id: string;
   ok: boolean;
@@ -80,7 +133,8 @@ const DEFAULT_MAX_HANDOFFS = 80;
 const DEFAULT_MAX_DECISIONS = 80;
 const DEFAULT_BATCH_WINDOW_MS = 120;
 const DISCONNECT_AFTER_MS = 60_000;
-const SNAPSHOT_ENDPOINT_TIMEOUT_MS = 1_200;
+const SNAPSHOT_ENDPOINT_TIMEOUT_MS = 4_000;
+const DECISIONS_ENDPOINT_TIMEOUT_MS = 4_000;
 const SNAPSHOT_FALLBACK_STAGGER_MS = 240;
 const METADATA_FINGERPRINT_MAX_DEPTH = 3;
 const METADATA_FINGERPRINT_MAX_KEYS = 24;
@@ -1168,17 +1222,7 @@ function buildLiveData(
   snapshotVersion = 1,
   runtimeInstances: RuntimeInstance[] = [],
   chat: LiveChatSnapshot = EMPTY_CHAT_SNAPSHOT,
-  extra?: {
-    workSliceProjections?: WorkSliceProjectionV2[];
-    timelineNarrative?: SliceTimelineNarrativeProjectionV2[];
-    nextUpByInitiative?: NextUpInitiativeProjection[];
-    runningWorkSlices?: number;
-    needsInputTotal?: number;
-    failedActionableTotal?: number;
-    completedTodayTotal?: number;
-    consistencyFlags?: string[];
-    dataHealth?: SliceDataHealthSummary;
-  }
+  extra?: LiveSnapshotV2Input
 ): LiveData {
   const latestActivityAt = activity[0]?.timestamp ?? null;
   const latestDecisionAt = decisions[0]?.requestedAt ?? decisions[0]?.updatedAt ?? null;
@@ -1201,6 +1245,7 @@ function buildLiveData(
     chat: normalizeChatSnapshot(chat),
     runtimeInstances,
     workSliceProjections: extra?.workSliceProjections ?? [],
+    needsInputItems: extra?.needsInputItems ?? [],
     timelineNarrative: extra?.timelineNarrative ?? [],
     nextUpByInitiative: extra?.nextUpByInitiative ?? [],
     runningWorkSlices: extra?.runningWorkSlices ?? 0,
@@ -1208,7 +1253,7 @@ function buildLiveData(
     failedActionableTotal: extra?.failedActionableTotal ?? 0,
     completedTodayTotal: extra?.completedTodayTotal ?? 0,
     consistencyFlags: extra?.consistencyFlags ?? [],
-    dataHealth: extra?.dataHealth,
+    dataHealth: extra?.dataHealth ?? undefined,
   };
 }
 
@@ -1502,9 +1547,15 @@ function sliceRunsFromWorkSliceProjections(
       projection.lineage.workstreamIds[0] ??
       null;
     const status: SliceRunProjection['status'] =
-      projection.lifecycleState === 'completed' && projection.outcomeState === 'succeeded_without_artifacts'
-        ? 'needs_review'
-        : projection.lifecycleState;
+      projection.outcomeState === 'needs_input'
+        ? 'awaiting_input'
+        : projection.outcomeState === 'failed_actionable' ||
+            projection.outcomeState === 'failed_non_actionable'
+          ? 'failed'
+          : projection.lifecycleState === 'completed' &&
+              projection.outcomeState === 'succeeded_without_artifacts'
+            ? 'needs_review'
+            : projection.lifecycleState;
     const actionType = projection.actionContract?.actionType ?? null;
     const primaryAction: SliceRunProjection['primaryAction'] =
       actionType === 'open_artifact' ||
@@ -1833,17 +1884,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
       generatedAtInput: string | null = null,
       runtimeInstancesInput: RuntimeInstance[] | null = null,
       chatInput: LiveChatSnapshot | null = null,
-      v2Input: {
-        workSliceProjections?: WorkSliceProjectionV2[] | null;
-        timelineNarrative?: SliceTimelineNarrativeProjectionV2[] | null;
-        nextUpByInitiative?: NextUpInitiativeProjection[] | null;
-        runningWorkSlices?: number | null;
-        needsInputTotal?: number | null;
-        failedActionableTotal?: number | null;
-        completedTodayTotal?: number | null;
-        consistencyFlags?: string[] | null;
-        dataHealth?: SliceDataHealthSummary | null;
-      } | null = null
+      v2Input: LiveSnapshotV2Input | null = null
     ) => {
       lastSuccessAtRef.current = Date.now();
       authBlockedRef.current = false;
@@ -1910,6 +1951,12 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
               ? []
               : prev.workSliceProjections ?? []
             : normalizeWorkSliceProjections(v2Input.workSliceProjections);
+        const needsInputItems =
+          v2Input?.needsInputItems == null
+            ? resetScope
+              ? []
+              : prev.needsInputItems ?? []
+            : normalizeWorkSliceProjections(v2Input.needsInputItems);
         const timelineNarrative =
           v2Input?.timelineNarrative == null
             ? resetScope
@@ -1960,6 +2007,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           sameChatSnapshotShape(prev.chat, chat) &&
           sameRuntimeInstancesShape(prev.runtimeInstances, runtimeInstances) &&
           sameWorkSliceProjectionShape(prev.workSliceProjections ?? [], workSliceProjections) &&
+          sameWorkSliceProjectionShape(prev.needsInputItems ?? [], needsInputItems) &&
           sameTimelineNarrativeShape(prev.timelineNarrative ?? [], timelineNarrative) &&
           sameNextUpByInitiativeShape(prev.nextUpByInitiative ?? [], nextUpByInitiative) &&
           (prev.runningWorkSlices ?? 0) === runningWorkSlices &&
@@ -1987,6 +2035,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           chat,
           {
             workSliceProjections,
+            needsInputItems,
             timelineNarrative,
             nextUpByInitiative,
             runningWorkSlices,
@@ -2042,13 +2091,36 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
         if (normalizedInitiativeId) {
           query.set('initiative', normalizedInitiativeId);
         }
-        const snapshotRes = await fetchJson<LiveSnapshotResponse>(
-          `/orgx/api/live/snapshot-v2?${query.toString()}`,
-          {
-            headers: buildOrgxHeaders({ workspaceId: normalizedProjectId }),
-          },
-          { timeoutMs: SNAPSHOT_ENDPOINT_TIMEOUT_MS }
-        );
+        const headers = buildOrgxHeaders({ workspaceId: normalizedProjectId });
+        const decisionsQuery = new URLSearchParams({
+          status: 'pending',
+          limit: String(maxDecisions),
+        });
+        if (normalizedProjectId) {
+          appendWorkspaceScopeParams(decisionsQuery, normalizedProjectId);
+        }
+        if (normalizedInitiativeId) {
+          decisionsQuery.set('initiative', normalizedInitiativeId);
+        }
+
+        const [snapshotRes, decisionsRes] = await Promise.all([
+          fetchJson<LiveSnapshotResponse>(
+            `/orgx/api/live/snapshot-v2?${query.toString()}`,
+            {
+              headers,
+            },
+            { timeoutMs: SNAPSHOT_ENDPOINT_TIMEOUT_MS }
+          ),
+          enableDecisions
+            ? fetchJson<LiveDecisionsResponse>(
+                `/orgx/api/live/decisions?${decisionsQuery.toString()}`,
+                {
+                  headers,
+                },
+                { timeoutMs: DECISIONS_ENDPOINT_TIMEOUT_MS }
+              )
+            : Promise.resolve(null),
+        ]);
 
         if (!snapshotRes.ok || !snapshotRes.data) {
           if (snapshotRes.status === 401 || snapshotRes.status === 403) {
@@ -2073,7 +2145,15 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
 
         const rawActivity = Array.isArray(snapshot.activity) ? snapshot.activity : [];
         const rawHandoffs = Array.isArray(snapshot.handoffs) ? snapshot.handoffs : [];
-        const rawDecisions = Array.isArray(snapshot.decisions) ? snapshot.decisions : [];
+        const snapshotDecisions = Array.isArray(snapshot.decisions) ? snapshot.decisions : [];
+        const canonicalDecisions =
+          decisionsRes?.ok && decisionsRes.data && Array.isArray(decisionsRes.data.decisions)
+            ? decisionsRes.data.decisions
+            : [];
+        const rawDecisions =
+          enableDecisions && canonicalDecisions.length > 0
+            ? canonicalDecisions
+            : snapshotDecisions;
 
         const shouldPreserveActivity =
           rawActivity.length === 0 &&
@@ -2145,6 +2225,9 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           chat,
           {
             workSliceProjections,
+            needsInputItems: Array.isArray(snapshot.needsInputItems)
+              ? snapshot.needsInputItems
+              : null,
             timelineNarrative: timelineNarrativeInput,
             nextUpByInitiative,
             runningWorkSlices: shouldPreserveSliceRuns ? null : snapshot.runningWorkSlices ?? null,
@@ -2519,30 +2602,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
     };
     armSnapshotFallback();
 
-    let pendingSnapshot:
-      | {
-          sessions: SessionTreeResponse;
-          activity: LiveActivityItem[];
-          handoffs: HandoffSummary[];
-          decisions: LiveDecision[] | null;
-          sliceRuns: SliceRunProjection[] | null;
-          outbox: OutboxStatus | null;
-          generatedAt: string;
-          runtimeInstances: RuntimeInstance[] | null;
-          chat: LiveChatSnapshot | null;
-          v2: {
-            workSliceProjections?: WorkSliceProjectionV2[] | null;
-            timelineNarrative?: SliceTimelineNarrativeProjectionV2[] | null;
-            nextUpByInitiative?: NextUpInitiativeProjection[] | null;
-            runningWorkSlices?: number | null;
-            needsInputTotal?: number | null;
-            failedActionableTotal?: number | null;
-            completedTodayTotal?: number | null;
-            consistencyFlags?: string[] | null;
-            dataHealth?: SliceDataHealthSummary | null;
-          } | null;
-        }
-      | null = null;
+    let pendingSnapshot: PendingSnapshotState | null = null;
     let pendingRuntimeInstances: RuntimeInstance[] | null = null;
     let pendingSessions: SessionTreeResponse | null = null;
     let pendingHandoffs: HandoffSummary[] | null = null;
@@ -2707,26 +2767,7 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
           clearTimeout(snapshotFallbackTimerRef.current);
           snapshotFallbackTimerRef.current = null;
         }
-        const payload = JSON.parse((event as MessageEvent).data) as {
-          sessions: SessionTreeResponse;
-          activity?: LiveActivityItem[];
-          handoffs?: HandoffSummary[];
-          decisions?: LiveDecision[];
-          sliceRuns?: SliceRunProjection[];
-          projections?: WorkSliceProjectionV2[];
-          timelineNarrative?: SliceTimelineNarrativeProjectionV2[];
-          nextUpByInitiative?: NextUpInitiativeProjection[];
-          runningWorkSlices?: number;
-          needsInput?: number;
-          failedActionable?: number;
-          completedToday?: number;
-          consistencyFlags?: string[];
-          dataHealth?: SliceDataHealthSummary;
-          outbox?: OutboxStatus;
-          generatedAt?: string;
-          runtimeInstances?: RuntimeInstance[];
-          chat?: LiveChatSnapshot;
-        };
+        const payload = JSON.parse((event as MessageEvent).data) as LiveStreamSnapshotPayload;
 
         const generatedAt =
           typeof payload.generatedAt === 'string' && payload.generatedAt.length > 0
@@ -2762,6 +2803,9 @@ export function useLiveData(options: UseLiveDataOptions = {}) {
             runningWorkSlices:
               typeof payload.runningWorkSlices === 'number' ? payload.runningWorkSlices : null,
             needsInputTotal: typeof payload.needsInput === 'number' ? payload.needsInput : null,
+            needsInputItems: Array.isArray(payload.needsInputItems)
+              ? payload.needsInputItems
+              : null,
             failedActionableTotal:
               typeof payload.failedActionable === 'number' ? payload.failedActionable : null,
             completedTodayTotal:

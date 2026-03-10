@@ -2,6 +2,25 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.24 - 2026-03-10
+
+### Release Management
+- Patch release bump for npm package metadata.
+- Published release tag `v0.7.24`.
+
+### Mission Control Action Truth
+- Reworked `Next Up` startability so `Start` and `Auto on` are driven by dispatchable-task truth instead of optimistic queue assumptions.
+- Added reconciled mission-control action results and reason codes so blocked, already-running, and no-dispatchable-task outcomes surface clearly in the UI.
+
+### Activity + Intervention Clarity
+- Normalized activity, blocker, and decision detail rendering around human-readable updates, scope, status, artifacts, outcomes, and next steps instead of raw metadata summaries and UUID-heavy copy.
+- Extended decision and blocker intervention payloads so modals have the context, evidence, options, and recommendations needed for user judgment.
+- Hardened activity dedupe and humanization to reduce duplicate noise and opaque feed entries.
+
+### Completed Work + Demo Coverage
+- Added a first-class `Completed` Mission Control surface that shows recent completed hierarchy, artifacts, outcomes, and what work it unlocked next.
+- Expanded demo-mode initiatives, timelines, artifacts, blockers, and decisions so active, needs-attention, and completed states cover a broader range of agents and workflows.
+
 ## 0.7.23 - 2026-03-07
 
 ### Release Management

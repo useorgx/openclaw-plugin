@@ -176,6 +176,7 @@ import { createDispatchLifecycle } from "./helpers/dispatch-lifecycle.js";
 import { createRuntimeSseHub } from "./helpers/runtime-sse.js";
 import {
   parseBooleanQuery,
+  pickBoolean,
   parsePositiveInt,
   pickHeaderString,
   pickNumber,
@@ -2281,6 +2282,15 @@ export function createHttpHandler(
     sliceTaskIds?: string[];
     sliceTaskCount?: number | null;
     sliceMilestoneId?: string | null;
+    canStartNow?: boolean;
+    startReasonCode?: string | null;
+    startReasonLabel?: string | null;
+    dispatchableTask?: {
+      id: string;
+      title: string;
+      scope: SliceScope;
+      milestoneId?: string | null;
+    } | null;
     executionPolicy?: NextUpExecutionPolicy | null;
     autoContinue: {
       status: RunStatusValue;
@@ -3043,6 +3053,34 @@ export function createHttpHandler(
             ? entry.blockers[0] ??
               (statusValues.includes("failed") ? "Latest run failed" : "Workstream blocked")
             : null,
+          canStartNow: queueState === QueueState.QUEUED || queueState === QueueState.IDLE,
+          startReasonCode:
+            queueState === QueueState.RUNNING
+              ? "already_running"
+              : hasBlocked
+                ? "blocked"
+                : queueState === QueueState.QUEUED || queueState === QueueState.IDLE
+                  ? "dispatchable"
+                  : "not_startable",
+          startReasonLabel:
+            hasBlocked
+              ? entry.blockers[0] ??
+                (statusValues.includes("failed") ? "Latest run failed." : "Workstream blocked.")
+              : queueState === QueueState.RUNNING
+                ? "Already running."
+                : "Ready to start this workstream.",
+          dispatchableTask:
+            queueState === QueueState.QUEUED || queueState === QueueState.IDLE
+              ? {
+                  id: entry.latest.id ?? `${entry.initiativeId}:${entry.workstreamId}`,
+                  title:
+                    (entry.latest.lastEventSummary ?? "").trim() ||
+                    (entry.latest.title ?? "").trim() ||
+                    entry.workstreamTitle,
+                  scope: "workstream",
+                  milestoneId: null,
+                }
+              : null,
           isPinned: pinnedRankByKey.has(pinKey),
           pinnedRank: pinnedRankByKey.get(pinKey) ?? null,
           autoContinue: null,
@@ -3145,6 +3183,14 @@ export function createHttpHandler(
       const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
       const workstreamNodes = graph.nodes.filter((node) => node.type === "workstream");
       const runningWorkstreams = new Set<string>();
+      const initiativeRun = autoContinueRuns.get(initiativeId) ?? null;
+      const initiativeActiveRunIds = Array.isArray((initiativeRun as any)?.activeSliceRunIds)
+        ? ((initiativeRun as any).activeSliceRunIds as Array<unknown>)
+            .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+            .map((id) => id.trim())
+        : typeof initiativeRun?.activeRunId === "string" && initiativeRun.activeRunId.trim().length > 0
+          ? [initiativeRun.activeRunId.trim()]
+          : [];
       const taskIsReady = (task: MissionControlNode): boolean =>
         task.dependencyIds.every((depId) => {
           const dependency = nodeById.get(depId);
@@ -3404,6 +3450,39 @@ export function createHttpHandler(
           continue;
         }
 
+        const dispatchableTask = preferredReadyTask ?? readyTask ?? null;
+        const initiativeHasConcurrentRun =
+          initiativeActiveRunIds.length > 0 &&
+          laneState !== LaneState.RUNNING &&
+          !(autoContinueRun && autoContinueRun.status === RunStatus.RUNNING);
+        const canStartNow =
+          Boolean(dispatchableTask) &&
+          queueState !== QueueState.RUNNING &&
+          queueState !== QueueState.BLOCKED &&
+          !initiativeHasConcurrentRun;
+        const startReasonCode = canStartNow
+          ? "dispatchable"
+          : queueState === QueueState.RUNNING
+            ? "already_running"
+            : initiativeHasConcurrentRun
+              ? "initiative_run_active"
+              : queueState === QueueState.BLOCKED
+                ? "blocked"
+                : !dispatchableTask
+                  ? "no_dispatchable_task"
+                  : "not_startable";
+        const startReasonLabel = canStartNow
+          ? `Ready to start ${dispatchableTask?.title ?? "this workstream"}.`
+          : initiativeHasConcurrentRun
+            ? "Autopilot is already running for this initiative."
+            : queueState === QueueState.RUNNING
+              ? "Already running."
+              : blockReason
+                ? blockReason
+                : dispatchableTask
+                  ? "This workstream is not ready to start."
+                  : "No dispatchable task is available right now.";
+
         runningWorkstreams.add(workstream.id);
 
         const assignedRunnerAgents: NextUpRunnerAgent[] = [];
@@ -3475,6 +3554,17 @@ export function createHttpHandler(
           runnerSource,
           queueState,
           blockReason,
+          canStartNow,
+          startReasonCode,
+          startReasonLabel,
+          dispatchableTask: dispatchableTask
+            ? {
+                id: dispatchableTask.id,
+                title: dispatchableTask.title,
+                scope: defaultScope,
+                milestoneId: dispatchableTask.milestoneId ?? null,
+              }
+            : null,
           isPinned: Boolean(pin),
           pinnedRank: pin ? (pinnedRankByKey.get(pinKey) ?? null) : null,
           sliceScope: defaultScope,
@@ -3594,6 +3684,14 @@ export function createHttpHandler(
                 queueState === QueueState.BLOCKED
                   ? lane?.blockedReason ?? "Blocked"
                   : null,
+            canStartNow: false,
+            startReasonCode:
+              queueState === QueueState.RUNNING ? "already_running" : "initiative_run_active",
+            startReasonLabel:
+              queueState === QueueState.RUNNING
+                ? "Already running."
+                : "Autopilot is already running for this initiative.",
+            dispatchableTask: null,
             isPinned: Boolean(pinnedByKey.get(`${initiativeId}:${workstream.id}`)),
             pinnedRank: pinnedRankByKey.get(`${initiativeId}:${workstream.id}`) ?? null,
             sliceScope,
@@ -4526,13 +4624,21 @@ export function createHttpHandler(
       const deriveFailureType = (
         eventNameRaw: string | null,
         actionTypeRaw: string | null,
-        reasonRaw: string | null
+        reasonRaw: string | null,
+        blockingRaw: boolean | null
       ): string | null => {
         const eventName = (eventNameRaw ?? "").trim().toLowerCase();
         const actionType = (actionTypeRaw ?? "").trim().toLowerCase();
         const reason = (reasonRaw ?? "").trim().toLowerCase();
         const signature = `${eventName} ${actionType} ${reason}`;
         if (!signature.trim()) return null;
+        if (
+          signature.includes("question_asked") ||
+          signature.includes("review_item_created") ||
+          signature.includes("decision_requested")
+        ) {
+          return blockingRaw === false ? "review_required" : "decision_required";
+        }
         if (signature.includes("status_updates_buffered")) return "status_updates_buffered";
         if (signature.includes("question_answer_failed")) return "question_answer_failed";
         if (signature.includes("spawn_guard_rate_limited")) return "spawn_guard_rate_limited";
@@ -4596,11 +4702,14 @@ export function createHttpHandler(
               pickString(resultRecord ?? {}, ["error", "reason", "blocked_reason", "blockedReason", "summary"]) ??
               pickString(metadataRecord, ["error", "reason", "message", "blocked_reason", "blockedReason"]) ??
               pickString(activityRecord, ["description", "summary", "title"]);
+            const blockingSignal = pickBoolean(metadataRecord, ["blocking"]) ??
+              pickBoolean(resultRecord, ["blocking"]);
             const failureType = deriveFailureType(
               pickString(metadataRecord, ["event", "event_name"]),
               pickString(metadataRecord, ["action_type", "actionType"]) ??
                 pickString(activityRecord, ["type"]),
-              reasonText
+              reasonText,
+              blockingSignal
             );
             if (!failureType) continue;
             const runId = pickString(metadataRecord, ["run_id", "source_run_id"]) ?? pickString(activityRecord, ["runId"]);

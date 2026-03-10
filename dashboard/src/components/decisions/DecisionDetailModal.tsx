@@ -121,6 +121,47 @@ function extractDecisionUpdateRows(metadata: Record<string, unknown> | undefined
   return rows.slice(0, 8);
 }
 
+function missingDecisionFields(input: {
+  context: string;
+  recommendedAction: string | null;
+  options: LiveDecisionOption[];
+  evidenceCount: number;
+  updateCount: number;
+}): string[] {
+  const missing = new Set<string>();
+  if (input.context.trim().length === 0) missing.add('Decision context');
+  if (input.options.length === 0) missing.add('Decision options');
+  if (!input.recommendedAction) missing.add('Recommended action');
+  if (input.evidenceCount === 0) missing.add('Supporting evidence');
+  if (input.updateCount === 0) missing.add('Expected downstream updates');
+  return Array.from(missing);
+}
+
+function IncompleteDecisionNotice({ missing }: { missing: string[] }) {
+  if (missing.length === 0) return null;
+
+  return (
+    <div className="mb-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.08] px-4 py-3">
+      <p className="text-micro font-semibold uppercase tracking-wider text-amber-100">
+        Signal incomplete
+      </p>
+      <p className="mt-1 text-caption text-amber-50/90">
+        This decision is missing some of the context an operator needs to intervene confidently.
+      </p>
+      <ul className="mt-2 space-y-0.5">
+        {missing.map((field) => (
+          <li key={field} className="text-caption text-amber-100/85">
+            - {field}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-micro text-amber-100/60">
+        Raw diagnostics remain available under Technical details.
+      </p>
+    </div>
+  );
+}
+
 function normalizeOptionStatus(
   value: unknown
 ): LiveDecisionOption['impliedStatus'] {
@@ -534,6 +575,13 @@ export function DecisionDetailModal({
   const priority = decision.priority ?? null;
   const occurrenceCount = decision.occurrenceCount ?? null;
   const sourceRunId = decision.sourceRunId ?? null;
+  const incompleteFields = missingDecisionFields({
+    context,
+    recommendedAction,
+    options,
+    evidenceCount: evidenceRefs.length,
+    updateCount: plannedUpdates.rows.length + (plannedUpdates.statusUpdatesApplied ?? 0),
+  });
 
   // Breadcrumb segments
   const breadcrumbSegments = [];
@@ -742,6 +790,8 @@ export function DecisionDetailModal({
               />
             </div>
           )}
+
+          <IncompleteDecisionNotice missing={incompleteFields} />
 
           {/* 5. Recommended action callout */}
           {recommendedAction && (

@@ -35,6 +35,68 @@ function severityColor(severity: string): string {
   }
 }
 
+function missingInterventionFields(item: LiveTriageItem): string[] {
+  const context = item.intervention;
+  const missing = new Set<string>();
+
+  if (!context) {
+    missing.add('Intervention brief');
+    return Array.from(missing);
+  }
+
+  const hasEvidence =
+    (Array.isArray(context.evidence) && context.evidence.length > 0) ||
+    item.proofBundle.artifactRefs.length > 0 ||
+    item.proofBundle.logRefs.length > 0 ||
+    item.proofBundle.prRefs.length > 0 ||
+    item.proofBundle.fileChanges.length > 0;
+  const hasScope = Array.isArray(context.scopeHierarchy) && context.scopeHierarchy.length > 0;
+  const hasAction = Boolean(context.requiredAction) || Boolean(context.recommendedAction);
+
+  if (item.kind === 'decision_required' || item.kind === 'review_required') {
+    if (!context.decisionPrompt && !context.decisionSummary) missing.add('Decision prompt');
+    if (!Array.isArray(context.decisionOptions) || context.decisionOptions.length === 0) {
+      missing.add('Decision options');
+    }
+    if (!hasAction) missing.add('Recommended action');
+    if (!hasEvidence) missing.add('Supporting evidence');
+    if (!hasScope) missing.add('Affected scope');
+    return Array.from(missing);
+  }
+
+  if (!context.blockerReason && !item.summary) missing.add('Blocker reason');
+  if (!hasAction) missing.add('Required action');
+  if (!context.waitingOn && !context.currentRunState) missing.add('What is blocked');
+  if (!hasEvidence) missing.add('Supporting evidence');
+  if (!hasScope) missing.add('Affected scope');
+  return Array.from(missing);
+}
+
+function IncompleteSignalNotice({ missing }: { missing: string[] }) {
+  if (missing.length === 0) return null;
+
+  return (
+    <div className="rounded-xl border border-amber-300/20 bg-amber-300/[0.08] px-3.5 py-3">
+      <p className="text-micro font-semibold uppercase tracking-wider text-amber-100">
+        Signal incomplete
+      </p>
+      <p className="mt-1 text-caption text-amber-50/90">
+        This intervention is missing context the operator needs to act cleanly.
+      </p>
+      <ul className="mt-2 space-y-0.5">
+        {missing.map((field) => (
+          <li key={field} className="text-caption text-amber-100/85">
+            - {field}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-micro text-amber-100/60">
+        Raw diagnostics remain available under Technical details.
+      </p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Section Components
 // ---------------------------------------------------------------------------
@@ -142,14 +204,24 @@ function InterventionSection({ item }: { item: LiveTriageItem }) {
   if (!context) return null;
   const hasContext =
     Boolean(context.blockerReason) ||
+    Boolean(context.decisionPrompt) ||
+    Boolean(context.decisionSummary) ||
     Boolean(context.waitingOn) ||
     Boolean(context.requiredAction) ||
+    Boolean(context.recommendedAction) ||
     Boolean(context.requiredActor) ||
     Boolean(context.errorCode) ||
     Boolean(context.errorCategory) ||
+    Boolean(context.currentRunState) ||
+    Boolean(context.impactIfDelayed) ||
     typeof context.retryable === 'boolean' ||
     (Array.isArray(context.suggestedActions) && context.suggestedActions.length > 0) ||
     (Array.isArray(context.nextActions) && context.nextActions.length > 0) ||
+    (Array.isArray(context.scopeHierarchy) && context.scopeHierarchy.length > 0) ||
+    (Array.isArray(context.decisionOptions) && context.decisionOptions.length > 0) ||
+    (Array.isArray(context.evidence) && context.evidence.length > 0) ||
+    (Array.isArray(context.artifacts) && context.artifacts.length > 0) ||
+    (Array.isArray(context.updatesApplied) && context.updatesApplied.length > 0) ||
     typeof context.taskUpdateCount === 'number' ||
     typeof context.milestoneUpdateCount === 'number';
   if (!hasContext) return null;
@@ -158,6 +230,21 @@ function InterventionSection({ item }: { item: LiveTriageItem }) {
     <div>
       <SectionHeading>Intervention brief</SectionHeading>
       <div className="space-y-2 rounded-lg border border-white/[0.08] bg-white/[0.02] px-3 py-2.5">
+        {Array.isArray(context.scopeHierarchy) && context.scopeHierarchy.length > 0 && (
+          <div>
+            <p className="text-micro uppercase tracking-wider text-muted">Scope</p>
+            <p className="text-caption text-primary">{context.scopeHierarchy.join(' › ')}</p>
+          </div>
+        )}
+        {context.decisionPrompt && (
+          <div>
+            <p className="text-micro uppercase tracking-wider text-muted">Decision prompt</p>
+            <p className="text-caption text-primary">{context.decisionPrompt}</p>
+            {context.decisionSummary && (
+              <p className="mt-1 text-caption text-secondary">{context.decisionSummary}</p>
+            )}
+          </div>
+        )}
         {context.blockerReason && (
           <div>
             <p className="text-micro uppercase tracking-wider text-muted">Blocker</p>
@@ -170,10 +257,32 @@ function InterventionSection({ item }: { item: LiveTriageItem }) {
             <p className="text-caption text-[#7AEDE5]">{context.requiredAction}</p>
           </div>
         )}
+        {context.recommendedAction && context.recommendedAction !== context.requiredAction && (
+          <div>
+            <p className="text-micro uppercase tracking-wider text-muted">Recommended</p>
+            <p className="text-caption text-[#7AEDE5]">{context.recommendedAction}</p>
+          </div>
+        )}
         {context.waitingOn && (
           <div>
             <p className="text-micro uppercase tracking-wider text-muted">Waiting on</p>
             <p className="text-caption text-secondary">{context.waitingOn}</p>
+          </div>
+        )}
+        {(context.currentRunState || context.impactIfDelayed) && (
+          <div className="grid gap-2 sm:grid-cols-2">
+            {context.currentRunState && (
+              <div>
+                <p className="text-micro uppercase tracking-wider text-muted">Run state</p>
+                <p className="text-caption text-secondary">{context.currentRunState}</p>
+              </div>
+            )}
+            {context.impactIfDelayed && (
+              <div>
+                <p className="text-micro uppercase tracking-wider text-muted">Impact if delayed</p>
+                <p className="text-caption text-secondary">{context.impactIfDelayed}</p>
+              </div>
+            )}
           </div>
         )}
         {(context.errorCode || context.errorCategory || typeof context.retryable === 'boolean') && (
@@ -195,6 +304,34 @@ function InterventionSection({ item }: { item: LiveTriageItem }) {
             )}
           </div>
         )}
+        {Array.isArray(context.decisionOptions) && context.decisionOptions.length > 0 && (
+          <div>
+            <p className="text-micro uppercase tracking-wider text-muted">Options</p>
+            <div className="mt-1.5 space-y-1.5">
+              {context.decisionOptions.slice(0, 6).map((option, index) => (
+                <div
+                  key={`${option.id ?? option.label}-${index}`}
+                  className="rounded-lg border border-white/[0.06] bg-black/[0.18] px-2.5 py-2"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-caption font-medium text-primary">{option.label}</p>
+                    {option.recommended ? (
+                      <span className="rounded-full bg-[#0AD4C4]/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#7AEDE5]">
+                        Recommended
+                      </span>
+                    ) : null}
+                  </div>
+                  {option.description ? (
+                    <p className="mt-1 text-caption text-secondary">{option.description}</p>
+                  ) : null}
+                  {option.consequences ? (
+                    <p className="mt-1 text-micro text-muted">{option.consequences}</p>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {((context.taskUpdateCount ?? 0) > 0 || (context.milestoneUpdateCount ?? 0) > 0) && (
           <div className="flex flex-wrap gap-2">
             {(context.taskUpdateCount ?? 0) > 0 && (
@@ -207,6 +344,59 @@ function InterventionSection({ item }: { item: LiveTriageItem }) {
                 {context.milestoneUpdateCount} milestone update{context.milestoneUpdateCount === 1 ? '' : 's'}
               </span>
             )}
+          </div>
+        )}
+        {Array.isArray(context.updatesApplied) && context.updatesApplied.length > 0 && (
+          <div>
+            <p className="text-micro uppercase tracking-wider text-muted">Updates applied</p>
+            <ul className="mt-1 space-y-0.5">
+              {context.updatesApplied.slice(0, 4).map((update) => (
+                <li key={update} className="text-caption text-secondary">- {update}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {Array.isArray(context.artifacts) && context.artifacts.length > 0 && (
+          <div>
+            <p className="text-micro uppercase tracking-wider text-muted">Artifacts</p>
+            <ul className="mt-1 space-y-0.5">
+              {context.artifacts.slice(0, 4).map((artifact) => (
+                <li key={artifact} className="text-caption text-secondary">- {artifact}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {Array.isArray(context.evidence) && context.evidence.length > 0 && (
+          <div>
+            <p className="text-micro uppercase tracking-wider text-muted">Evidence</p>
+            <div className="mt-1.5 space-y-1.5">
+              {context.evidence.slice(0, 4).map((evidence, index) => (
+                <div
+                  key={`${evidence.title}-${index}`}
+                  className="rounded-lg border border-white/[0.06] bg-black/[0.18] px-2.5 py-2"
+                >
+                  <p className="text-caption font-medium text-primary">{evidence.title}</p>
+                  {evidence.summary ? (
+                    <p className="mt-1 text-caption text-secondary">{evidence.summary}</p>
+                  ) : null}
+                  {(evidence.url || evidence.pointer) && (
+                    <p className="mt-1 text-micro text-muted">
+                      {evidence.url ? (
+                        <a
+                          href={evidence.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[#7AEDE5] transition-colors hover:text-white"
+                        >
+                          Open source
+                        </a>
+                      ) : evidence.pointer}
+                      {evidence.url && evidence.pointer ? ` · ${evidence.pointer}` : null}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
         {Array.isArray(context.suggestedActions) && context.suggestedActions.length > 0 && (
@@ -508,6 +698,7 @@ export function TriageDetailModal({
     item.sourceDecisionId && Array.isArray(decisions)
       ? decisions.find((decision) => decision.id === item.sourceDecisionId) ?? null
       : null;
+  const incompleteFields = missingInterventionFields(item);
 
   return (
     <AnimatePresence mode="wait">
@@ -614,6 +805,7 @@ export function TriageDetailModal({
 
         {/* 2. Proof */}
         <div className="space-y-4 mb-4">
+          <IncompleteSignalNotice missing={incompleteFields} />
           <InterventionSection item={item} />
           <ProofSection item={item} />
         </div>

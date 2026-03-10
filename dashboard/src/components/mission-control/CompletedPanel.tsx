@@ -4,13 +4,16 @@ import type { LiveActivityItem, SliceRunArtifactSummary } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { Pill } from '@/components/shared/Pill';
 import { formatRelativeTime } from '@/lib/time';
-import { sanitizeDisplayText } from '@/lib/humanize';
+import { humanizeActivityNarrative, sanitizeDisplayText } from '@/lib/humanize';
 
 export type CompletedWorkRow = {
   key: string;
   runId: string;
   title: string;
   statusExplainer: string | null;
+  whatChanged: string | null;
+  whatThisUnlocked: string | null;
+  nextUp: string[];
   initiativeTitle: string | null;
   workstreamTitle: string | null;
   scope: 'task' | 'milestone' | 'workstream' | null;
@@ -52,6 +55,8 @@ const statusTone: Record<string, string> = {
 };
 
 function eventLabel(event: LiveActivityItem): string {
+  const narrative = humanizeActivityNarrative(event);
+  if (narrative.update) return narrative.update;
   const direct = event.title?.trim();
   if (direct) return direct;
   return event.type.replace(/_/g, ' ');
@@ -123,6 +128,42 @@ export const CompletedPanel = memo(function CompletedPanel({
             </div>
           </div>
 
+          {(row.whatChanged || row.whatThisUnlocked || row.nextUp.length > 0) && (
+            <div className="mt-2 grid gap-2 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+              <div className="rounded-lg border border-subtle bg-white/[0.02] px-3 py-2.5">
+                <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">What changed</p>
+                <p className="mt-1 text-caption text-primary">
+                  {sanitizeDisplayText(
+                    row.whatChanged ??
+                      row.statusExplainer ??
+                      'Completed work landed without a richer change summary.'
+                  )}
+                </p>
+                {row.whatThisUnlocked ? (
+                  <p className="mt-2 text-micro text-secondary">
+                    Unlocked: {sanitizeDisplayText(row.whatThisUnlocked)}
+                  </p>
+                ) : null}
+              </div>
+              <div className="rounded-lg border border-lime/18 bg-lime/[0.05] px-3 py-2.5">
+                <p className="text-micro font-semibold uppercase tracking-[0.08em] text-lime/70">Connects to next up</p>
+                {row.nextUp.length > 0 ? (
+                  <ul className="mt-1.5 space-y-1">
+                    {row.nextUp.slice(0, 4).map((entry) => (
+                      <li key={entry} className="text-caption text-primary">
+                        {sanitizeDisplayText(entry)}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mt-1 text-caption text-secondary">
+                    Open Next Up to continue from this completed scope.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="mt-2 rounded-lg border border-subtle bg-white/[0.02] px-3 py-2.5">
             <p className="text-micro font-semibold uppercase tracking-[0.08em] text-muted">
               Artifacts ({row.artifactCount})
@@ -166,6 +207,7 @@ export const CompletedPanel = memo(function CompletedPanel({
               <ul className="mt-1.5 space-y-1">
                 {row.timelineEvents.map((event, evtIndex) => {
                   const tone = statusTone[event.type] ?? 'text-primary';
+                  const narrative = humanizeActivityNarrative(event);
                   return (
                     <motion.li
                       key={`${row.key}:event:${event.id}`}
@@ -176,7 +218,11 @@ export const CompletedPanel = memo(function CompletedPanel({
                     >
                       <div className="min-w-0">
                         <p className={`truncate ${tone}`}>{sanitizeDisplayText(eventLabel(event))}</p>
-                        {event.description ? (
+                        {narrative.nextUp[0] ? (
+                          <p className="truncate text-micro text-secondary">
+                            {sanitizeDisplayText(narrative.nextUp[0])}
+                          </p>
+                        ) : event.description ? (
                           <p className="truncate text-micro text-secondary">
                             {sanitizeDisplayText(event.description)}
                           </p>

@@ -29,6 +29,23 @@ export function pickNumber(
   return null;
 }
 
+export function pickBoolean(
+  record: Record<string, unknown> | null,
+  keys: string[]
+): boolean | null {
+  if (!record) return null;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") {
+      const normalized = value.trim().toLowerCase();
+      if (normalized === "true" || normalized === "yes" || normalized === "1") return true;
+      if (normalized === "false" || normalized === "no" || normalized === "0") return false;
+    }
+  }
+  return null;
+}
+
 export function pickHeaderString(
   headers: Record<string, string | string[] | undefined>,
   keys: string[]

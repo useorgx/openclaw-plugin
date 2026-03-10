@@ -6,6 +6,7 @@ interface ContextualStatusProps {
   blocked: number;
   decisionsCount: number;
   completedToday: number;
+  onNeedsAttentionClick?: () => void;
   onDecisionsClick?: () => void;
   onBlockedClick?: () => void;
   onNewInitiative?: () => void;
@@ -16,8 +17,18 @@ function resolveState(props: ContextualStatusProps): {
   key: string;
   segments: Array<{ text: string; color?: string; clickable?: boolean; onClick?: () => void }>;
 } {
-  const { running, blocked, decisionsCount, completedToday, onDecisionsClick, onBlockedClick, onNewInitiative } = props;
+  const {
+    running,
+    blocked,
+    decisionsCount,
+    completedToday,
+    onNeedsAttentionClick,
+    onDecisionsClick,
+    onBlockedClick,
+    onNewInitiative,
+  } = props;
   const needsAttention = decisionsCount + blocked;
+  const attentionHandler = onNeedsAttentionClick ?? onDecisionsClick ?? onBlockedClick;
 
   if (running === 0 && needsAttention === 0 && completedToday === 0) {
     return {
@@ -41,36 +52,24 @@ function resolveState(props: ContextualStatusProps): {
     };
   }
 
-  if (blocked > 0 && decisionsCount > 0) {
-    const blockedLabel = `${blocked} blocked`;
+  if (needsAttention > 0) {
+    const breakdown =
+      blocked > 0 && decisionsCount > 0
+        ? `${blocked} blocked · ${decisionsCount} decisions need your input`
+        : blocked > 0
+          ? `${blocked} blocked`
+          : `${decisionsCount} decisions need your input`;
     return {
-      key: `blocked-decisions-${blocked}-${decisionsCount}-${running}`,
-      segments: [
-        ...(running > 0 ? [{ text: `${running} running · ` }] : []),
-        { text: blockedLabel, color: colors.textMuted, clickable: true, onClick: onBlockedClick },
-        { text: ' · ' },
-        { text: `${decisionsCount} decisions`, color: colors.amber, clickable: true, onClick: onDecisionsClick },
-      ],
-    };
-  }
-
-  if (blocked > 0) {
-    const blockedLabel = `${blocked} blocked`;
-    return {
-      key: `blocked-${blocked}-${running}`,
-      segments: [
-        { text: blockedLabel, color: colors.textMuted, clickable: true, onClick: onBlockedClick },
-        ...(running > 0 ? [{ text: ` · ${running} running` }] : []),
-      ],
-    };
-  }
-
-  if (decisionsCount > 0) {
-    return {
-      key: `decisions-${decisionsCount}-${running}`,
+      key: `needs-attention-${needsAttention}-${blocked}-${decisionsCount}-${running}`,
       segments: [
         ...(running > 0 ? [{ text: `${running} running`, color: colors.lime }, { text: ' · ' }] : []),
-        { text: `${decisionsCount} decisions`, color: colors.amber, clickable: true, onClick: onDecisionsClick },
+        {
+          text: `${needsAttention} needs attention`,
+          color: colors.amber,
+          clickable: Boolean(attentionHandler),
+          onClick: attentionHandler,
+        },
+        { text: ` · ${breakdown}` },
       ],
     };
   }

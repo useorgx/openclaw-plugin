@@ -1,5 +1,5 @@
 import type { LiveActivityItem } from '@/types';
-import { humanizeActivitySummary } from '@/lib/humanize';
+import { humanizeActivityNarrative } from '@/lib/humanize';
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
 
@@ -67,7 +67,7 @@ const TONE_STYLES = {
 } as const;
 
 export function ActivityDetailSummary({ item, className }: ActivityDetailSummaryProps) {
-  const summary = useMemo(() => humanizeActivitySummary(item), [item]);
+  const narrative = useMemo(() => humanizeActivityNarrative(item), [item]);
   const tone = resolveTone(item);
   const styles = TONE_STYLES[tone];
 
@@ -80,16 +80,25 @@ export function ActivityDetailSummary({ item, className }: ActivityDetailSummary
         : item.agentName ?? 'OrgX'
   );
   const eventType = item.type?.replace(/_/g, ' ') ?? 'activity';
-  const hasMeaningfulContent = summary.taskDescription || summary.outcomeDescription || summary.nextStep;
+  const hasMeaningfulContent =
+    narrative.scope ||
+    narrative.update ||
+    narrative.status ||
+    narrative.artifacts.length > 0 ||
+    narrative.outcomes.length > 0 ||
+    narrative.nextUp.length > 0;
   const fallbackTask = !hasMeaningfulContent
     ? `${agentName} recorded a ${eventType}`
     : null;
 
   const rows = [
-    (summary.taskDescription || fallbackTask) ? { label: 'Task', value: summary.taskDescription ?? fallbackTask! } : null,
-    summary.outcomeDescription ? { label: 'Outcome', value: summary.outcomeDescription } : null,
-    summary.nextStep ? { label: 'Next step', value: summary.nextStep } : null,
-  ].filter(Boolean) as { label: string; value: string }[];
+    narrative.update ? { label: 'Update', value: narrative.update } : null,
+    (narrative.scope || fallbackTask) ? { label: 'Scope', value: narrative.scope ?? fallbackTask! } : null,
+    narrative.status ? { label: 'Status', value: narrative.status } : null,
+    narrative.artifacts.length > 0 ? { label: 'Artifacts', values: narrative.artifacts } : null,
+    narrative.outcomes.length > 0 ? { label: 'Outcomes', values: narrative.outcomes } : null,
+    narrative.nextUp.length > 0 ? { label: 'Next up', values: narrative.nextUp } : null,
+  ].filter(Boolean) as Array<{ label: string; value?: string; values?: string[] }>;
 
   return (
     <motion.div
@@ -105,7 +114,7 @@ export function ActivityDetailSummary({ item, className }: ActivityDetailSummary
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.25, delay: 0.08 + i * 0.06, ease: [0.22, 1, 0.36, 1] }}
         >
-          <SummaryRow label={row.label} value={row.value} styles={styles} />
+          <SummaryRow label={row.label} value={row.value} values={row.values} styles={styles} />
         </motion.div>
       ))}
     </motion.div>
@@ -115,10 +124,12 @@ export function ActivityDetailSummary({ item, className }: ActivityDetailSummary
 function SummaryRow({
   label,
   value,
+  values,
   styles,
 }: {
   label: string;
-  value: string;
+  value?: string;
+  values?: string[];
   styles: (typeof TONE_STYLES)[keyof typeof TONE_STYLES];
 }) {
   return (
@@ -127,7 +138,18 @@ function SummaryRow({
         <span className={`text-micro font-semibold uppercase tracking-wider ${styles.label}`}>
           {label}
         </span>
-        <p className="text-body leading-relaxed text-primary mt-1">{value}</p>
+        {typeof value === 'string' ? (
+          <p className="mt-1 text-body leading-relaxed text-primary">{value}</p>
+        ) : null}
+        {Array.isArray(values) && values.length > 0 ? (
+          <ul className="mt-1 space-y-1">
+            {values.slice(0, 5).map((entry) => (
+              <li key={entry} className="text-body leading-relaxed text-primary">
+                {entry}
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
     </div>
   );

@@ -30,6 +30,15 @@ type NextUpQueue = {
     sliceTaskIds?: string[];
     sliceTaskCount?: number | null;
     sliceMilestoneId?: string | null;
+    canStartNow?: boolean;
+    startReasonCode?: string | null;
+    startReasonLabel?: string | null;
+    dispatchableTask?: {
+      id: string;
+      title: string;
+      scope: "task" | "milestone" | "workstream";
+      milestoneId?: string | null;
+    } | null;
     executionPolicy?: {
       domain?: string;
       requiredSkills?: string[];
@@ -141,6 +150,39 @@ const PLAY_QUEUE_LOOKUP_TIMEOUT_MS = (() => {
   if (!Number.isFinite(parsed)) return 350;
   return Math.max(200, Math.floor(parsed));
 })();
+
+function playOutcomeMessage(input: {
+  outcome: string;
+  workstreamTitle: string | null;
+  startReasonLabel?: string | null;
+  fallbackBlockedReason?: string | null;
+}): string {
+  const workstreamLabel = input.workstreamTitle?.trim() || "this workstream";
+  switch (input.outcome) {
+    case "dispatch_pending":
+      return `Dispatching ${workstreamLabel}; waiting for slice start.`;
+    case "started":
+      return `Started ${workstreamLabel}.`;
+    case "fallback_started":
+      return `Started ${workstreamLabel} using the fallback runner.`;
+    case "slice_completed":
+      return `${workstreamLabel} completed before the queue refreshed.`;
+    case "slice_blocked":
+      return input.startReasonLabel?.trim() || `${workstreamLabel} needs input before it can continue.`;
+    case "slice_error":
+      return `${workstreamLabel} hit an error before it could keep running.`;
+    case "initiative_run_active":
+      return "Autopilot is already running for this initiative.";
+    case "no_dispatchable_task":
+      return input.startReasonLabel?.trim() || `No dispatchable task is available for ${workstreamLabel}.`;
+    case "spawn_guard_rate_limited":
+      return input.fallbackBlockedReason?.trim() || `${workstreamLabel} is rate limited right now.`;
+    case "spawn_guard_blocked":
+      return input.fallbackBlockedReason?.trim() || `${workstreamLabel} is blocked by the current execution policy.`;
+    default:
+      return input.startReasonLabel?.trim() || `Unable to dispatch ${workstreamLabel} right now.`;
+  }
+}
 
 const IN_PROGRESS_TASK_STATUSES = new Set([
   "in_progress",
@@ -644,6 +686,10 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           query.get("projectId") ??
           query.get("project_id") ??
           null;
+        const queueWorkstreamTitle = matchedQueueItem?.workstreamTitle ?? null;
+        const queueStartReasonCode = matchedQueueItem?.startReasonCode ?? null;
+        const queueStartReasonLabel = matchedQueueItem?.startReasonLabel ?? null;
+        const queueDispatchableTask = matchedQueueItem?.dispatchableTask ?? null;
 
         const existingRun = deps.autoContinueRuns.get(initiativeId) ?? null;
         const existingActiveRunIds = Array.isArray(existingRun?.activeSliceRunIds)
@@ -663,6 +709,13 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           const activeWorkstreamTitle = activeSlice?.workstreamTitle ?? null;
           deps.sendJson(res, 409, {
             ok: false,
+            outcome: "initiative_run_active",
+            reasonCode: "initiative_run_active",
+            message: playOutcomeMessage({
+              outcome: "initiative_run_active",
+              workstreamTitle: queueWorkstreamTitle,
+              startReasonLabel: queueStartReasonLabel,
+            }),
             code: "auto_continue_already_running",
             error:
               activeWorkstreamId || activeWorkstreamTitle
@@ -672,7 +725,34 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
             activeRunIds: existingActiveRunIds,
             activeWorkstreamId,
             activeWorkstreamTitle,
+            dispatchableTask: queueDispatchableTask,
             error_location: "mission-control.next-up.play.concurrent_run",
+          });
+          return;
+        }
+
+        if (matchedQueueItem?.canStartNow === false) {
+          const reasonCode =
+            queueStartReasonCode && queueStartReasonCode.trim().length > 0
+              ? queueStartReasonCode.trim()
+              : "no_dispatchable_task";
+          const message = playOutcomeMessage({
+            outcome: reasonCode,
+            workstreamTitle: queueWorkstreamTitle,
+            startReasonLabel: queueStartReasonLabel,
+          });
+          deps.sendJson(res, 409, {
+            ok: false,
+            outcome: reasonCode,
+            reasonCode,
+            message,
+            code: reasonCode,
+            error: message,
+            initiativeId,
+            workstreamId,
+            agentId,
+            dispatchableTask: queueDispatchableTask,
+            error_location: "mission-control.next-up.play.preflight",
           });
           return;
         }
@@ -742,7 +822,7 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           // Give short-lived workers a brief window to flush output so Play can resolve
           // in one request/response cycle without requiring extra manual ticks.
           if (run.activeRunId) {
-            await new Promise<void>((resolve) => setTimeout(resolve, 140));
+            await new Promise<void>((resolve) => setTimeout(resolve, 500));
             await deps.tickAutoContinueRun(run);
           }
           fallbackDispatch = await maybeDispatchFallback();
@@ -774,12 +854,20 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
 
               deps.sendJson(res, 202, {
                 ok: true,
+                outcome: "dispatch_pending",
+                reasonCode: "dispatch_pending",
+                message: playOutcomeMessage({
+                  outcome: "dispatch_pending",
+                  workstreamTitle: queueWorkstreamTitle,
+                  startReasonLabel: queueStartReasonLabel,
+                }),
                 run,
                 initiativeId,
                 workstreamId,
                 agentId,
                 ...playDispatchEnvelope("pending"),
                 sessionId: null,
+                dispatchableTask: queueDispatchableTask,
                 slice: {
                   scope,
                   taskIds: matchedQueueItem?.sliceTaskIds ?? [],
@@ -822,12 +910,20 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
                 : "slice_error";
           deps.sendJson(res, 200, {
             ok: true,
+            outcome: finalizedDispatchMode,
+            reasonCode: finalizedDispatchMode,
+            message: playOutcomeMessage({
+              outcome: finalizedDispatchMode,
+              workstreamTitle: queueWorkstreamTitle,
+              startReasonLabel: queueStartReasonLabel,
+            }),
             run,
             initiativeId,
             workstreamId,
             agentId,
             ...playDispatchEnvelope(finalizedDispatchMode),
             sessionId: run.lastRunId,
+            dispatchableTask: queueDispatchableTask,
             slice: {
               scope,
               taskIds: matchedQueueItem?.sliceTaskIds ?? [],
@@ -846,12 +942,20 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         if (dispatchMode === "none" && run.status === "running" && !run.stopReason) {
           deps.sendJson(res, 202, {
             ok: true,
+            outcome: "dispatch_pending",
+            reasonCode: "dispatch_pending",
+            message: playOutcomeMessage({
+              outcome: "dispatch_pending",
+              workstreamTitle: queueWorkstreamTitle,
+              startReasonLabel: queueStartReasonLabel,
+            }),
             run,
             initiativeId,
             workstreamId,
             agentId,
             ...playDispatchEnvelope("pending"),
             sessionId: null,
+            dispatchableTask: queueDispatchableTask,
             slice: {
               scope,
               taskIds: matchedQueueItem?.sliceTaskIds ?? [],
@@ -869,6 +973,15 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
         }
         if (dispatchMode === "none") {
           const fallbackBlockedReason = fallbackDispatch?.blockedReason ?? null;
+          const reasonCode = fallbackBlockedReason
+            ? fallbackDispatch?.retryable
+              ? "spawn_guard_rate_limited"
+              : "spawn_guard_blocked"
+            : run.stopReason === "blocked"
+              ? "no_dispatchable_task"
+              : run.stopReason === "completed"
+                ? "no_dispatchable_task"
+                : "dispatch_failed";
           const reason =
             fallbackBlockedReason ??
             (run.stopReason === "blocked"
@@ -878,17 +991,22 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
                 : "Unable to dispatch this workstream right now.");
           deps.sendJson(res, fallbackDispatch?.retryable ? 429 : 409, {
             ok: false,
-            code: fallbackBlockedReason
-              ? fallbackDispatch?.retryable
-                ? "spawn_guard_rate_limited"
-                : "spawn_guard_blocked"
-              : undefined,
+            outcome: reasonCode,
+            reasonCode,
+            message: playOutcomeMessage({
+              outcome: reasonCode,
+              workstreamTitle: queueWorkstreamTitle,
+              startReasonLabel: queueStartReasonLabel ?? reason,
+              fallbackBlockedReason,
+            }),
+            code: reasonCode,
             error: reason,
             run,
             initiativeId,
             workstreamId,
             agentId,
             fallbackDispatch,
+            dispatchableTask: queueDispatchableTask,
             error_location: "mission-control.next-up.play.dispatch",
           });
           return;
@@ -896,12 +1014,20 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
 
         deps.sendJson(res, 200, {
           ok: true,
+          outcome: dispatchMode === "fallback" ? "fallback_started" : "started",
+          reasonCode: dispatchMode === "fallback" ? "fallback_started" : "started",
+          message: playOutcomeMessage({
+            outcome: dispatchMode === "fallback" ? "fallback_started" : "started",
+            workstreamTitle: queueWorkstreamTitle,
+            startReasonLabel: queueStartReasonLabel,
+          }),
           run,
           initiativeId,
           workstreamId,
           agentId,
           ...playDispatchEnvelope(dispatchMode),
           sessionId: run.activeRunId ?? fallbackDispatch?.sessionId ?? null,
+          dispatchableTask: queueDispatchableTask,
           slice: {
             scope,
             taskIds: matchedQueueItem?.sliceTaskIds ?? [],
@@ -2199,8 +2325,56 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           initiativeId,
           workstreamIds: allowedWorkstreamIds,
         });
+        await deps.tickAutoContinueRun(run);
+        const activeRunIds = Array.isArray(run.activeSliceRunIds)
+          ? run.activeSliceRunIds.filter(
+              (id): id is string => typeof id === "string" && id.trim().length > 0
+            )
+          : typeof run.activeRunId === "string" && run.activeRunId.trim().length > 0
+            ? [run.activeRunId]
+            : [];
+        if (activeRunIds.length > 0) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 500));
+          await deps.tickAutoContinueRun(run);
+        }
 
-        deps.sendJson(res, 200, { ok: true, ...dispatchEnvelope, run });
+        const reconciledActiveRunIds = Array.isArray(run.activeSliceRunIds)
+          ? run.activeSliceRunIds.filter(
+              (id): id is string => typeof id === "string" && id.trim().length > 0
+            )
+          : typeof run.activeRunId === "string" && run.activeRunId.trim().length > 0
+            ? [run.activeRunId]
+            : [];
+        const outcome =
+          reconciledActiveRunIds.length > 0 || (run.status === "running" && !run.stopReason)
+            ? "started"
+            : run.stopReason === "blocked"
+              ? "blocked"
+              : run.stopReason === "completed"
+                ? "completed"
+                : run.stopReason === "error"
+                  ? "error"
+                  : "pending";
+        const message =
+          outcome === "started"
+            ? "Autopilot enabled and running."
+            : outcome === "blocked"
+              ? "Autopilot enabled, but it immediately needs your input."
+              : outcome === "completed"
+                ? "Autopilot enabled and immediately completed the available work."
+                : outcome === "error"
+                  ? "Autopilot hit an error before it could keep running."
+                  : "Autopilot is starting.";
+
+        deps.sendJson(res, 200, {
+          ok: true,
+          outcome,
+          reasonCode: outcome === "blocked" ? "blocked" : outcome,
+          message,
+          ...dispatchEnvelope,
+          workstreamIds: allowedWorkstreamIds,
+          run,
+        });
       } catch (err: unknown) {
         sendRouteException(res, "mission-control.auto-continue.start.handler", err);
       }

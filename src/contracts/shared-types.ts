@@ -613,6 +613,26 @@ export interface TriageImpact {
   downstreamBlockedCount: number;
 }
 
+export interface TriageDecisionOptionSummary {
+  id?: string | null;
+  label: string;
+  description?: string | null;
+  consequences?: string | null;
+  actionType?: string | null;
+  impliedStatus?: string | null;
+  requiresNote?: boolean;
+  recommended?: boolean;
+}
+
+export interface TriageEvidenceSummary {
+  title: string;
+  summary?: string | null;
+  url?: string | null;
+  pointer?: string | null;
+  evidenceType?: string | null;
+  confidence?: number | null;
+}
+
 export interface TriageInterventionContext {
   blockerReason?: string | null;
   waitingOn?: string | null;
@@ -626,6 +646,16 @@ export interface TriageInterventionContext {
   decisionIds?: string[];
   taskUpdateCount?: number;
   milestoneUpdateCount?: number;
+  decisionPrompt?: string | null;
+  decisionSummary?: string | null;
+  decisionOptions?: TriageDecisionOptionSummary[];
+  recommendedAction?: string | null;
+  scopeHierarchy?: string[];
+  currentRunState?: string | null;
+  impactIfDelayed?: string | null;
+  artifacts?: string[];
+  evidence?: TriageEvidenceSummary[];
+  updatesApplied?: string[];
 }
 
 export interface LiveTriageItem {

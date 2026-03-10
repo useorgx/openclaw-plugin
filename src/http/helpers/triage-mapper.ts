@@ -87,6 +87,157 @@ function countArray(record: Record<string, unknown> | null, keys: string[]): num
   return 0;
 }
 
+function pickBoolean(record: Record<string, unknown> | null, keys: string[]): boolean | null {
+  if (!record) return null;
+  for (const key of keys) {
+    const candidate = record[key];
+    if (typeof candidate === "boolean") return candidate;
+    if (typeof candidate === "string") {
+      const normalized = candidate.trim().toLowerCase();
+      if (normalized === "true" || normalized === "yes" || normalized === "1") return true;
+      if (normalized === "false" || normalized === "no" || normalized === "0") return false;
+    }
+  }
+  return null;
+}
+
+function normalizeDecisionOptionsFromUnknown(
+  ...values: Array<unknown>
+): Array<{
+  id?: string | null;
+  label: string;
+  description?: string | null;
+  consequences?: string | null;
+  actionType?: string | null;
+  impliedStatus?: string | null;
+  requiresNote?: boolean;
+  recommended?: boolean;
+}> {
+  const options: Array<{
+    id?: string | null;
+    label: string;
+    description?: string | null;
+    consequences?: string | null;
+    actionType?: string | null;
+    impliedStatus?: string | null;
+    requiresNote?: boolean;
+    recommended?: boolean;
+  }> = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    if (!Array.isArray(value)) continue;
+    for (const entry of value) {
+      if (typeof entry === "string") {
+        const label = entry.trim();
+        if (!label) continue;
+        const key = label.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        options.push({ label });
+        continue;
+      }
+      const record = asRecord(entry);
+      if (!record) continue;
+      const label =
+        pickString(record, ["label", "title", "name", "question"]) ??
+        pickString(record, ["action", "action_type", "actionType"]);
+      if (!label) continue;
+      const id = pickString(record, ["id", "option_id", "optionId"]);
+      const description = pickString(record, ["description", "summary"]);
+      const consequences = pickString(record, ["consequences", "impact"]);
+      const actionType = pickString(record, ["action_type", "actionType", "action"]);
+      const impliedStatus = pickString(record, ["implied_status", "impliedStatus", "status"]);
+      const requiresNote = pickBoolean(record, ["requires_note", "requiresNote", "note_required"]);
+      const recommended = pickBoolean(record, ["recommended", "is_recommended", "isRecommended"]);
+      const key = `${(id ?? "").toLowerCase()}|${label.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      options.push({
+        ...(id ? { id } : {}),
+        label,
+        ...(description ? { description } : {}),
+        ...(consequences ? { consequences } : {}),
+        ...(actionType ? { actionType } : {}),
+        ...(impliedStatus ? { impliedStatus } : {}),
+        ...(typeof requiresNote === "boolean" ? { requiresNote } : {}),
+        ...(typeof recommended === "boolean" ? { recommended } : {}),
+      });
+    }
+  }
+
+  return options.slice(0, 8);
+}
+
+function normalizeEvidenceFromUnknown(
+  ...values: Array<unknown>
+): Array<{
+  title: string;
+  summary?: string | null;
+  url?: string | null;
+  pointer?: string | null;
+  evidenceType?: string | null;
+  confidence?: number | null;
+}> {
+  const evidence: Array<{
+    title: string;
+    summary?: string | null;
+    url?: string | null;
+    pointer?: string | null;
+    evidenceType?: string | null;
+    confidence?: number | null;
+  }> = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    if (!Array.isArray(value)) continue;
+    for (const entry of value) {
+      const record = asRecord(entry);
+      if (!record) continue;
+      const title =
+        pickString(record, ["title", "label", "name"]) ??
+        pickString(record, ["source_pointer", "sourcePointer", "source_url", "sourceUrl"]) ??
+        "Evidence";
+      const summary = pickString(record, ["summary", "description"]);
+      const url = pickString(record, ["source_url", "sourceUrl", "url"]);
+      const pointer = pickString(record, ["source_pointer", "sourcePointer", "path"]);
+      const evidenceType = pickString(record, ["evidence_type", "evidenceType", "type"]);
+      const confidenceRaw = record.confidence ?? record.confidence_score;
+      const confidence =
+        typeof confidenceRaw === "number" && Number.isFinite(confidenceRaw)
+          ? Math.max(0, Math.min(1, confidenceRaw))
+          : null;
+      const key = `${title.toLowerCase()}|${url ?? ""}|${pointer ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      evidence.push({
+        title,
+        ...(summary ? { summary } : {}),
+        ...(url ? { url } : {}),
+        ...(pointer ? { pointer } : {}),
+        ...(evidenceType ? { evidenceType } : {}),
+        ...(confidence !== null ? { confidence } : {}),
+      });
+    }
+  }
+
+  return evidence.slice(0, 8);
+}
+
+function pickHierarchy(record: Record<string, unknown> | null, keys: string[]): string[] {
+  if (!record) return [];
+  for (const key of keys) {
+    const candidate = record[key];
+    if (!Array.isArray(candidate)) continue;
+    const normalized = candidate
+      .filter((entry): entry is string => typeof entry === "string")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+    if (normalized.length > 0) return normalized;
+  }
+  return [];
+}
+
 function deriveInterventionContext(input: {
   reason?: string | null;
   metadata?: Record<string, unknown>;
@@ -147,6 +298,45 @@ function deriveInterventionContext(input: {
   const milestoneUpdateCount =
     countArray(result, ["milestone_updates", "milestoneUpdates"]) ||
     countArray(metadata, ["milestone_updates", "milestoneUpdates"]);
+  const decisionPrompt =
+    pickString(metadata, ["decision_prompt", "decisionPrompt", "question", "decision_title", "decisionTitle"]) ??
+    pickString(result, ["decision_prompt", "decisionPrompt", "question"]);
+  const decisionSummary =
+    pickString(metadata, ["decision_summary", "decisionSummary", "summary", "context"]) ??
+    pickString(result, ["decision_summary", "decisionSummary", "summary"]);
+  const decisionOptions = normalizeDecisionOptionsFromUnknown(
+    metadata?.decision_options,
+    metadata?.decisionOptions,
+    metadata?.options,
+    result?.decision_options,
+    result?.decisionOptions,
+    result?.options
+  );
+  const recommendedAction =
+    pickString(metadata, ["recommended_action", "recommendedAction"]) ??
+    pickString(result, ["recommended_action", "recommendedAction"]) ??
+    requiredAction;
+  const scopeHierarchy = [
+    ...pickHierarchy(metadata, ["scope_hierarchy", "scopeHierarchy"]),
+    ...pickHierarchy(result, ["scope_hierarchy", "scopeHierarchy"]),
+  ].filter((entry, index, source) => source.indexOf(entry) === index);
+  const currentRunState =
+    pickString(metadata, ["current_run_state", "currentRunState", "runtime_state", "runtimeState", "status"]) ??
+    pickString(result, ["current_run_state", "currentRunState", "runtime_state", "runtimeState", "status"]);
+  const impactIfDelayed =
+    pickString(metadata, ["impact_if_delayed", "impactIfDelayed"]) ??
+    pickString(result, ["impact_if_delayed", "impactIfDelayed"]);
+  const evidence = normalizeEvidenceFromUnknown(
+    metadata?.evidence_refs,
+    metadata?.evidenceRefs,
+    result?.evidence_refs,
+    result?.evidenceRefs
+  );
+  const artifacts = pickStringArray(metadata, ["artifacts_created", "artifact_titles", "artifactTitles"]);
+  const updatesApplied = [
+    ...pickStringArray(metadata, ["updates_applied", "updatesApplied"]),
+    ...pickStringArray(result, ["updates_applied", "updatesApplied"]),
+  ];
   const context: TriageInterventionContext = {
     blockerReason,
     waitingOn,
@@ -160,6 +350,16 @@ function deriveInterventionContext(input: {
     decisionIds: decisionIds.length > 0 ? Array.from(new Set(decisionIds)) : [],
     taskUpdateCount: taskUpdateCount > 0 ? taskUpdateCount : undefined,
     milestoneUpdateCount: milestoneUpdateCount > 0 ? milestoneUpdateCount : undefined,
+    decisionPrompt,
+    decisionSummary,
+    decisionOptions: decisionOptions.length > 0 ? decisionOptions : undefined,
+    recommendedAction,
+    scopeHierarchy: scopeHierarchy.length > 0 ? scopeHierarchy : undefined,
+    currentRunState,
+    impactIfDelayed,
+    artifacts: artifacts.length > 0 ? Array.from(new Set(artifacts)) : undefined,
+    evidence: evidence.length > 0 ? evidence : undefined,
+    updatesApplied: updatesApplied.length > 0 ? Array.from(new Set(updatesApplied)) : undefined,
   };
   const hasValue = [
     context.blockerReason,
@@ -171,9 +371,19 @@ function deriveInterventionContext(input: {
     context.retryable,
     context.taskUpdateCount,
     context.milestoneUpdateCount,
+    context.decisionPrompt,
+    context.decisionSummary,
+    context.recommendedAction,
+    context.currentRunState,
+    context.impactIfDelayed,
     context.suggestedActions?.length,
     context.nextActions?.length,
     context.decisionIds?.length,
+    context.decisionOptions?.length,
+    context.scopeHierarchy?.length,
+    context.artifacts?.length,
+    context.evidence?.length,
+    context.updatesApplied?.length,
   ].some((entry) => {
     if (typeof entry === "number") return entry > 0;
     return entry != null && String(entry).trim().length > 0;
@@ -372,6 +582,78 @@ const FAILURE_MAPPINGS: Record<string, TriageMapping> = {
     ],
   },
 
+  decision_required: {
+    kind: "decision_required",
+    severity: "high",
+    recommendedAction: "Review the options and choose the next move",
+    defaultTitle: (ctx) =>
+      `Decision required${ctx.workstreamTitle ? `: ${ctx.workstreamTitle}` : ""}`,
+    defaultSummary: (ctx) =>
+      `${ctx.workstreamTitle ?? "This workstream"} cannot continue until a decision is made. ${ctx.reason ?? "Review the recommendation and choose a direction."}`,
+    actions: () => [
+      {
+        action: "approve",
+        label: "Approve path",
+        description: "Accept the recommended option and continue",
+        consequences: "Autopilot will continue with the approved direction.",
+        requiresNote: false,
+        available: true,
+      },
+      {
+        action: "reject",
+        label: "Reject path",
+        description: "Decline this path and provide direction",
+        consequences: "The run stays paused until new direction is provided.",
+        requiresNote: true,
+        available: true,
+      },
+      {
+        action: "snooze",
+        label: "Snooze",
+        description: "Defer this intervention",
+        consequences: "This decision returns to the queue later.",
+        requiresNote: false,
+        available: true,
+      },
+    ],
+  },
+
+  review_required: {
+    kind: "review_required",
+    severity: "medium",
+    recommendedAction: "Review the update and confirm the next step",
+    defaultTitle: (ctx) =>
+      `Review required${ctx.workstreamTitle ? `: ${ctx.workstreamTitle}` : ""}`,
+    defaultSummary: (ctx) =>
+      `${ctx.workstreamTitle ?? "This workstream"} surfaced something that needs judgment before it proceeds. ${ctx.reason ?? "Review the evidence and confirm what should happen next."}`,
+    actions: () => [
+      {
+        action: "approve",
+        label: "Approve",
+        description: "Confirm the proposed next step",
+        consequences: "The run continues with the reviewed direction.",
+        requiresNote: false,
+        available: true,
+      },
+      {
+        action: "reject",
+        label: "Send back",
+        description: "Request a different approach",
+        consequences: "The run pauses until new direction is provided.",
+        requiresNote: true,
+        available: true,
+      },
+      {
+        action: "snooze",
+        label: "Snooze",
+        description: "Return to this later",
+        consequences: "The review request will surface again later.",
+        requiresNote: false,
+        available: true,
+      },
+    ],
+  },
+
   budget_exhausted: {
     kind: "blocked_intervention",
     severity: "critical",
@@ -536,6 +818,19 @@ export async function mapFailureToTriageItem(input: {
 
   if (input.outputPath) {
     proofBundle.artifactRefs.push(input.outputPath);
+  }
+  for (const artifact of intervention?.artifacts ?? []) {
+    if (!proofBundle.artifactRefs.includes(artifact)) {
+      proofBundle.artifactRefs.push(artifact);
+    }
+  }
+  for (const evidence of intervention?.evidence ?? []) {
+    if (evidence.url && !proofBundle.artifactRefs.includes(evidence.url)) {
+      proofBundle.artifactRefs.push(evidence.url);
+    }
+    if (evidence.pointer && !proofBundle.logRefs.includes(evidence.pointer)) {
+      proofBundle.logRefs.push(evidence.pointer);
+    }
   }
 
   const impact: TriageImpact = {
@@ -710,6 +1005,48 @@ export function mapDecisionToTriageItem(decision: LiveDecision): LiveTriageItem 
   });
   const blocking = metadata?.blocking !== false;
   const options = Array.isArray(decision.options) ? decision.options : [];
+  const enrichedIntervention: TriageInterventionContext | null =
+    intervention || options.length > 0 || decision.context || decision.recommendedAction || decision.evidenceRefs?.length
+      ? {
+          ...(intervention ?? {}),
+          decisionPrompt:
+            intervention?.decisionPrompt ??
+            decision.title,
+          decisionSummary:
+            intervention?.decisionSummary ??
+            decision.context ??
+            null,
+          decisionOptions:
+            intervention?.decisionOptions && intervention.decisionOptions.length > 0
+              ? intervention.decisionOptions
+              : options.map((option) => ({
+                  id: option.id,
+                  label: option.label,
+                  description: option.description ?? null,
+                  consequences: option.consequences ?? null,
+                  actionType: option.actionType ?? null,
+                  impliedStatus: option.impliedStatus ?? null,
+                  requiresNote: option.requiresNote,
+                  recommended:
+                    decision.selectedOptionId != null ? decision.selectedOptionId === option.id : false,
+                })),
+          recommendedAction:
+            intervention?.recommendedAction ??
+            decision.recommendedAction ??
+            null,
+          evidence:
+            intervention?.evidence && intervention.evidence.length > 0
+              ? intervention.evidence
+              : (decision.evidenceRefs ?? []).map((ref) => ({
+                  title: ref.title ?? ref.sourcePointer ?? ref.sourceUrl ?? "Evidence",
+                  summary: ref.summary ?? null,
+                  url: ref.sourceUrl ?? null,
+                  pointer: ref.sourcePointer ?? null,
+                  evidenceType: ref.evidenceType ?? null,
+                  confidence: ref.confidence ?? null,
+                })),
+        }
+      : null;
   const optionActions: TriageAction[] = options
     .map((option) => {
       const implied = (option.impliedStatus ?? "").toLowerCase();
@@ -786,7 +1123,7 @@ export function mapDecisionToTriageItem(decision: LiveDecision): LiveTriageItem 
     prRefs: [],
     logRefs: [],
     decisionRefs: Array.from(
-      new Set([decision.id, ...(intervention?.decisionIds ?? [])].filter(Boolean))
+      new Set([decision.id, ...(enrichedIntervention?.decisionIds ?? [])].filter(Boolean))
     ),
   };
 
@@ -798,16 +1135,20 @@ export function mapDecisionToTriageItem(decision: LiveDecision): LiveTriageItem 
   }
   const summaryBase =
     (typeof decision.context === "string" && decision.context.trim()) ||
-    intervention?.blockerReason ||
+    enrichedIntervention?.blockerReason ||
     decision.title;
   const summarySuffix = [
-    intervention?.waitingOn ? `Waiting on ${intervention.waitingOn}.` : null,
-    intervention?.requiredAction ? `Required action: ${intervention.requiredAction}.` : null,
+    enrichedIntervention?.waitingOn ? `Waiting on ${enrichedIntervention.waitingOn}.` : null,
+    enrichedIntervention?.requiredAction ? `Required action: ${enrichedIntervention.requiredAction}.` : null,
   ]
     .filter((entry): entry is string => Boolean(entry))
     .join(" ");
   const summary = summarySuffix.length > 0 ? `${summaryBase} ${summarySuffix}` : summaryBase;
-  const recommendedAction = decision.recommendedAction ?? intervention?.requiredAction ?? null;
+  const recommendedAction =
+    decision.recommendedAction ??
+    enrichedIntervention?.recommendedAction ??
+    enrichedIntervention?.requiredAction ??
+    null;
 
   return {
     id: `triage-decision-${decision.id}`,
@@ -827,9 +1168,9 @@ export function mapDecisionToTriageItem(decision: LiveDecision): LiveTriageItem 
     occurrenceCount: decision.occurrenceCount ?? 1,
     severity: decision.priority === "urgent" ? "critical" : decision.priority === "high" ? "high" : "medium",
     blocking,
-    recommendedAction,
+      recommendedAction,
     agentId: decision.agentId ?? null,
-    intervention,
+    intervention: enrichedIntervention,
     impact: {
       initiativeCount: decision.initiativeId ? 1 : 0,
       workstreamCount: decision.workstreamId ? 1 : 0,
