@@ -1,14 +1,166 @@
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "../paths.js";
 import { ensureStoreDirSync, parseJsonSafe } from "./json-store.js";
 
 const STATE_DB_FILENAME = "orgx-state.sqlite";
 const USER_VERSION = 1;
+const BETTER_SQLITE3_REPAIR_MARKER = ".orgx-runtime-deps-version";
 
 let dbInstance: Database.Database | null = null;
 let dbInstancePath = "";
 let stateDbHooksRegistered = false;
+let databaseConstructor: typeof Database | null = null;
+let runtimeDepsRepairAttempted = false;
+const require = createRequire(import.meta.url);
+
+function currentModuleDir(): string {
+  return dirname(fileURLToPath(import.meta.url));
+}
+
+function findPluginRoot(startDir: string): string {
+  let cursor = startDir;
+  while (true) {
+    const packageJsonPath = join(cursor, "package.json");
+    if (existsSync(packageJsonPath)) return cursor;
+    const parent = dirname(cursor);
+    if (parent === cursor) return startDir;
+    cursor = parent;
+  }
+}
+
+function readExpectedRuntimeDepVersion(pluginRoot: string): string {
+  try {
+    const raw = readFileSync(join(pluginRoot, "package.json"), "utf8");
+    const parsed = JSON.parse(raw);
+    return String(parsed?.dependencies?.["better-sqlite3"] || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function writeRuntimeDepMarker(pluginRoot: string): void {
+  const expected = readExpectedRuntimeDepVersion(pluginRoot);
+  if (!expected) return;
+  try {
+    writeFileSync(join(pluginRoot, BETTER_SQLITE3_REPAIR_MARKER), expected, "utf8");
+  } catch {
+    // best effort
+  }
+}
+
+function betterSqlite3Installed(pluginRoot: string): boolean {
+  return existsSync(join(pluginRoot, "node_modules", "better-sqlite3", "package.json"));
+}
+
+function resolveBetterSqlite3InstallRoot(pluginRoot: string): string {
+  try {
+    const packageJsonPath = require.resolve("better-sqlite3/package.json");
+    return dirname(dirname(dirname(packageJsonPath)));
+  } catch {
+    return pluginRoot;
+  }
+}
+
+function isRecoverableBetterSqlite3Error(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /could not locate the bindings file|cannot find module ['"]better-sqlite3['"]|no native build was found/i.test(
+    message
+  );
+}
+
+function resolveNpmCommand(): {
+  command: string;
+  argsPrefix: string[];
+} {
+  const npmCliPath = join(
+    dirname(process.execPath),
+    "..",
+    "lib",
+    "node_modules",
+    "npm",
+    "bin",
+    "npm-cli.js"
+  );
+  if (existsSync(npmCliPath)) {
+    return {
+      command: process.execPath,
+      argsPrefix: [npmCliPath],
+    };
+  }
+  return {
+    command: "npm",
+    argsPrefix: [],
+  };
+}
+
+function repairBetterSqlite3Binding(pluginRoot: string): void {
+  const installRoot = resolveBetterSqlite3InstallRoot(pluginRoot);
+  const { command, argsPrefix } = resolveNpmCommand();
+  const args = betterSqlite3Installed(installRoot)
+    ? [...argsPrefix, "rebuild", "better-sqlite3", "--foreground-scripts"]
+    : [...argsPrefix, "install", "--omit=dev"];
+
+  try {
+    execFileSync(command, args, {
+      cwd: installRoot,
+      env: process.env,
+      stdio: "pipe",
+    });
+    writeRuntimeDepMarker(pluginRoot);
+  } catch (error) {
+    const stderr =
+      error &&
+      typeof error === "object" &&
+      "stderr" in error &&
+      Buffer.isBuffer((error as { stderr?: unknown }).stderr)
+        ? (error as { stderr: Buffer }).stderr.toString("utf8").trim()
+        : "";
+    const stdout =
+      error &&
+      typeof error === "object" &&
+      "stdout" in error &&
+      Buffer.isBuffer((error as { stdout?: unknown }).stdout)
+        ? (error as { stdout: Buffer }).stdout.toString("utf8").trim()
+        : "";
+    const detail = stderr || stdout;
+    const suffix = detail ? ` (${detail})` : "";
+    throw new Error(`Failed to repair better-sqlite3 runtime dependency${suffix}`);
+  }
+}
+
+function resetDatabaseConstructorCache(): void {
+  try {
+    const resolved = require.resolve("better-sqlite3");
+    delete require.cache[resolved];
+  } catch {
+    // best effort
+  }
+  databaseConstructor = null;
+}
+
+function loadDatabaseConstructor(): typeof Database {
+  if (databaseConstructor) return databaseConstructor;
+  try {
+    databaseConstructor = require("better-sqlite3") as typeof Database;
+    return databaseConstructor;
+  } catch (error) {
+    if (!runtimeDepsRepairAttempted && isRecoverableBetterSqlite3Error(error)) {
+      runtimeDepsRepairAttempted = true;
+      const pluginRoot = findPluginRoot(currentModuleDir());
+      repairBetterSqlite3Binding(pluginRoot);
+      resetDatabaseConstructorCache();
+      databaseConstructor = require("better-sqlite3") as typeof Database;
+      return databaseConstructor;
+    }
+    throw error;
+  }
+}
 
 function stateDbPath(): string {
   return getOrgxPluginConfigPath(STATE_DB_FILENAME);
@@ -144,7 +296,22 @@ export function getStateDb(): Database.Database {
     closeStateDb();
   }
   ensureStateDbDir();
-  const db = new Database(nextPath);
+  let DatabaseCtor = loadDatabaseConstructor();
+  let db: Database.Database;
+  try {
+    db = new DatabaseCtor(nextPath);
+  } catch (error) {
+    if (!runtimeDepsRepairAttempted && isRecoverableBetterSqlite3Error(error)) {
+      runtimeDepsRepairAttempted = true;
+      const pluginRoot = findPluginRoot(currentModuleDir());
+      repairBetterSqlite3Binding(pluginRoot);
+      resetDatabaseConstructorCache();
+      DatabaseCtor = loadDatabaseConstructor();
+      db = new DatabaseCtor(nextPath);
+    } else {
+      throw error;
+    }
+  }
   initializeDatabase(db);
   dbInstance = db;
   dbInstancePath = nextPath;

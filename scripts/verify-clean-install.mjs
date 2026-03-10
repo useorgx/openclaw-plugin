@@ -2,8 +2,10 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readdirSync, statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -53,8 +55,8 @@ async function main() {
   console.log("[verify] npm init...");
   run("npm", ["init", "-y"], { cwd: tmp });
 
-  console.log("[verify] npm install tgz...");
-  run("npm", ["install", "--silent", tgzPath], { cwd: tmp });
+  console.log("[verify] npm install tgz with scripts disabled...");
+  run("npm", ["install", "--silent", "--ignore-scripts", tgzPath], { cwd: tmp });
 
   console.log("[verify] import package...");
   run(
@@ -72,7 +74,28 @@ async function main() {
   assertExists(join(pkgRoot, "dist", "index.js"), "built dist entry");
   assertExists(join(pkgRoot, "dashboard", "dist", "index.html"), "dashboard build");
 
+  console.log("[verify] forcing sqlite runtime initialization...");
+  const sqliteStateModuleUrl = pathToFileURL(
+    join(pkgRoot, "dist", "stores", "sqlite-state.js")
+  ).href;
+  const { closeStateDb, getStateDb } = await import(sqliteStateModuleUrl);
+  const db = getStateDb();
+  db.pragma("user_version", { simple: true });
+  closeStateDb();
+  const requireFromPkg = createRequire(join(pkgRoot, "package.json"));
+  const betterSqlitePackageJson = requireFromPkg.resolve("better-sqlite3/package.json");
+  assertExists(
+    join(
+      dirname(betterSqlitePackageJson),
+      "build",
+      "Release",
+      "better_sqlite3.node"
+    ),
+    "better-sqlite3 native binding"
+  );
+
   console.log("[verify] ok: clean install + import succeeded");
+  process.exit(0);
 }
 
 main().catch((err) => {
@@ -80,4 +103,3 @@ main().catch((err) => {
   console.error(`[verify] failed: ${message}`);
   process.exit(1);
 });
-
