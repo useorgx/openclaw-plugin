@@ -2,6 +2,13 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.25 - 2026-03-10
+
+### Release Management
+- Patch release bump for npm package metadata.
+- Aligned `openclaw.plugin.json` version with the npm package version so `openclaw plugins list` reports the shipped release correctly.
+- Published release tag `v0.7.25`.
+
 ## 0.7.24 - 2026-03-10
 
 ### Release Management
