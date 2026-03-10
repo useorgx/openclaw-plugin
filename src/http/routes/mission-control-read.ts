@@ -1069,6 +1069,18 @@ async function enrichWithMilestoneBreakdown(
       };
     });
   }
+  // Post-enrichment: promote items whose milestones are fully done to "completed"
+  // so downstream filters exclude them from the active Next Up queue.
+  for (const item of items) {
+    if (!item.milestoneBreakdown || item.milestoneBreakdown.length === 0) continue;
+    if (item.queueState === "running" || item.queueState === "completed") continue;
+    const totalTasks = item.milestoneBreakdown.reduce((s, m) => s + m.totalTasks, 0);
+    const doneTasks = item.milestoneBreakdown.reduce((s, m) => s + m.doneTasks, 0);
+    if (totalTasks > 0 && doneTasks >= totalTasks) {
+      item.queueState = "completed";
+    }
+  }
+
   return items;
 }
 
