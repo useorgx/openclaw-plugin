@@ -2,6 +2,16 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.26 - 2026-03-10
+
+### Release Management
+- Patch release bump for npm package + plugin manifest metadata.
+- Published release tag `v0.7.26`.
+
+### Runtime Installation Reliability
+- Added a sqlite runtime self-heal path so installs that are missing the native `better-sqlite3` binding can repair themselves when the state store initializes.
+- Hardened clean-install verification to simulate OpenClaw's scripts-disabled install path and assert the native binding is rebuilt before the package is considered healthy.
+
 ## 0.7.25 - 2026-03-10
 
 ### Release Management
