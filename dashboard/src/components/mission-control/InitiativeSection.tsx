@@ -1092,6 +1092,14 @@ export function InitiativeSection({
 
               {isLoading || (!hasPrimaryGraphData && isLegacyLoading) ? (
                 <div className="space-y-2">
+                  <div className="flex items-center gap-2 px-1 text-micro uppercase tracking-[0.12em] text-muted">
+                    <div className="flex gap-0.5" aria-label="Loading">
+                      <span className="h-1 w-1 rounded-full bg-lime/70 animate-[pulse_1.4s_ease-in-out_infinite]" />
+                      <span className="h-1 w-1 rounded-full bg-lime/50 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
+                      <span className="h-1 w-1 rounded-full bg-lime/30 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
+                    </div>
+                    <span>Loading workstreams</span>
+                  </div>
                   {Array.from({ length: 3 }).map((_, index) => (
                     <Skeleton key={`mc-loading-${index}`} className="h-24 w-full rounded-xl" />
                   ))}

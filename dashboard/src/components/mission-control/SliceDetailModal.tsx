@@ -13,7 +13,12 @@ import { formatRelativeTime } from '@/lib/time';
 import { sanitizeDisplayText, humanizeStopReason, humanizeLaneState } from '@/lib/humanize';
 import { dedupeSliceSections, synthesizeOutcome } from '@/lib/suppress-unknown-fields';
 import { colors, motion as motionTokens } from '@/lib/tokens';
-import { queueAccentStyle, queueStateDotColor, workSnapshotHeading } from '@/lib/queueStateMap';
+import {
+  queueAccentStyle,
+  queueStateDotColor,
+  workSnapshotHeading,
+  type WorkSnapshotHeadingOptions,
+} from '@/lib/queueStateMap';
 import { projectRunStatus } from '@/lib/runStatusModel';
 import type { Initiative, NextUpQueueItem, SliceRunProjection } from '@/types';
 import type { InProgressRow } from './InProgressPanel';
@@ -40,7 +45,7 @@ interface SliceDetailModalProps {
   onFocusRunId?: (runId: string) => void;
   onOpenInitiative?: (initiativeId: string) => void;
   onReviewActivity?: (sliceRun: SliceRunProjection) => void;
-  onOpenDecisions?: () => void;
+  onOpenDecisions?: (decisionId?: string | null) => void;
   onAcceptSlice?: (sliceRun: SliceRunProjection, note?: string) => void;
   onRejectSlice?: (sliceRun: SliceRunProjection, note: string) => void;
   initiatives?: Initiative[];
@@ -384,28 +389,29 @@ export function SliceDetailModal({
     return map;
   }, [initiatives]);
 
-  if (!target) return null;
-
-  const d = extractData(target);
-  // Resolve initiative title from initiatives prop when extractData couldn't find one
-  if (!d.initiativeTitle && d.initiativeId) {
-    d.initiativeTitle = initiativeTitleById.get(d.initiativeId) ?? null;
-  }
-  const sr = d.sliceRun;
+  const d = useMemo(() => {
+    if (!target) return null;
+    const resolved = extractData(target);
+    if (!resolved.initiativeTitle && resolved.initiativeId) {
+      resolved.initiativeTitle = initiativeTitleById.get(resolved.initiativeId) ?? null;
+    }
+    return resolved;
+  }, [initiativeTitleById, target]);
+  const sr = d?.sliceRun ?? null;
   const canonicalProjection = projectRunStatus({
-    sessionStatus: d.queueState,
-    sessionPhase: d.workstreamStatus,
-    sliceStatus: sr?.status ?? d.workstreamStatus,
-    activityStatus: sr?.runtimeState ?? d.workstreamStatus ?? d.queueState,
-    stopReason: d.queueState === 'blocked' ? 'blocked' : null,
+    sessionStatus: d?.queueState ?? null,
+    sessionPhase: d?.workstreamStatus ?? null,
+    sliceStatus: sr?.status ?? d?.workstreamStatus ?? null,
+    activityStatus: sr?.runtimeState ?? d?.workstreamStatus ?? d?.queueState ?? null,
+    stopReason: d?.queueState === 'blocked' ? 'blocked' : null,
     decisionRequired: (sr?.blockingDecisionCount ?? 0) > 0,
     blockingDecisionCount: sr?.blockingDecisionCount ?? 0,
     nonBlockingDecisionCount: Math.max(
       0,
       (sr?.decisionCount ?? 0) - (sr?.blockingDecisionCount ?? 0)
     ),
-    blockerCount: d.blockReason ? 1 : 0,
-    blockerReason: d.blockReason,
+    blockerCount: d?.blockReason ? 1 : 0,
+    blockerReason: d?.blockReason ?? null,
   });
   const canonicalStatusClass =
     canonicalProjection.status === 'completed'
@@ -428,21 +434,21 @@ export function SliceDetailModal({
   // Single canonical badge — no duplicate raw status badges
 
   const breadcrumbs = [
-    ...(d.initiativeTitle
+    ...(d?.initiativeTitle
       ? [{
           label: d.initiativeTitle,
-          onClick: d.initiativeId ? () => onOpenInitiative?.(d.initiativeId!) : undefined,
+          onClick: d.initiativeId ? () => onOpenInitiative?.(d.initiativeId ?? '') : undefined,
         }]
       : []),
-    { label: d.workstreamTitle },
+    { label: d?.workstreamTitle ?? 'Work slice' },
   ];
 
   const isRunning = canonicalProjection.status === 'in_progress';
   const canStart = Boolean(
-    d.initiativeId &&
-      d.workstreamId &&
+    d?.initiativeId &&
+      d?.workstreamId &&
       !isRunning &&
-      (target.source !== 'queue' || d.canStartNow !== false)
+      (target?.source !== 'queue' || d?.canStartNow !== false)
   );
   const startActionLabel =
     canonicalProjection.status === 'completed'
@@ -451,18 +457,25 @@ export function SliceDetailModal({
         ? 'Retry'
         : 'Start';
   const startActionTitle =
-    target.source === 'queue' && typeof d.startReasonLabel === 'string' && d.startReasonLabel.trim().length > 0
+    target?.source === 'queue' && typeof d?.startReasonLabel === 'string' && d.startReasonLabel.trim().length > 0
       ? d.startReasonLabel.trim()
       : startActionLabel;
   const nextActionLabel =
     canonicalProjection.nextAction ??
-    (target.source === 'needs_input' && sr
+    (target?.source === 'needs_input' && sr
       ? sr.primaryAction === 'resolve_decision'
         ? 'Resolve decision'
         : sr.primaryAction === 'open_artifact'
           ? 'Open result'
-          : 'Review activity'
+        : 'Review activity'
       : null);
+  const primaryPendingDecision = useMemo(
+    () =>
+      Array.isArray(sr?.pendingDecisions) && sr.pendingDecisions.length > 0
+        ? sr.pendingDecisions[0]
+        : null,
+    [sr?.pendingDecisions]
+  );
 
   const highlightedButton: 'resolve_decision' | 'review' | 'start' | null = (() => {
     const action = sr?.primaryAction ?? null;
@@ -495,15 +508,17 @@ export function SliceDetailModal({
 
   // Compute terminal target once — avoids duplicate buttons
   const terminalTarget = useMemo(() => {
+    if (!d) return null;
     if (d.sessionId) return { sessionId: d.sessionId, runId: d.runId, sliceRunId: sr?.sliceRunId ?? null };
     if (sr?.runId || sr?.sliceRunId) return { runId: sr.runId ?? null, sliceRunId: sr.sliceRunId ?? null };
     if (d.runId) return { runId: d.runId, sliceRunId: sr?.sliceRunId ?? null };
     return null;
-  }, [d.sessionId, d.runId, sr]);
+  }, [d, sr]);
 
   const hasTerminal = terminalTarget !== null;
 
   const scopeNodes = useMemo(() => {
+    if (!d) return [];
     if (sr?.scopeProgress) {
       return buildScopeFromSliceRun({
         initiativeId: d.initiativeId,
@@ -533,9 +548,28 @@ export function SliceDetailModal({
       agentName: d.agentName,
       agentId: d.agentId,
     });
-  }, [d.initiativeId, d.initiativeTitle, d.workstreamId, d.workstreamTitle, sr, d.queueState, d.agentName, d.agentId, d.milestoneBreakdown]);
+  }, [d, sr]);
 
-  const isNeedsReview = target.source === 'needs_input' && sr?.status === 'needs_review';
+  const scopeHeadingOptions = useMemo<WorkSnapshotHeadingOptions>(() => {
+    const statuses = new Set(
+      scopeNodes
+        .map((node) => node.status)
+        .filter((status): status is NonNullable<(typeof scopeNodes)[number]['status']> => Boolean(status))
+    );
+    return {
+      hasActive: statuses.has('active'),
+      hasBlocked: statuses.has('blocked') || statuses.has('failed'),
+      hasCompleted: statuses.has('done'),
+      hasUpcoming: statuses.has('pending'),
+    };
+  }, [scopeNodes]);
+
+  const isNeedsReview = target?.source === 'needs_input' && sr?.status === 'needs_review';
+
+  const scopeHeading = useMemo(
+    () => workSnapshotHeading(d?.queueState ?? 'queued', isNeedsReview, scopeHeadingOptions),
+    [d?.queueState, isNeedsReview, scopeHeadingOptions]
+  );
 
   const handleConfirmAction = useCallback(async () => {
     if (!sr || !actionMode) return;
@@ -586,6 +620,8 @@ export function SliceDetailModal({
       }
     }
   }, [sr, actionMode, actionNote, onAcceptSlice, onRejectSlice, onClose]);
+
+  if (!target || !d) return null;
 
   const footer = (
     <div className="space-y-2">
@@ -698,7 +734,7 @@ export function SliceDetailModal({
           {target.source === 'needs_input' && sr && sr.primaryAction === 'resolve_decision' && (
             <button
               type="button"
-              onClick={() => { onOpenDecisions?.(); onClose(); }}
+              onClick={() => { onOpenDecisions?.(primaryPendingDecision?.id ?? null); onClose(); }}
               className={`rounded-md px-2.5 py-1.5 text-[12px] font-medium text-[#0AD4C4]/70 transition-colors hover:bg-[#0AD4C4]/[0.08] hover:text-[#0AD4C4] ${highlightedButton === 'resolve_decision' ? highlightRing : ''}`}
             >
               Resolve decision
@@ -921,7 +957,6 @@ export function SliceDetailModal({
               });
               const outcomeText = synthesized ?? deduped.outcome;
               const blockerItems = Array.isArray(sr.blockers) ? sr.blockers : [];
-              const pendingDecisionItems = Array.isArray(sr.pendingDecisions) ? sr.pendingDecisions : [];
               return (
                 <>
                   {/* Action card */}
@@ -954,9 +989,95 @@ export function SliceDetailModal({
                         Recommended action: {nextActionLabel}
                       </p>
                     ) : null}
+                    {primaryPendingDecision ? (
+                      <div className="mt-3 rounded-xl border border-amber-300/18 bg-amber-500/[0.07] px-3 py-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <p className="section-kicker !mb-0 text-amber-100/78">Primary decision</p>
+                            <p className="mt-1 text-caption font-semibold text-primary">
+                              {primaryPendingDecision.title}
+                            </p>
+                            {primaryPendingDecision.summary ? (
+                              <p className="mt-1 text-micro leading-relaxed text-secondary">
+                                {primaryPendingDecision.summary}
+                              </p>
+                            ) : null}
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <span className="chip text-micro border-amber-300/30 bg-amber-400/[0.08] text-amber-100">
+                                {primaryPendingDecision.blocking ? 'Blocking decision' : 'Decision required'}
+                              </span>
+                              {(primaryPendingDecision.options?.length ?? 0) > 0 ? (
+                                <span className="chip text-micro">
+                                  {primaryPendingDecision.options?.length} option
+                                  {primaryPendingDecision.options?.length === 1 ? '' : 's'}
+                                </span>
+                              ) : null}
+                            </div>
+                            {primaryPendingDecision.recommendedAction ? (
+                              <p className="mt-2 text-micro text-amber-100/82">
+                                Recommended: {primaryPendingDecision.recommendedAction}
+                              </p>
+                            ) : null}
+                          </div>
+                          {onOpenDecisions ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onOpenDecisions(primaryPendingDecision.id);
+                                onClose();
+                              }}
+                              className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold"
+                              data-tone="lime"
+                            >
+                              Review decision
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : sr.blockingDecisionCount > 0 || sr.decisionCount > 0 ? (
+                      <div className="mt-3 rounded-xl border border-amber-300/18 bg-amber-500/[0.07] px-3 py-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0 flex-1">
+                            <p className="section-kicker !mb-0 text-amber-100/78">Primary decision</p>
+                            <p className="mt-1 text-caption font-semibold text-primary">
+                              Blocking decision waiting on operator judgment
+                            </p>
+                            <p className="mt-1 text-micro leading-relaxed text-secondary">
+                              This slice is waiting on a decision, but the run did not emit the full
+                              decision brief into the slice payload. Open the decision queue to review
+                              the pending item before dispatch continues.
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              <span className="chip text-micro border-amber-300/30 bg-amber-400/[0.08] text-amber-100">
+                                {sr.blockingDecisionCount > 0
+                                  ? `${sr.blockingDecisionCount} blocking decision${
+                                      sr.blockingDecisionCount === 1 ? '' : 's'
+                                    }`
+                                  : `${sr.decisionCount} pending decision${
+                                      sr.decisionCount === 1 ? '' : 's'
+                                    }`}
+                              </span>
+                            </div>
+                          </div>
+                          {onOpenDecisions ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onOpenDecisions(null);
+                                onClose();
+                              }}
+                              className="control-pill h-8 flex-shrink-0 px-3 text-caption font-semibold"
+                              data-tone="lime"
+                            >
+                              Open decisions
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+                    ) : null}
                   </motion.div>
 
-                  {(blockerItems.length > 0 || pendingDecisionItems.length > 0) && (
+                  {blockerItems.length > 0 && (
                     <motion.div
                       variants={sectionVariants}
                       initial="hidden"
@@ -985,21 +1106,6 @@ export function SliceDetailModal({
                               {blocker.waitingOn ? `Waiting on: ${blocker.waitingOn}` : null}
                               {blocker.waitingOn && blocker.requiredAction ? ' · ' : null}
                               {blocker.requiredAction ? `Required action: ${blocker.requiredAction}` : null}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                      {pendingDecisionItems.slice(0, 2).map((decision) => (
-                        <div key={decision.id} className="rounded-lg border border-amber-300/16 bg-amber-500/[0.06] px-3 py-2">
-                          <p className="text-caption font-semibold text-primary">{decision.title}</p>
-                          {decision.summary && (
-                            <p className="mt-1 text-micro text-secondary leading-relaxed">
-                              {decision.summary}
-                            </p>
-                          )}
-                          {decision.recommendedAction && (
-                            <p className="mt-1 text-micro text-amber-100/80">
-                              Recommended: {decision.recommendedAction}
                             </p>
                           )}
                         </div>
@@ -1107,8 +1213,11 @@ export function SliceDetailModal({
                   custom={sectionIndex++}
                   className="space-y-2"
                 >
-                  <p className="section-kicker">{workSnapshotHeading(d.queueState, isNeedsReview)}</p>
-                  <ScopeGroupedView nodes={scopeNodes} />
+                  <p className="section-kicker">{scopeHeading}</p>
+                  <ScopeGroupedView
+                    nodes={scopeNodes}
+                    defaultOpenSections={{ completed: true, upcoming: true }}
+                  />
                   <div className="flex items-center gap-2">
                     {d.nextTaskPriority !== null && priorityLabel(d.nextTaskPriority) && (
                       <span
@@ -1143,7 +1252,7 @@ export function SliceDetailModal({
                   custom={sectionIndex++}
                   className="space-y-2"
                 >
-                  <p className="section-kicker">{workSnapshotHeading(d.queueState, isNeedsReview)}</p>
+                  <p className="section-kicker">{scopeHeading}</p>
                   {d.nextTaskTitle && (
                     <div className="flex items-start gap-2">
                       <EntityIcon type="task" size={14} className="mt-[2px] flex-shrink-0 opacity-80" />

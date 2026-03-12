@@ -466,7 +466,11 @@ function NextUpLoadingSkeleton({ compact }: { compact: boolean }) {
   return (
     <div className="space-y-2.5">
       <div className="flex items-center gap-2 px-1 pt-1 text-micro uppercase tracking-[0.12em] text-muted">
-        <span className="h-1.5 w-1.5 rounded-full bg-lime/70 status-breathe" />
+        <div className="flex gap-0.5" aria-label="Loading">
+          <span className="h-1 w-1 rounded-full bg-lime/70 animate-[pulse_1.4s_ease-in-out_infinite]" />
+          <span className="h-1 w-1 rounded-full bg-lime/50 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
+          <span className="h-1 w-1 rounded-full bg-lime/30 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
+        </div>
         <span>Calibrating queue</span>
       </div>
       {Array.from({ length: cards }).map((_, index) => (
@@ -1609,6 +1613,7 @@ export function NextUpPanel({
                 const blockReason = item.blockReason ? sanitizeDisplayText(item.blockReason) : null;
               const runnerName = resolveRunnerName(item);
               const runnerSourceBadge = resolveRunnerSourceBadge(item);
+              const openQueueDetail = () => onOpenSliceDetail?.(item);
 
               return (
                 <motion.article
@@ -1628,10 +1633,10 @@ export function NextUpPanel({
                     ease: missionControlMotion.surfaceSwitch.ease,
                   }}
                   className="group relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-2.5 py-2 cursor-pointer transition-colors hover:border-white/[0.14]"
-                  onClick={() => onOpenSliceDetail?.(item)}
+                  onClick={openQueueDetail}
                   role="button"
                   tabIndex={0}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenSliceDetail?.(item); } }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openQueueDetail(); } }}
                 >
                   <div
                     className={`pointer-events-none absolute inset-x-2.5 top-0 h-px bg-gradient-to-r ${queueHighlight(item.queueState)}`}
@@ -1669,10 +1674,21 @@ export function NextUpPanel({
                           </span>
                         ) : null}
                       </div>
-                      <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-caption font-semibold leading-snug text-white" title={workstreamTitle}>
+                      <div className="mt-0.5 flex min-w-0 items-center gap-1.5">
                         <EntityIcon type="workstream" size={12} className="flex-shrink-0 opacity-95" />
-                        <span className="line-clamp-2">{workstreamTitle}</span>
-                      </p>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            openQueueDetail();
+                          }}
+                          className="min-w-0 text-left text-caption font-semibold leading-snug text-white transition-colors hover:text-white/78"
+                          title={`Open details for ${workstreamTitle}`}
+                          aria-label={`Open details for ${workstreamTitle}`}
+                        >
+                          <span className="line-clamp-2">{workstreamTitle}</span>
+                        </button>
+                      </div>
                       {nextTaskTitle ? (
                         <p
                           className="mt-0.5 line-clamp-2 text-micro leading-snug text-secondary"
@@ -1764,6 +1780,16 @@ export function NextUpPanel({
 
                   {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
                   <div className="mt-1.5 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      disabled={isRowBusy}
+                      onClick={() => onOpenSliceDetail?.(item)}
+                      className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
+                      title={`Open details for ${workstreamTitle}`}
+                      aria-label={`Open details for ${workstreamTitle}`}
+                    >
+                      Details
+                    </button>
                     <button
                       type="button"
                       disabled={isRowBusy || !canStartQueueItem(item)}
@@ -2028,6 +2054,9 @@ function NextUpReorderRow({
   const blockReason = item.blockReason ? sanitizeDisplayText(item.blockReason) : null;
   const runnerName = resolveRunnerName(item);
   const runnerSourceBadge = resolveRunnerSourceBadge(item);
+  const openQueueDetail = () => {
+    onOpenSliceDetail?.(item);
+  };
 
   return (
     <Reorder.Item
@@ -2070,10 +2099,10 @@ function NextUpReorderRow({
           },
         }}
         className="group relative overflow-visible rounded-2xl border border-white/[0.08] bg-white/[0.02] px-3 py-3 cursor-pointer transition-colors hover:border-white/[0.14]"
-        onClick={() => onOpenSliceDetail?.(item)}
+        onClick={openQueueDetail}
         role="button"
         tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpenSliceDetail?.(item); } }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openQueueDetail(); } }}
       >
 
         <div
@@ -2159,9 +2188,18 @@ function NextUpReorderRow({
               </div>
               <div className="mt-0.5 flex min-w-0 items-start gap-1.5">
                 <EntityIcon type="workstream" size={12} className="mt-[3px] flex-shrink-0 opacity-95" />
-                <p className="min-w-0 line-clamp-2 text-body font-semibold leading-snug text-white" title={workstreamTitle}>
-                  {workstreamTitle}
-                </p>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    openQueueDetail();
+                  }}
+                  className="min-w-0 text-left text-body font-semibold leading-snug text-white transition-colors hover:text-white/78"
+                  title={`Open details for ${workstreamTitle}`}
+                  aria-label={`Open details for ${workstreamTitle}`}
+                >
+                  <span className="line-clamp-2">{workstreamTitle}</span>
+                </button>
               </div>
               <div className="mt-1.5 flex items-center gap-2 text-micro text-secondary">
                 <span className="rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
@@ -2224,6 +2262,16 @@ function NextUpReorderRow({
 
         {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions */}
         <div className="mt-2 flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            disabled={isRowBusy}
+            onClick={openQueueDetail}
+            className="control-pill flex h-7 items-center justify-center px-2.5 text-micro font-semibold disabled:opacity-40"
+            title={`Open details for ${workstreamTitle}`}
+            aria-label={`Open details for ${workstreamTitle}`}
+          >
+            Details
+          </button>
           <button
             type="button"
             disabled={isRowBusy || !canStartQueueItem(item)}

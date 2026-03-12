@@ -29,6 +29,7 @@ import { EntityDetailModal } from './EntityDetailModal';
 import { MissionControlFilters } from './MissionControlFilters';
 import { NextUpPanel } from './NextUpPanel';
 import { SliceExplorerPanel } from './SliceExplorerPanel';
+import { SliceDetailModal, type SliceDetailTarget } from './SliceDetailModal';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { InlineToast } from '@/components/shared/InlineToast';
 import { HealthScoreCard } from './HealthScoreCard';
@@ -1219,6 +1220,7 @@ function MissionControlInner({
   });
   const [autopilotUpgradeGate, setAutopilotUpgradeGate] =
     useState<UpgradeRequiredError | null>(null);
+  const [sliceDetailTarget, setSliceDetailTarget] = useState<SliceDetailTarget | null>(null);
   const autopilotRun = autopilot.run;
   const autopilotError = autopilot.error?.toLowerCase() ?? '';
   const autopilotUnavailable =
@@ -1398,6 +1400,10 @@ function MissionControlInner({
       stickyToolbarOffset,
     ]
   );
+  const openSliceDetailFromQueue = useCallback((item: NextUpQueueItem) => {
+    setSliceDetailTarget({ source: 'queue', item, linkedSliceRun: null });
+    setNextUpDrawerOpen(false);
+  }, []);
   const startInitiativeFromNextAction = useCallback(() => {
     if (!nextActionInitiative) return;
 
@@ -1523,6 +1529,19 @@ function MissionControlInner({
       }
     },
     [nextActionQueue]
+  );
+  const playWorkstreamFromSliceDetail = useCallback(
+    async (initiativeId: string, workstreamId: string) => {
+      const item =
+        nextActionQueue.items.find(
+          (candidate) =>
+            candidate.initiativeId === initiativeId &&
+            candidate.workstreamId === workstreamId
+        ) ?? null;
+      if (!item) return null;
+      return startWorkstreamWithConflictHandling(item, { surface: 'card' });
+    },
+    [nextActionQueue.items, startWorkstreamWithConflictHandling]
   );
   const pauseNowWorking = useCallback(() => {
     if (!nowWorkingItem) return Promise.resolve();
@@ -2378,7 +2397,11 @@ function MissionControlInner({
                             </span>
                             {nextActionQueue.isLoading ? (
                               <span className="inline-flex items-center gap-1.5 rounded-full border border-strong bg-white/[0.04] px-1.5 py-0.5 text-micro uppercase tracking-[0.08em] text-secondary">
-                                <span className="h-1.5 w-1.5 rounded-full bg-lime/70 status-breathe" />
+                                <span className="inline-flex gap-0.5" aria-label="Loading">
+                                  <span className="h-1 w-1 rounded-full bg-lime/70 animate-[pulse_1.4s_ease-in-out_infinite]" />
+                                  <span className="h-1 w-1 rounded-full bg-lime/50 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
+                                  <span className="h-1 w-1 rounded-full bg-lime/30 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
+                                </span>
                                 Syncing
                               </span>
                             ) : (
@@ -2589,6 +2612,14 @@ function MissionControlInner({
 
                 {isLoading ? (
                   <div className="space-y-3 pb-8">
+                    <div className="flex items-center gap-2 px-1 pt-1 text-micro uppercase tracking-[0.12em] text-muted">
+                      <div className="flex gap-0.5" aria-label="Loading">
+                        <span className="h-1 w-1 rounded-full bg-lime/70 animate-[pulse_1.4s_ease-in-out_infinite]" />
+                        <span className="h-1 w-1 rounded-full bg-lime/50 animate-[pulse_1.4s_ease-in-out_0.2s_infinite]" />
+                        <span className="h-1 w-1 rounded-full bg-lime/30 animate-[pulse_1.4s_ease-in-out_0.4s_infinite]" />
+                      </div>
+                      <span>Loading initiatives</span>
+                    </div>
                     {Array.from({ length: 4 }).map((_, i) => (
                       <div
                         key={`mc-skeleton-${i}`}
@@ -2890,6 +2921,7 @@ function MissionControlInner({
                                         surface: 'card',
                                       })
                                     }
+                                    onOpenSliceDetail={openSliceDetailFromQueue}
                                     onOpenInitiative={openInitiativeFromNextUp}
                                     onOpenSettings={onOpenSettings}
                                     onUpgradeGate={setAutopilotUpgradeGate}
@@ -3040,6 +3072,7 @@ function MissionControlInner({
                                         surface: 'card',
                                       })
                                     }
+                                    onOpenSliceDetail={openSliceDetailFromQueue}
                                     onOpenInitiative={(initiativeId, initiativeTitle) => {
                                       openInitiativeFromNextUp(initiativeId, initiativeTitle);
                                       setNextUpDrawerOpen(false);
@@ -3209,6 +3242,29 @@ function MissionControlInner({
       </div>
 
       {/* Entity detail modal */}
+      <SliceDetailModal
+        target={sliceDetailTarget}
+        initiatives={initiatives}
+        onClose={() => setSliceDetailTarget(null)}
+        onPlayWorkstream={async (initiativeId, workstreamId) => {
+          await playWorkstreamFromSliceDetail(initiativeId, workstreamId);
+        }}
+        onStartAutoContinue={async (initiativeId, workstreamId, agentId) => {
+          await nextActionQueue.startWorkstreamAutoContinue({
+            initiativeId,
+            workstreamId,
+            agentId: agentId ?? undefined,
+            scope: 'initiative',
+          });
+        }}
+        onMoveWorkstream={(initiativeId, workstreamId, placement) => {
+          void nextUpActions.move({ initiativeId, workstreamId, placement });
+        }}
+        onRemoveFromQueue={(initiativeId, workstreamId) => {
+          void nextUpActions.remove({ initiativeId, workstreamId });
+        }}
+        onOpenInitiative={openInitiativeFromNextUp}
+      />
       <EntityDetailModal target={resolvedModalTarget} onClose={closeModal} />
     </div>
   );

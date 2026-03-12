@@ -97,6 +97,26 @@ function IncompleteSignalNotice({ missing }: { missing: string[] }) {
   );
 }
 
+function reconcileMissingFields(item: LiveTriageItem, linkedDecision: LiveDecision | null): string[] {
+  const missing = new Set(missingInterventionFields(item));
+  if (!linkedDecision) return Array.from(missing);
+
+  if ((linkedDecision.context ?? '').trim().length > 0) {
+    missing.delete('Decision prompt');
+    missing.delete('Decision context');
+  }
+  if (Array.isArray(linkedDecision.options) && linkedDecision.options.length > 0) {
+    missing.delete('Decision options');
+  }
+  if ((linkedDecision.recommendedAction ?? '').trim().length > 0) {
+    missing.delete('Recommended action');
+  }
+  if (Array.isArray(linkedDecision.evidenceRefs) && linkedDecision.evidenceRefs.length > 0) {
+    missing.delete('Supporting evidence');
+  }
+  return Array.from(missing);
+}
+
 // ---------------------------------------------------------------------------
 // Section Components
 // ---------------------------------------------------------------------------
@@ -424,6 +444,107 @@ function InterventionSection({ item }: { item: LiveTriageItem }) {
   );
 }
 
+function LinkedDecisionSection({
+  decision,
+  onReviewDecision,
+}: {
+  decision: LiveDecision;
+  onReviewDecision?: (decisionId: string) => void;
+}) {
+  const context = (decision.context ?? '').trim();
+  const options = Array.isArray(decision.options) ? decision.options.slice(0, 4) : [];
+  const evidence = Array.isArray(decision.evidenceRefs) ? decision.evidenceRefs.slice(0, 3) : [];
+
+  return (
+    <div className="rounded-xl border border-[#14B8A6]/18 bg-[#14B8A6]/[0.06] px-3.5 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-micro font-semibold uppercase tracking-wider text-[#7AEDE5]">
+            Linked decision
+          </p>
+          <p className="mt-1 text-body font-medium text-primary">{decision.title}</p>
+          {decision.recommendedAction ? (
+            <p className="mt-1 text-caption text-[#7AEDE5]">
+              Recommended: {decision.recommendedAction}
+            </p>
+          ) : null}
+        </div>
+        {onReviewDecision ? (
+          <button
+            type="button"
+            onClick={() => onReviewDecision(decision.id)}
+            className="rounded-lg border border-[#14B8A6]/25 bg-[#14B8A6]/10 px-3 py-1.5 text-caption font-semibold text-[#7AEDE5] transition-colors hover:bg-[#14B8A6]/18"
+          >
+            Open full decision
+          </button>
+        ) : null}
+      </div>
+
+      {context ? (
+        <p className="mt-3 text-caption leading-relaxed text-secondary">{context}</p>
+      ) : null}
+
+      {options.length > 0 ? (
+        <div className="mt-3">
+          <p className="text-micro uppercase tracking-wider text-muted">Options</p>
+          <div className="mt-1.5 space-y-1.5">
+            {options.map((option) => (
+              <div
+                key={option.id}
+                className="rounded-lg border border-white/[0.06] bg-black/[0.16] px-2.5 py-2"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-caption font-medium text-primary">{option.label}</p>
+                  {option.impliedStatus === 'approved' ? (
+                    <span className="rounded-full bg-[#14B8A6]/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#7AEDE5]">
+                      Suggested
+                    </span>
+                  ) : null}
+                </div>
+                {option.description ? (
+                  <p className="mt-1 text-caption text-secondary">{option.description}</p>
+                ) : null}
+                {option.consequences ? (
+                  <p className="mt-1 text-micro text-muted">{option.consequences}</p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {evidence.length > 0 ? (
+        <div className="mt-3">
+          <p className="text-micro uppercase tracking-wider text-muted">Evidence</p>
+          <div className="mt-1.5 space-y-1.5">
+            {evidence.map((ref, index) => (
+              <div
+                key={`${ref.title}-${index}`}
+                className="rounded-lg border border-white/[0.06] bg-black/[0.16] px-2.5 py-2"
+              >
+                <p className="text-caption font-medium text-primary">{ref.title}</p>
+                {ref.summary ? (
+                  <p className="mt-1 text-caption text-secondary">{ref.summary}</p>
+                ) : null}
+                {ref.sourceUrl ? (
+                  <a
+                    href={ref.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 inline-flex text-micro text-[#7AEDE5] transition-colors hover:text-white"
+                  >
+                    Open source
+                  </a>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ImpactChip({
   label,
   tone = 'amber',
@@ -597,6 +718,7 @@ export interface TriageDetailModalProps {
   currentIndex?: number;
   totalCount?: number;
   decisions?: LiveDecision[];
+  onReviewDecision?: (decisionId: string) => void;
   onApproveDecision?: (
     decisionId: string,
     input?: { note?: string; optionId?: string }
@@ -615,6 +737,7 @@ export function TriageDetailModal({
   currentIndex,
   totalCount,
   decisions,
+  onReviewDecision,
 }: TriageDetailModalProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const defaultOptionByAction = useCallback(
@@ -698,7 +821,7 @@ export function TriageDetailModal({
     item.sourceDecisionId && Array.isArray(decisions)
       ? decisions.find((decision) => decision.id === item.sourceDecisionId) ?? null
       : null;
-  const incompleteFields = missingInterventionFields(item);
+  const incompleteFields = reconcileMissingFields(item, linkedDecision);
 
   return (
     <AnimatePresence mode="wait">
@@ -806,6 +929,12 @@ export function TriageDetailModal({
         {/* 2. Proof */}
         <div className="space-y-4 mb-4">
           <IncompleteSignalNotice missing={incompleteFields} />
+          {linkedDecision ? (
+            <LinkedDecisionSection
+              decision={linkedDecision}
+              onReviewDecision={onReviewDecision}
+            />
+          ) : null}
           <InterventionSection item={item} />
           <ProofSection item={item} />
         </div>
