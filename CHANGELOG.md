@@ -2,6 +2,17 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.27 - 2026-03-12
+
+### Release Management
+- Patch release bump for npm package + plugin manifest metadata.
+- Published release tag `v0.7.27`.
+
+### Mission Control Operator UX
+- Refined decision and intervention bulk-review trays for the narrow Mission Control rail so multi-select actions stay legible and calm instead of collapsing into dense button rows.
+- Elevated blocked-slice decision handoff in the slice detail modal so operators can review the primary pending decision directly from the blocker surface, with a fallback path when only decision counts were emitted.
+- Kept grouped scope sections in queue detail views open by default for completed and upcoming work so the work scope is visible immediately.
+
 ## 0.7.26 - 2026-03-10
 
 ### Release Management
