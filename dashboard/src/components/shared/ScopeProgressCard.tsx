@@ -1,4 +1,4 @@
-import { memo, useState } from 'react';
+import { memo, useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { EntityIcon } from '@/components/shared/EntityIcon';
 import { colors, stateTones } from '@/lib/tokens';
@@ -307,6 +307,9 @@ function ScopeSection({
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  useEffect(() => {
+    setOpen(defaultOpen);
+  }, [defaultOpen]);
   const toneValues = SCOPE_SECTION_TONES[tone] ?? stateTones.planned;
   return (
     <div
@@ -355,27 +358,64 @@ function ScopeSection({
   );
 }
 
+export interface ScopeGroupedViewDefaultOpenSections {
+  blocked?: boolean;
+  inProgress?: boolean;
+  completed?: boolean;
+  upcoming?: boolean;
+}
+
 export const ScopeGroupedView = memo(function ScopeGroupedView({
   nodes,
   compact = false,
+  defaultOpenSections,
 }: {
   nodes: ScopeNode[];
   compact?: boolean;
+  defaultOpenSections?: ScopeGroupedViewDefaultOpenSections;
 }) {
   const groups = groupScopeByState(nodes);
   return (
     <div className="space-y-2">
       {groups.blocked.length > 0 && (
-        <ScopeSection label="BLOCKED" count={groups.blocked.length} tone="blocked" nodes={groups.blocked} defaultOpen compact={compact} />
+        <ScopeSection
+          label="BLOCKED"
+          count={groups.blocked.length}
+          tone="blocked"
+          nodes={groups.blocked}
+          defaultOpen={defaultOpenSections?.blocked ?? true}
+          compact={compact}
+        />
       )}
       {groups.inProgress.length > 0 && (
-        <ScopeSection label="IN PROGRESS" count={groups.inProgress.length} tone="active" nodes={groups.inProgress} defaultOpen compact={compact} />
+        <ScopeSection
+          label="IN PROGRESS"
+          count={groups.inProgress.length}
+          tone="active"
+          nodes={groups.inProgress}
+          defaultOpen={defaultOpenSections?.inProgress ?? true}
+          compact={compact}
+        />
       )}
       {groups.completed.length > 0 && (
-        <ScopeSection label="COMPLETED" count={groups.completed.length} tone="done" nodes={groups.completed} defaultOpen={false} compact={compact} />
+        <ScopeSection
+          label="COMPLETED"
+          count={groups.completed.length}
+          tone="done"
+          nodes={groups.completed}
+          defaultOpen={defaultOpenSections?.completed ?? false}
+          compact={compact}
+        />
       )}
       {groups.upcoming.length > 0 && (
-        <ScopeSection label="UPCOMING" count={groups.upcoming.length} tone="planned" nodes={groups.upcoming} defaultOpen={false} compact={compact} />
+        <ScopeSection
+          label="UPCOMING"
+          count={groups.upcoming.length}
+          tone="planned"
+          nodes={groups.upcoming}
+          defaultOpen={defaultOpenSections?.upcoming ?? false}
+          compact={compact}
+        />
       )}
     </div>
   );

@@ -3580,7 +3580,7 @@ function DashboardShell({
                         {decisionsVisible ? (
                           <section
                             className={cn(
-                              'overflow-hidden rounded-xl border border-subtle bg-white/[0.02]',
+                              'flex flex-col overflow-hidden rounded-xl border border-subtle bg-white/[0.02]',
                               needsInputRows.length === 0 ? 'flex-1 min-h-[220px]' : 'min-h-[220px] max-h-[50%]'
                             )}
                           >
@@ -3597,7 +3597,7 @@ function DashboardShell({
                                 Resolve blockers and approvals to keep dispatch moving.
                               </p>
                             </div>
-                            <div className="min-h-0 p-2">
+                            <div className="min-h-0 flex-1 overflow-hidden p-2">
                               <Suspense
                                 fallback={
                                   <div className="h-full min-h-[160px] rounded-lg border border-subtle bg-white/[0.02] p-4 text-body text-secondary">
@@ -3654,7 +3654,7 @@ function DashboardShell({
                               panelStyle="flat"
                               sliceRuns={actionableSliceRuns}
                               initiatives={initiatives}
-                              onOpenDecisions={() => openDecisionsFromActivity()}
+                              onOpenDecisions={openDecisionsFromActivity}
                               onFocusRunId={focusActivityRunId}
                               onReviewActivity={openReviewActivityForSlice}
                               onOpenSliceDetail={openSliceDetailFromNeedsInput}
@@ -3976,6 +3976,7 @@ function DashboardShell({
                 currentIndex={triageDetailIndex}
                 totalCount={triageDiagnosticsItems.length}
                 decisions={decisionsVisible ? data.decisions : undefined}
+                onReviewDecision={openDecisionsFromActivity}
                 onApproveDecision={approveDecision}
                 onRejectDecision={rejectDecision}
               />
@@ -4077,7 +4078,7 @@ function DashboardShell({
             onFocusRunId={focusActivityRunId}
             onOpenInitiative={openInitiativeFromNextUp}
             onReviewActivity={openReviewActivityForSlice}
-            onOpenDecisions={() => openDecisionsFromActivity()}
+            onOpenDecisions={openDecisionsFromActivity}
             onAcceptSlice={handleAcceptSlice}
             onRejectSlice={handleRejectSlice}
           />

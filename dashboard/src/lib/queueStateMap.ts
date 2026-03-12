@@ -126,9 +126,29 @@ export function queueAccentStyle(state: string): React.CSSProperties {
   }
 }
 
+export interface WorkSnapshotHeadingOptions {
+  hasActive?: boolean;
+  hasBlocked?: boolean;
+  hasCompleted?: boolean;
+  hasUpcoming?: boolean;
+}
+
 /** Section heading for work snapshot in detail modals. */
-export function workSnapshotHeading(state: string, isReview?: boolean): string {
+export function workSnapshotHeading(
+  state: string,
+  isReview?: boolean,
+  options?: WorkSnapshotHeadingOptions
+): string {
   if (isReview) return 'Scope Under Review';
+  const visibleStates = [
+    options?.hasActive,
+    options?.hasBlocked,
+    options?.hasCompleted,
+    options?.hasUpcoming,
+  ].filter(Boolean).length;
+  if (visibleStates > 1 || (options?.hasCompleted && options?.hasUpcoming)) {
+    return 'Work Scope';
+  }
   switch (state) {
     case QueueState.COMPLETED:
       return 'Completed Scope';
@@ -137,7 +157,7 @@ export function workSnapshotHeading(state: string, isReview?: boolean): string {
     case QueueState.BLOCKED:
       return 'Blocked Work';
     default:
-      return 'Next Work';
+      return 'Queued Work';
   }
 }
 

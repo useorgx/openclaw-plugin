@@ -143,10 +143,10 @@ function IncompleteDecisionNotice({ missing }: { missing: string[] }) {
   return (
     <div className="mb-4 rounded-xl border border-amber-300/20 bg-amber-300/[0.08] px-4 py-3">
       <p className="text-micro font-semibold uppercase tracking-wider text-amber-100">
-        Signal incomplete
+        Decision brief needs more context
       </p>
       <p className="mt-1 text-caption text-amber-50/90">
-        This decision is missing some of the context an operator needs to intervene confidently.
+        Review is still possible, but this payload is missing some of the operator context needed for a confident judgment.
       </p>
       <ul className="mt-2 space-y-0.5">
         {missing.map((field) => (
@@ -156,10 +156,15 @@ function IncompleteDecisionNotice({ missing }: { missing: string[] }) {
         ))}
       </ul>
       <p className="mt-2 text-micro text-amber-100/60">
-        Raw diagnostics remain available under Technical details.
+        Use the linked evidence and technical details below if you need to diagnose the payload itself.
       </p>
     </div>
   );
+}
+
+function criticalDecisionFields(missing: string[]): string[] {
+  const CRITICAL = new Set(['Decision context', 'Decision options', 'Supporting evidence']);
+  return missing.filter((field) => CRITICAL.has(field));
 }
 
 function normalizeOptionStatus(
@@ -563,11 +568,6 @@ export function DecisionDetailModal({
     !status.includes('rejected') &&
     !status.includes('declined') &&
     !status.includes('cancelled');
-  const missingOption = options.length > 0 && !selectedOptionRecord;
-  const missingRequiredNote =
-    selectedOptionRecord?.requiresNote === true && note.trim().length === 0;
-  const disableActions = busy || missingOption || missingRequiredNote;
-
   const evidenceRefs = decision.evidenceRefs ?? [];
   const hasEvidence = evidenceRefs.length > 0;
   const recommendedAction = decision.recommendedAction ?? null;
@@ -582,6 +582,15 @@ export function DecisionDetailModal({
     evidenceCount: evidenceRefs.length,
     updateCount: plannedUpdates.rows.length + (plannedUpdates.statusUpdatesApplied ?? 0),
   });
+  const criticalIncompleteFields = criticalDecisionFields(incompleteFields);
+  const missingOption = options.length > 0 && !selectedOptionRecord;
+  const missingRequiredNote =
+    selectedOptionRecord?.requiresNote === true && note.trim().length === 0;
+  const unsafeToSubmit =
+    criticalIncompleteFields.length >= 2 ||
+    (criticalIncompleteFields.includes('Decision context') &&
+      criticalIncompleteFields.includes('Decision options'));
+  const disableActions = busy || missingOption || missingRequiredNote || unsafeToSubmit;
 
   // Breadcrumb segments
   const breadcrumbSegments = [];
@@ -804,11 +813,11 @@ export function DecisionDetailModal({
           )}
 
           {/* 6. Evidence section */}
-          {hasEvidence && (
-            <div className="mb-4">
-              <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
-                Evidence
-              </p>
+          <div className="mb-4">
+            <p className="mb-2 px-1 text-micro font-semibold uppercase tracking-wider text-muted">
+              Supporting evidence
+            </p>
+            {hasEvidence ? (
               <div className="space-y-1.5">
                 {evidenceRefs.map((ref, i) => (
                   <EvidenceCard
@@ -822,8 +831,14 @@ export function DecisionDetailModal({
                   />
                 ))}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                <p className="text-body text-muted">
+                  No supporting evidence was emitted for this decision. Review the source run or add a note before escalating.
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* 6b. Urgency callout for long-waiting decisions */}
           {isUrgent && (
@@ -839,72 +854,72 @@ export function DecisionDetailModal({
           )}
 
           {/* 7. Context — humanized when raw, verbatim when rich */}
-          {humanized && humanized.headline !== decision.title ? (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-              <p className="text-micro font-semibold uppercase tracking-wider text-muted mb-2">What happened</p>
-              <p className="text-body text-primary leading-relaxed">{humanized.explanation}</p>
-              {Object.keys(humanized.structuredDetails).length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-caption text-secondary">
-                  {Object.entries(humanized.structuredDetails)
-                    .filter(([, v]) => v != null)
-                    .map(([k, v]) => (
-                      <span key={k}>
-                        {k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}: {v}
-                      </span>
-                    ))}
-                </div>
-              )}
-            </div>
-          ) : context ? (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-              <MarkdownText text={context} mode="block" />
-            </div>
-          ) : (
-            <p className="px-1 text-body text-muted italic">
-              No additional context provided.
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+            <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
+              Decision context
             </p>
-          )}
-
-          {(plannedUpdates.rows.length > 0 ||
-            (plannedUpdates.statusUpdatesApplied ?? 0) > 0 ||
-            plannedUpdates.buffered ||
-            (plannedUpdates.artifactCount ?? 0) > 0 ||
-            plannedUpdates.hasPr) && (
-            <div className="mt-4 rounded-xl border border-[#14B8A6]/20 bg-[#14B8A6]/[0.06] px-4 py-3">
-              <p className="text-micro font-semibold uppercase tracking-wider text-[#7ce0d3] mb-1">
-                {plannedUpdates.buffered ? 'Updates being applied' : 'Expected updates'}
+            {humanized && humanized.headline !== decision.title ? (
+              <>
+                <p className="text-body text-primary leading-relaxed">{humanized.explanation}</p>
+                {Object.keys(humanized.structuredDetails).length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-caption text-secondary">
+                    {Object.entries(humanized.structuredDetails)
+                      .filter(([, v]) => v != null)
+                      .map(([k, v]) => (
+                        <span key={k}>
+                          {k.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())}: {v}
+                        </span>
+                      ))}
+                  </div>
+                )}
+              </>
+            ) : context ? (
+              <MarkdownText text={context} mode="block" />
+            ) : (
+              <p className="text-body text-muted">
+                No decision context was emitted. The operator only has the title, age, and surrounding timeline to work from.
               </p>
-              {(plannedUpdates.statusUpdatesApplied ?? 0) > 0 && (
-                <p className="text-caption text-primary">
-                  {plannedUpdates.statusUpdatesApplied} status update{plannedUpdates.statusUpdatesApplied === 1 ? '' : 's'}
-                  {plannedUpdates.buffered ? ' queued for sync' : ' planned'}.
-                </p>
-              )}
-              {(plannedUpdates.artifactCount ?? 0) > 0 && (
-                <p className="text-caption text-primary">
-                  {plannedUpdates.artifactCount} artifact{plannedUpdates.artifactCount === 1 ? '' : 's'} expected from this decision path.
-                </p>
-              )}
-              {plannedUpdates.rows.length > 0 && (
-                <ul className="mt-2 space-y-1 pl-4">
-                  {plannedUpdates.rows.map((row, index) => (
-                    <li key={`${row.scope}-${row.label}-${index}`} className="text-caption text-secondary">
-                      <span className="text-primary">{row.scope}: {row.label}</span>
-                      {row.status ? ` → ${row.status}` : ''}
-                      {row.note ? ` · ${row.note}` : ''}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
+            )}
+          </div>
+
+          <div className="mt-4 rounded-xl border border-[#14B8A6]/20 bg-[#14B8A6]/[0.06] px-4 py-3">
+            <p className="text-micro font-semibold uppercase tracking-wider text-[#7ce0d3] mb-1">
+              {plannedUpdates.buffered ? 'Updates being applied' : 'Expected updates'}
+            </p>
+            {(plannedUpdates.statusUpdatesApplied ?? 0) > 0 && (
+              <p className="text-caption text-primary">
+                {plannedUpdates.statusUpdatesApplied} status update{plannedUpdates.statusUpdatesApplied === 1 ? '' : 's'}
+                {plannedUpdates.buffered ? ' queued for sync' : ' planned'}.
+              </p>
+            )}
+            {(plannedUpdates.artifactCount ?? 0) > 0 && (
+              <p className="text-caption text-primary">
+                {plannedUpdates.artifactCount} artifact{plannedUpdates.artifactCount === 1 ? '' : 's'} expected from this decision path.
+              </p>
+            )}
+            {plannedUpdates.rows.length > 0 ? (
+              <ul className="mt-2 space-y-1 pl-4">
+                {plannedUpdates.rows.map((row, index) => (
+                  <li key={`${row.scope}-${row.label}-${index}`} className="text-caption text-secondary">
+                    <span className="text-primary">{row.scope}: {row.label}</span>
+                    {row.status ? ` → ${row.status}` : ''}
+                    {row.note ? ` · ${row.note}` : ''}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-caption text-secondary">
+                No downstream task or milestone updates were emitted for this decision. Approval may resume work, but the exact updates are unspecified in the current payload.
+              </p>
+            )}
+          </div>
 
           {/* 8. Options as selectable cards */}
-          {options.length > 0 && (
-            <div className="mt-8">
-              <p className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
-                Options
-              </p>
+          <div className="mt-8">
+            <p className="mb-3 px-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+              Options
+            </p>
+            {options.length > 0 ? (
               <div className="space-y-1 relative">
                 {options.map((option) => {
                   const isActive = selectedOption === option.id;
@@ -974,8 +989,14 @@ export function DecisionDetailModal({
                   );
                 })}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                <p className="text-body text-muted">
+                  No explicit options were emitted for this decision. Approval and rejection stay blocked until an option set or stronger recommendation is available.
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* 9. Note field — only when an option requires a note */}
           {isPending && showNotes && (
@@ -1096,6 +1117,14 @@ export function DecisionDetailModal({
           </div>
         )}
 
+        {isPending && unsafeToSubmit ? (
+          <div className="border-t border-white/[0.06] px-6 py-3">
+            <p className="text-caption text-amber-200">
+              This payload still needs more context before approval or rejection is safe. Review the evidence and open the source run if you need to escalate.
+            </p>
+          </div>
+        ) : null}
+
         {/* 15. Action footer - only for pending decisions */}
         {isPending && (
           <div className="relative mt-auto border-t border-white/[0.04] bg-black/60 px-6 py-5 backdrop-blur-xl">
@@ -1150,6 +1179,8 @@ export function DecisionDetailModal({
                       <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-black/40 border-t-black" />
                       Approving
                     </span>
+                  ) : unsafeToSubmit ? (
+                    'Needs more context'
                   ) : (
                     'Approve'
                   )}

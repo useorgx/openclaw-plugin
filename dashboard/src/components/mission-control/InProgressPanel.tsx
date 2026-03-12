@@ -623,11 +623,11 @@ export const InProgressPanel = memo(function InProgressPanel({
               </svg>
             </div>
             <div>
-              <p className="text-body font-medium text-primary">All clear</p>
+              <p className="text-body font-medium text-primary">Execution paused</p>
               <p className="mt-1 text-caption leading-relaxed text-secondary">
-                No active runs right now.{' '}
+                No active execution is moving in this scope right now.{' '}
                 <span className="tabular-nums font-semibold text-[#F5B700]/90">{needsAttentionCount}</span>{' '}
-                {needsAttentionCount === 1 ? 'item needs' : 'items need'} your attention.
+                {needsAttentionCount === 1 ? 'intervention is' : 'interventions are'} preventing the next slice from starting.
               </p>
             </div>
             <button
