@@ -103,6 +103,12 @@ artifacts/orgx-design-tokens.json
 
 # Local audit/workbench scratch
 .tmp-live-audit/
+orgx-live-*.md
+qa-artifacts/mission-control-audit-*/
+docs/qa/*/live-ui-p0-audit/
+docs/qa/*/live-autopilot-audit*/
+docs/qa/*/*-audit.json
+docs/qa/*/manual-audit-*.png
 
 # Local launch/presentation scratch (never commit)
 /launch-post.md
