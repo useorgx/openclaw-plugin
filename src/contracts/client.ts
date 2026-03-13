@@ -803,6 +803,82 @@ export class OrgXClient {
   }
 
   // ===========================================================================
+  // Agent Jobs (Plugin Dispatch Bridge)
+  // ===========================================================================
+
+  async createAgentJob(payload: {
+    initiative_id: string;
+    workstream_id: string;
+    task_id?: string | null;
+    run_id: string;
+    agent_type: string;
+    execution_target: string;
+    worker_name: string;
+    machine_id: string;
+    slice_scope?: string | null;
+    metadata?: Record<string, unknown> | null;
+  }): Promise<{ ok: boolean; job_id: string }> {
+    const response = await this.post<
+      { ok: boolean; job_id: string } | { ok: boolean; data?: { job_id: string } }
+    >("/api/client/jobs", payload);
+    if (
+      response &&
+      typeof response === "object" &&
+      "data" in response &&
+      response.data
+    ) {
+      return { ok: true, job_id: (response.data as { job_id: string }).job_id };
+    }
+    return response as { ok: boolean; job_id: string };
+  }
+
+  async updateAgentJob(payload: {
+    job_id: string;
+    status: "completed" | "failed" | "cancelled";
+    error?: string | null;
+    output?: Record<string, unknown> | null;
+  }): Promise<{ ok: boolean }> {
+    const response = await this.patch<
+      { ok: boolean } | { ok: boolean; data?: unknown }
+    >("/api/client/jobs", payload);
+    if (response && typeof response === "object" && "ok" in response) {
+      return { ok: Boolean((response as { ok?: unknown }).ok) };
+    }
+    return { ok: true };
+  }
+
+  async queryDispatchPreflight(payload: {
+    initiative_id: string;
+    workstream_id: string;
+    task_id?: string | null;
+    launch_mode: "autopilot" | "manual";
+  }): Promise<{
+    dispatch_status: string;
+    block_reasons: Array<{ code: string; message: string; severity: string; overrideable: boolean }>;
+    recommended_execution_target: string;
+    eligible_workers: Array<{ workerId: string; workerName: string }>;
+  }> {
+    const response = await this.post<
+      | {
+          dispatch_status: string;
+          block_reasons: Array<{ code: string; message: string; severity: string; overrideable: boolean }>;
+          recommended_execution_target: string;
+          eligible_workers: Array<{ workerId: string; workerName: string }>;
+        }
+      | { ok: boolean; data?: unknown }
+    >("/api/client/dispatch/preflight", payload);
+    if (
+      response &&
+      typeof response === "object" &&
+      "data" in response &&
+      response.data
+    ) {
+      return response.data as any;
+    }
+    return response as any;
+  }
+
+  // ===========================================================================
   // Live Sessions + Activity + Handoffs
   // ===========================================================================
 
