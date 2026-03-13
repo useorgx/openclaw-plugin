@@ -2,6 +2,20 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.28 - 2026-03-13
+
+### Release Management
+- Patch release bump for npm package + plugin manifest metadata.
+- Published release tag `v0.7.28`.
+
+### Plugin Dispatch Bridge
+- Added dispatch job reporting to the OrgX server so plugin-driven autonomous work can surface its execution state in the control plane.
+- Added plugin-side preflight checks before dispatching work so invalid or incomplete launches fail fast with actionable server-visible diagnostics.
+
+### QA Tooling
+- Added the reusable Mission Control QA harness script for button/card/state audits.
+- Ignored generated QA audit artifacts and scratch markdown outputs while keeping the harness itself tracked in the repo.
+
 ## 0.7.27 - 2026-03-12
 
 ### Release Management
