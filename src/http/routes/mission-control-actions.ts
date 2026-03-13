@@ -757,6 +757,38 @@ export function registerMissionControlActionsRoutes<TReq, TRes>(
           return;
         }
 
+        // ── Dispatch preflight ──────────────────────────────────────
+        let preflight: Awaited<ReturnType<typeof deps.client.queryDispatchPreflight>> | null = null;
+        try {
+          preflight = await deps.client.queryDispatchPreflight({
+            initiative_id: initiativeId,
+            workstream_id: workstreamId,
+            task_id: matchedQueueItem?.nextTaskId ?? undefined,
+            launch_mode: "manual",
+          });
+        } catch {
+          // Non-fatal: proceed without planner if unavailable
+        }
+
+        if (preflight?.dispatch_status === "blocked") {
+          const hasFatal = preflight.block_reasons.some(
+            (r: any) => r.severity === "fatal"
+          );
+          if (hasFatal) {
+            deps.sendJson(res, 409, {
+              ok: false,
+              outcome: "planner_blocked",
+              reasonCode: "planner_blocked",
+              message: preflight.block_reasons.map((r: any) => r.message).join("; "),
+              code: "dispatch_planner_blocked",
+              error: `Dispatch planner blocked: ${preflight.block_reasons.map((r: any) => r.message).join("; ")}`,
+              block_reasons: preflight.block_reasons,
+              error_location: "mission-control.next-up.play.preflight",
+            });
+            return;
+          }
+        }
+
         const run = await deps.startAutoContinueRun({
           initiativeId,
           workspaceId: requestedWorkspaceId,

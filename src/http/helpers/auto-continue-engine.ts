@@ -180,6 +180,14 @@ export interface CreateAutoContinueEngineDeps {
   }) => { message: string; contextHash: string | null };
 }
 
+function getMachineId(): string {
+  try {
+    return require("os").hostname();
+  } catch {
+    return "unknown";
+  }
+}
+
 function resolveAutopilotDefaultCwd(filename: string): string {
   let cursor = dirname(filename);
   for (let i = 0; i < 12; i += 1) {
@@ -1654,6 +1662,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     isMockWorker: boolean;
     cliSessionId: string | null;
     resumedFromSessionId: string | null;
+    agentJobId?: string | null;
   };
   type AutoFixSkipReason =
     | "paused_by_user"
@@ -3689,6 +3698,16 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           },
         });
 
+        // ── Update job status on server ─────────────────────────────
+        if ((slice as any).agentJobId) {
+          deps.client
+            .updateAgentJob({
+              job_id: (slice as any).agentJobId,
+              status: slice.status === "completed" ? "completed" : "failed",
+            })
+            .catch(() => {});
+        }
+
         // Append to local team context for cross-agent awareness on subsequent slices.
         if (slice.status === "completed") {
           try {
@@ -4998,6 +5017,41 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     const priorSession = sessionResumeEnabled() ? getWorkstreamSession(selectedWorkstreamId) : null;
     const resumedFromSessionId = priorSession?.sessionId ?? null;
 
+    // ── Dispatch preflight: check planner before spawn ──────────────────
+    let preflightResult: Awaited<ReturnType<typeof deps.client.queryDispatchPreflight>> | null = null;
+    try {
+      preflightResult = await deps.client.queryDispatchPreflight({
+        initiative_id: run.initiativeId,
+        workstream_id: selectedWorkstreamId,
+        task_id: primaryTask.id,
+        launch_mode: "autopilot",
+      });
+    } catch {
+      // Non-fatal: planner unavailable should not block local dispatch
+    }
+
+    if (preflightResult?.dispatch_status === "blocked") {
+      const hasFatal = preflightResult.block_reasons.some(
+        (r) => r.severity === "fatal"
+      );
+      if (hasFatal) {
+        emitActivitySafe({
+          initiativeId: run.initiativeId,
+          runId: null,
+          correlationId: sliceRunId,
+          phase: "blocked",
+          level: "warn",
+          message: `Dispatch planner blocked workstream ${workstreamTitle ?? selectedWorkstreamId}: ${preflightResult.block_reasons.map((r) => r.message).join("; ")}`,
+          metadata: {
+            event: "dispatch_planner_blocked",
+            workstream_id: selectedWorkstreamId,
+            block_reasons: preflightResult.block_reasons,
+          },
+        }).catch(() => {});
+        return;
+      }
+    }
+
 	        const spawned = spawnCodexSliceWorker({
 	          runId: sliceRunId,
 	          prompt,
@@ -5063,8 +5117,32 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       isMockWorker: workerKind === "mock",
       cliSessionId: null,
       resumedFromSessionId,
+      agentJobId: null,
     };
     autoContinueSliceRuns.set(sliceRunId, slice);
+
+    // ── Report job to server (non-blocking) ─────────────────────────────
+    deps.client
+      .createAgentJob({
+        initiative_id: run.initiativeId,
+        workstream_id: selectedWorkstreamId,
+        task_id: primaryTask.id,
+        run_id: sliceRunId,
+        agent_type: executionPolicy.domain,
+        execution_target: "local",
+        worker_name: require("os").hostname(),
+        machine_id: getMachineId(),
+        slice_scope: run.scope ?? null,
+      })
+      .then((result) => {
+        if (result?.job_id) {
+          slice.agentJobId = result.job_id;
+          autoContinueSliceRuns.set(sliceRunId, slice);
+        }
+      })
+      .catch(() => {
+        // Non-blocking: server unavailable should not affect local execution
+      });
 
     try {
       writeRuntimeEvent({
