@@ -35,11 +35,14 @@ Scope: current repository state in `src/` and `dashboard/src/`
 
 Source of truth: `src/tools/core-tools.ts` (registered by `registerCoreTools`).
 
-Current count: **27 tools**
+Current count: **30 tools**
 
 - `orgx_status`
 - `orgx_sentinel_catalog`
 - `orgx_sync`
+- `orgx_query_org_memory`
+- `orgx_recommend_next_action`
+- `orgx_get_morning_brief`
 - `orgx_delegation_preflight`
 - `orgx_run_action`
 - `orgx_checkpoints_list`
@@ -49,7 +52,7 @@ Current count: **27 tools**
 - `orgx_proof_status`
 - `orgx_verify_completion`
 - `orgx_record_outcome`
-- `orgx_get_outcome_attribution`
+- `orgx_get_outcome_attribution` (compatibility alias)
 - `orgx_create_entity`
 - `orgx_update_entity`
 - `orgx_reassign_stream`
