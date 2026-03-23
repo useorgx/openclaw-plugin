@@ -33,6 +33,11 @@ import type {
   BillingStatus,
   BillingCheckoutRequest,
   BillingUrlResult,
+  OrgMemoryQueryRequest,
+  OrgMemoryQueryResponse,
+  RecommendNextActionRequest,
+  RecommendNextActionResponse,
+  MorningBriefResponse,
   UsageControlPlaneSummary,
   KickoffContextRequest,
   KickoffContextResponse,
@@ -264,6 +269,34 @@ export class OrgXClient {
 
   private patch<T>(path: string, body?: unknown): Promise<T> {
     return this.request<T>("PATCH", path, body);
+  }
+
+  private async executeClientTool<T>(
+    toolId: "query_org_memory" | "recommend_next_action",
+    args: Record<string, unknown>,
+    context?: {
+      initiativeId?: string | null;
+      projectId?: string | null;
+      runId?: string | null;
+    }
+  ): Promise<T> {
+    const response = await this.post<{
+      ok: boolean;
+      data?: T;
+      error?: string;
+    }>("/api/client/tools/execute", {
+      tool_id: toolId,
+      args,
+      initiative_id: context?.initiativeId ?? undefined,
+      project_id: context?.projectId ?? undefined,
+      run_id: context?.runId ?? undefined,
+    });
+
+    if (!response.ok) {
+      throw new Error(response.error ?? `Client tool ${toolId} failed`);
+    }
+
+    return response.data as T;
   }
 
   private buildQuery(params: Record<string, string | number | boolean | null | undefined>): string {
@@ -729,6 +762,54 @@ export class OrgXClient {
         "generatedAt" | "period" | "predicted" | "risk" | "headroom" | "utilization"
       >
     >("/api/usage/forecast");
+  }
+
+  async queryOrgMemory(
+    request: OrgMemoryQueryRequest
+  ): Promise<OrgMemoryQueryResponse> {
+    return this.executeClientTool<OrgMemoryQueryResponse>(
+      "query_org_memory",
+      {
+        query: request.query,
+        scope: request.scope,
+        limit: request.limit,
+      }
+    );
+  }
+
+  async recommendNextAction(
+    request: RecommendNextActionRequest
+  ): Promise<RecommendNextActionResponse> {
+    return this.executeClientTool<RecommendNextActionResponse>(
+      "recommend_next_action",
+      {
+        entity_type: request.entity_type,
+        entity_id: request.entity_id,
+        workspace_id: request.workspace_id,
+        command_center_id: request.command_center_id,
+        limit: request.limit,
+        cascade: request.cascade,
+      },
+      {
+        initiativeId:
+          request.entity_type === "initiative" ? request.entity_id ?? null : null,
+      }
+    );
+  }
+
+  async getMorningBrief(params: {
+    workspace_id: string;
+    session_id?: string;
+  }): Promise<MorningBriefResponse> {
+    const search = new URLSearchParams({
+      workspace_id: params.workspace_id,
+    });
+    if (params.session_id) {
+      search.set("session_id", params.session_id);
+    }
+    return this.get<MorningBriefResponse>(
+      `/api/flywheel/briefs?${search.toString()}`
+    );
   }
 
   // ===========================================================================

@@ -410,6 +410,68 @@ export interface BillingUrlResult {
 }
 
 // =============================================================================
+// Preferred MCP Read Surfaces
+// =============================================================================
+
+export type OrgMemoryScope = 'all' | 'artifacts' | 'decisions' | 'initiatives';
+
+export interface OrgMemoryQueryRequest {
+  query: string;
+  scope?: OrgMemoryScope;
+  limit?: number;
+}
+
+export interface OrgMemoryQueryResponse {
+  query: string;
+  scope: OrgMemoryScope;
+  plan?: string | null;
+  retention_window_days?: number | null;
+  retention_applied?: boolean;
+  results: Array<{
+    id: string;
+    type: string;
+    title: string;
+    summary?: string | null;
+    relevance_score?: number | null;
+    created_at?: string | null;
+  }>;
+  total_found: number;
+  message?: string;
+  suggested_followups?: string[];
+}
+
+export interface RecommendNextActionRequest {
+  entity_type?: 'workspace' | 'initiative' | 'workstream' | 'milestone';
+  entity_id?: string;
+  workspace_id?: string;
+  command_center_id?: string;
+  limit?: number;
+  cascade?: boolean;
+}
+
+export interface RecommendNextActionResponse {
+  entity_type: string;
+  entity_id?: string | null;
+  workspace_id?: string | null;
+  command_center_id?: string | null;
+  recommendations: Array<Record<string, unknown>>;
+  next_action?: Record<string, unknown> | null;
+  capability_gaps?: Array<Record<string, unknown>>;
+  message?: string;
+}
+
+export interface MorningBriefResponse {
+  workspace_id: string;
+  session_summary: Record<string, unknown> | null;
+  intelligence?: Record<string, unknown>;
+  exceptions?: Array<Record<string, unknown>>;
+  trust_events?: Array<Record<string, unknown>>;
+  top_receipts?: Array<Record<string, unknown>>;
+  brief_markdown?: string | null;
+  message?: string;
+}
+
+// =============================================================================
 // Usage Control Plane (Actual vs Forecast)
 // =============================================================================
 

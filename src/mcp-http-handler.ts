@@ -75,6 +75,9 @@ type ToolScope = {
 export const ORGX_BASE_TOOLS = [
   "orgx_status",
   "orgx_sync",
+  "orgx_query_org_memory",
+  "orgx_recommend_next_action",
+  "orgx_get_morning_brief",
   "list_agent_configs",
   "get_agent_config",
   "orgx_emit_activity",

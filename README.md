@@ -179,6 +179,9 @@ The plugin currently registers **30 MCP tools** from `src/tools/core-tools.ts`.
 Core sync/reporting:
 - `orgx_status`
 - `orgx_sync`
+- `orgx_query_org_memory`
+- `orgx_recommend_next_action`
+- `orgx_get_morning_brief`
 - `orgx_emit_activity`
 - `orgx_report_progress`
 - `orgx_register_artifact`
@@ -195,7 +198,7 @@ Quality, proof, and outcomes:
 - `orgx_proof_status`
 - `orgx_verify_completion`
 - `orgx_record_outcome`
-- `orgx_get_outcome_attribution`
+- `orgx_get_outcome_attribution` (compatibility alias)
 
 Entity and stream management:
 - `orgx_create_entity`

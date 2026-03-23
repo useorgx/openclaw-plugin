@@ -278,6 +278,155 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     { optional: true }
   );
 
+  registerMcpTool(
+    {
+      name: "orgx_query_org_memory",
+      description:
+        "Search OrgX organizational memory (decisions, initiatives, artifacts). Preferred replacement for older decision-history lookups.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "What to search for",
+          },
+          scope: {
+            type: "string",
+            enum: ["all", "artifacts", "decisions", "initiatives"],
+            description: "Optional memory scope",
+          },
+          limit: {
+            type: "number",
+            description: "Max results to return",
+          },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          query: string;
+          scope?: "all" | "artifacts" | "decisions" | "initiatives";
+          limit?: number;
+        } = { query: "" }
+      ) {
+        try {
+          const result = await client.queryOrgMemory({
+            query: params.query,
+            scope: params.scope,
+            limit: params.limit,
+          });
+          return json("Org memory search:", result);
+        } catch (err: unknown) {
+          return text(
+            `❌ Org memory query failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  registerMcpTool(
+    {
+      name: "orgx_recommend_next_action",
+      description:
+        "Get the preferred next action for a workspace, initiative, workstream, or milestone. Preferred replacement for raw queue scoring in operator workflows.",
+      parameters: {
+        type: "object",
+        properties: {
+          entity_type: {
+            type: "string",
+            enum: ["workspace", "initiative", "workstream", "milestone"],
+            description: "Entity type to recommend for (default: workspace)",
+          },
+          entity_id: {
+            type: "string",
+            description: 'Entity ID. For workspace, use "default" or a workspace ID.',
+          },
+          workspace_id: {
+            type: "string",
+            description: "Optional canonical workspace scope",
+          },
+          command_center_id: {
+            type: "string",
+            description: "Deprecated alias for workspace_id",
+          },
+          limit: {
+            type: "number",
+            description: "Max recommendations to return",
+          },
+          cascade: {
+            type: "boolean",
+            description: "Refresh recommendations across the entity chain first",
+          },
+        },
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          entity_type?: "workspace" | "initiative" | "workstream" | "milestone";
+          entity_id?: string;
+          workspace_id?: string;
+          command_center_id?: string;
+          limit?: number;
+          cascade?: boolean;
+        } = {}
+      ) {
+        try {
+          const result = await client.recommendNextAction(params);
+          return json("Recommended next action:", result);
+        } catch (err: unknown) {
+          return text(
+            `❌ Next-action recommendation failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  registerMcpTool(
+    {
+      name: "orgx_get_morning_brief",
+      description:
+        "Get the morning brief value surface: session summary, value signals, exceptions, trust events, and top receipts. Preferred replacement for ROI summary lookups.",
+      parameters: {
+        type: "object",
+        properties: {
+          workspace_id: {
+            type: "string",
+            description: "Workspace ID to load the brief for",
+          },
+          session_id: {
+            type: "string",
+            description: "Optional autonomous session ID",
+          },
+        },
+        required: ["workspace_id"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: { workspace_id: string; session_id?: string } = {
+          workspace_id: "",
+        }
+      ) {
+        try {
+          const result = await client.getMorningBrief(params);
+          return json("Morning brief:", result);
+        } catch (err: unknown) {
+          return text(
+            `❌ Morning brief lookup failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
   // --- orgx_delegation_preflight ---
   registerMcpTool(
     {
@@ -822,7 +971,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     {
       name: "orgx_get_outcome_attribution",
       description:
-        "Get outcome attribution data for a task or run. Shows what value was attributed to the work and with what confidence. Required for L6 (Economics) proof level.",
+        "Compatibility alias for detailed outcome attribution on a task or run. Prefer orgx_get_morning_brief for current value and ROI review.",
       parameters: {
         type: "object",
         properties: {
