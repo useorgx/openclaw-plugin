@@ -18,8 +18,6 @@ function keySourceHuman(source: OnboardingState['keySource']): string {
       return 'saved credentials';
     case 'openclaw-config-file':
       return 'OpenClaw config';
-    case 'legacy-dev':
-      return 'legacy key';
     default:
       return '';
   }
