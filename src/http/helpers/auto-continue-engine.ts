@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import { randomUUID as randomUuidFn } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, stat, unlink } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { OrgXClient } from "../../api.js";
@@ -182,7 +182,7 @@ export interface CreateAutoContinueEngineDeps {
 
 function getMachineId(): string {
   try {
-    return require("os").hostname();
+    return hostname();
   } catch {
     return "unknown";
   }
@@ -236,6 +236,18 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
   const randomUUID = deps.randomUUID ?? randomUuidFn;
   const fetchKickoffContextSafeFn = deps.fetchKickoffContextSafe ?? null;
   const renderKickoffMessageFn = deps.renderKickoffMessage ?? null;
+  const queryDispatchPreflightFn =
+    typeof deps.client.queryDispatchPreflight === "function"
+      ? deps.client.queryDispatchPreflight.bind(deps.client)
+      : null;
+  const createAgentJobFn =
+    typeof deps.client.createAgentJob === "function"
+      ? deps.client.createAgentJob.bind(deps.client)
+      : null;
+  const updateAgentJobFn =
+    typeof deps.client.updateAgentJob === "function"
+      ? deps.client.updateAgentJob.bind(deps.client)
+      : null;
   const decisionAutoResolveGuardedEnabled =
     String(process.env.DECISION_AUTO_RESOLVE_GUARDED_ENABLED ?? "true")
       .trim()
@@ -3700,12 +3712,12 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 
         // ── Update job status on server ─────────────────────────────
         if ((slice as any).agentJobId) {
-          deps.client
-            .updateAgentJob({
+          if (updateAgentJobFn) {
+            updateAgentJobFn({
               job_id: (slice as any).agentJobId,
               status: slice.status === "completed" ? "completed" : "failed",
-            })
-            .catch(() => {});
+            }).catch(() => {});
+          }
         }
 
         // Append to local team context for cross-agent awareness on subsequent slices.
@@ -5018,14 +5030,16 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     const resumedFromSessionId = priorSession?.sessionId ?? null;
 
     // ── Dispatch preflight: check planner before spawn ──────────────────
-    let preflightResult: Awaited<ReturnType<typeof deps.client.queryDispatchPreflight>> | null = null;
+    let preflightResult: Awaited<ReturnType<OrgXClient["queryDispatchPreflight"]>> | null = null;
     try {
-      preflightResult = await deps.client.queryDispatchPreflight({
-        initiative_id: run.initiativeId,
-        workstream_id: selectedWorkstreamId,
-        task_id: primaryTask.id,
-        launch_mode: "autopilot",
-      });
+      preflightResult = queryDispatchPreflightFn
+        ? await queryDispatchPreflightFn({
+            initiative_id: run.initiativeId,
+            workstream_id: selectedWorkstreamId,
+            task_id: primaryTask.id,
+            launch_mode: "autopilot",
+          })
+        : null;
     } catch {
       // Non-fatal: planner unavailable should not block local dispatch
     }
@@ -5122,16 +5136,17 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     autoContinueSliceRuns.set(sliceRunId, slice);
 
     // ── Report job to server (non-blocking) ─────────────────────────────
-    deps.client
-      .createAgentJob({
+    const machineId = getMachineId();
+    if (createAgentJobFn) {
+      createAgentJobFn({
         initiative_id: run.initiativeId,
         workstream_id: selectedWorkstreamId,
         task_id: primaryTask.id,
         run_id: sliceRunId,
         agent_type: executionPolicy.domain,
         execution_target: "local",
-        worker_name: require("os").hostname(),
-        machine_id: getMachineId(),
+        worker_name: machineId,
+        machine_id: machineId,
         slice_scope: run.scope ?? null,
       })
       .then((result) => {
@@ -5143,6 +5158,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       .catch(() => {
         // Non-blocking: server unavailable should not affect local execution
       });
+    }
 
     try {
       writeRuntimeEvent({
