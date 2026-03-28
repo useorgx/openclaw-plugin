@@ -48,13 +48,21 @@ export interface OrgXConfig {
   /** Plugin enabled */
   enabled: boolean;
   /**
-   * When true (default), provision/update the OrgX agent suite automatically
-   * after a successful connection/sync.
+   * When true, provision/update the OrgX agent suite after a successful
+   * connection/sync.
    *
-   * Safe by default: provisioning uses managed/local overlays and skips files
-   * that appear to have out-of-band edits ("conflict").
+   * Default is false so installs remain explicit and reviewable. Provisioning
+   * uses managed/local overlays and skips files that appear to have
+   * out-of-band edits ("conflict").
    */
   autoInstallAgentSuiteOnConnect?: boolean;
+  /**
+   * When true, patch detected Claude/Cursor/Codex MCP client configs after a
+   * successful browser pairing.
+   *
+   * Default is false so local config edits remain explicit and reviewable.
+   */
+  autoConfigureMcpClientsOnConnect?: boolean;
 }
 
 // =============================================================================

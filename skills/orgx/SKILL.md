@@ -24,7 +24,7 @@ openclaw plugins install @useorgx/openclaw-plugin
 npx @useorgx/openclaw-plugin
 ```
 
-After installing, pair with OrgX via the live dashboard at `http://127.0.0.1:18789/orgx/live` or set `ORGX_API_KEY` in your environment.
+After installing, pair with OrgX via the live dashboard at `http://127.0.0.1:18789/orgx/live` or set `ORGX_API_KEY` in your environment. Managed agent-suite provisioning and MCP client config edits are opt-in.
 
 ## MCP Tools Reference
 

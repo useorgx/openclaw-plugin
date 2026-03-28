@@ -266,8 +266,6 @@ function apiKeySourceLabel(source: ResolvedConfig["apiKeySource"]): string {
       return "Persisted Store";
     case "openclaw-config-file":
       return "OpenClaw Config";
-    case "legacy-dev":
-      return "Legacy Dev Env";
     default:
       return "Not configured";
   }
@@ -417,7 +415,7 @@ export default function register(api: PluginAPI): void {
 
   if (!config.apiKey) {
     api.log?.warn?.(
-      "[orgx] No API key. Set plugins.entries.openclaw-plugin.config.apiKey (or plugins.entries.orgx.config.apiKey for legacy setups), ORGX_API_KEY env, or ~/Code/orgx/orgx/.env.local"
+      "[orgx] No API key. Set plugins.entries.openclaw-plugin.config.apiKey (or plugins.entries.orgx.config.apiKey for legacy setups) or ORGX_API_KEY."
     );
   }
 
@@ -1960,7 +1958,10 @@ export default function register(api: PluginAPI): void {
     serverVersion: config.pluginVersion,
   });
 
-  const compositeHttpHandler: typeof httpHandler = async (req, res) => {
+  const compositeHttpHandler = async (
+    req: Parameters<typeof httpHandler>[0],
+    res: Parameters<typeof httpHandler>[1]
+  ) => {
     if (await mcpHttpHandler(req, res)) return true;
     return await httpHandler(req, res);
   };

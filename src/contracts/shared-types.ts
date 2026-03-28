@@ -28,7 +28,6 @@ export type OnboardingKeySource =
   | 'environment'
   | 'persisted'
   | 'openclaw-config-file'
-  | 'legacy-dev'
   | 'none';
 
 export interface OnboardingState {
