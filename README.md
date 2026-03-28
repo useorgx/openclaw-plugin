@@ -27,6 +27,9 @@ You are the one holding it all together. You are the human API.
 ```bash
 # From your OpenClaw workspace
 openclaw plugins install @useorgx/openclaw-plugin
+
+# Once the ClawHub package is live, this works too
+openclaw plugins install clawhub:@useorgx/openclaw-plugin
 ```
 
 Then open `http://127.0.0.1:18789/orgx/live`, click **Connect OrgX**, and approve the browser pairing flow. The plugin stores a dedicated credential, runs first sync automatically, and installs a local MCP bridge under `orgx-openclaw` when Claude, Cursor, or Codex configs are detected on this machine.

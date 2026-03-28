@@ -2,6 +2,16 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.28 - 2026-03-28
+
+### Release Management
+- Patch release bump for npm package + plugin manifest metadata.
+
+### Distribution + Positioning
+- Renamed the native plugin manifest identity to `orgx` and refreshed the display metadata for package-catalog discovery.
+- Repositioned the README around the OpenClaw-specific memory and coordination problem instead of generic orchestration language.
+- Added the explicit ClawHub install path alongside the npm install path in the README.
+
 ## 0.7.27 - 2026-03-12
 
 ### Release Management
