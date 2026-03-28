@@ -37,4 +37,5 @@ For ops deliverables:
 ## Reporting Protocol (OrgX)
 
 - `orgx_emit_activity` for progress and status.
-- `orgx_apply_changeset` for blocking decisions and state changes.
+- `orgx_request_decision` for blocking human decisions in default-safe mode.
+- `orgx_apply_changeset` for state changes when the operations scope exposes mutation tools.

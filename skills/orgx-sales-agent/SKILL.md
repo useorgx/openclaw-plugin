@@ -37,4 +37,5 @@ When producing sales materials:
 ## Reporting Protocol (OrgX)
 
 - `orgx_emit_activity` for progress.
-- `orgx_apply_changeset` for decisions and approvals when required.
+- `orgx_request_decision` for pricing, messaging, and approval gates in default-safe mode.
+- Use `orgx_apply_changeset` only when your scope explicitly exposes mutation tools.

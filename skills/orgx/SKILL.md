@@ -1,7 +1,7 @@
 ---
 name: orgx
-description: Use when managing work with OrgX — reporting progress, requesting decisions, registering artifacts, syncing memory, checking quality gates, or viewing org status. Activates for phrases like "report progress", "request approval", "create initiative", "check orgx", "sync with orgx", "register artifact".
-version: 3.0.0
+description: Use when managing work through the OrgX OpenClaw plugin — reporting progress, requesting decisions, registering artifacts, syncing memory, checking quality gates, inspecting agent config policy, or viewing org status. Activates for phrases like "report progress", "request approval", "check orgx", "sync with orgx", or "register artifact".
+version: 3.1.0
 user-invocable: true
 tags:
   - orchestration
@@ -12,39 +12,107 @@ tags:
 
 # OrgX Integration
 
-Connect to OrgX for multi-agent orchestration, decision workflows, initiative tracking, model routing, quality gates, and structured work reporting.
+Use this skill when the **OrgX OpenClaw plugin** is installed and connected. This skill describes the **local plugin MCP surface** exposed by `@useorgx/openclaw-plugin`, not the broader hosted OrgX platform.
+
+> Default-safe rule: if you are using a domain-scoped OrgX endpoint or the managed OrgX agent suite, prefer the **reporting contract** (`orgx_emit_activity`, `orgx_request_decision`, `orgx_register_artifact`) unless you know your scope explicitly allows mutation tools.
 
 ## Quick Start
 
 ```bash
-# Install the plugin
-openclaw plugins install @useorgx/openclaw-plugin
+# Install from ClawHub
+openclaw plugins install clawhub:@useorgx/openclaw-plugin
 
-# Or via npx
-npx @useorgx/openclaw-plugin
+# Pair with OrgX
+openclaw orgx connect
 ```
 
 After installing, pair with OrgX via the live dashboard at `http://127.0.0.1:18789/orgx/live` or set `ORGX_API_KEY` in your environment. Managed agent-suite provisioning and MCP client config edits are opt-in.
 
-## MCP Tools Reference
+## Tool Surface
 
-### Work Reporting (primary contract)
+### Default-safe tools
 
-Use the **two-tool reporting contract** for launch reporting:
+These are the tools you should assume are available in the plugin's domain-scoped OrgX surface:
 
-**`orgx_emit_activity`** — Append-only telemetry (frequent updates).
-```
+- `orgx_status`
+- `orgx_sync`
+- `list_agent_configs`
+- `get_agent_config`
+- `orgx_emit_activity`
+- `orgx_report_progress`
+- `update_stream_progress` (legacy alias)
+- `orgx_register_artifact`
+- `orgx_request_decision`
+- `orgx_spawn_check`
+- `orgx_quality_score`
+- `orgx_proof_status`
+- `orgx_record_outcome`
+- `orgx_get_outcome_attribution`
+- `orgx_verify_completion`
+
+### Mutation and admin tools
+
+These exist in the plugin, but are **not guaranteed** in every domain scope.
+
+Available to operations and/or orchestration flows:
+
+- `update_agent_config`
+- `orgx_apply_changeset`
+- `orgx_reassign_stream`
+- `orgx_reassign_streams`
+- `orgx_agent_sessions`
+- `orgx_resume_agent_session`
+- `orgx_clear_agent_session`
+
+Available on the unscoped `/orgx/mcp` endpoint for power users and debugging:
+
+- `orgx_sentinel_catalog`
+- `orgx_delegation_preflight`
+- `orgx_run_action`
+- `orgx_checkpoints_list`
+- `orgx_checkpoint_restore`
+- `orgx_create_entity`
+- `orgx_update_entity`
+- `orgx_list_entities`
+
+If you explicitly need that elevated surface, use the `orgx-power` skill.
+
+## Reporting Contract
+
+### Progress updates
+
+Use `orgx_emit_activity` as the append-only status feed.
+
+```js
 orgx_emit_activity({
   initiative_id: "aa6d16dc-d450-417f-8a17-fd89bd597195",
   message: "Implemented auth middleware and validated redirects",
-  phase: "execution",         // intent | execution | blocked | review | handoff | completed
-  progress_pct: 60,           // optional 0-100
-  next_step: "Add integration tests" // optional
+  phase: "execution",
+  progress_pct: 60,
+  next_step: "Add integration tests"
 })
 ```
 
-**`orgx_apply_changeset`** — Transactional state mutations (batched, idempotent).
+Use `orgx_report_progress` or `update_stream_progress` only when a caller explicitly expects those aliases.
+
+### Human decisions
+
+Use `orgx_request_decision` as the default-safe decision path.
+
+```js
+orgx_request_decision({
+  initiative_id: "aa6d16dc-d450-417f-8a17-fd89bd597195",
+  question: "Approve the SSE rollout plan?",
+  context: "Load test passed, but dashboard reconnect behavior still needs manual QA.",
+  options: ["Approve rollout", "Hold for QA", "Rework plan"],
+  urgency: "medium",
+  blocking: true
+})
 ```
+
+If your scope explicitly allows `orgx_apply_changeset`, use it for batched state mutations and idempotent updates.
+
+```js
 orgx_apply_changeset({
   initiative_id: "aa6d16dc-d450-417f-8a17-fd89bd597195",
   idempotency_key: "run_abc_turn_7_commit_1",
@@ -55,126 +123,89 @@ orgx_apply_changeset({
 })
 ```
 
-Backward-compatible aliases:
+Backward-compatible aliases still exist:
+
 - `orgx_report_progress` delegates to `orgx_emit_activity`
+- `update_stream_progress` delegates to `orgx_report_progress`
 - `orgx_request_decision` delegates to `orgx_apply_changeset` (`decision.create`)
 
-**`orgx_register_artifact`** — Register a deliverable (PR, document, config, etc.).
-```
+### Deliverables
+
+Register anything that should show up in OrgX history with `orgx_register_artifact`.
+
+```js
 orgx_register_artifact({
   name: "PR #107: Fix Vercel build size",
-  artifact_type: "pr",        // pr | commit | document | config | report | design | other
+  artifact_type: "pr",
   description: "Reduced function size by pruning recursive assets",
-  url: "https://github.com/org/repo/pull/107"  // (optional)
+  url: "https://github.com/org/repo/pull/107"
 })
 ```
 
-### Org Status & Sync
+## Common Workflows
 
-**`orgx_status`** — View active initiatives, agent states, pending decisions, tasks.
+### Org status and memory sync
 
-**`orgx_sync`** — Push local memory/daily log to OrgX, receive org context back.
-```
+- `orgx_status` for active initiatives, pending decisions, and task state.
+- `orgx_sync` to push local memory and receive current org context.
+
+```js
 orgx_sync({
   memory: "Contents of MEMORY.md",
   dailyLog: "Today's session summary"
 })
 ```
 
-### Quality & Spawning
+### Quality and proof
 
-**`orgx_spawn_check`** — Check quality gate + get model routing before spawning a sub-agent.
-```
+- `orgx_spawn_check` before handing work to another model or agent.
+- `orgx_quality_score` after completing a meaningful unit of work.
+- `orgx_proof_status`, `orgx_verify_completion`, and `orgx_get_outcome_attribution` for proof ladder checks.
+
+```js
 orgx_spawn_check({ domain: "engineering", taskId: "..." })
-// Returns: { allowed: true, modelTier: "sonnet", checks: {...} }
 ```
 
-**`orgx_quality_score`** — Record quality score (1-5) for completed work.
-```
-orgx_quality_score({
-  taskId: "...",
-  domain: "engineering",
-  score: 4,
-  notes: "Clean implementation, good test coverage"
-})
-```
+### Agent policy visibility
 
-### Entity Management
+Use these when you need to inspect the managed OrgX agent behavior policy:
 
-**`orgx_create_entity`** — Create an initiative, workstream, task, decision, milestone, artifact, or blocker.
+- `list_agent_configs`
+- `get_agent_config`
 
-**`orgx_update_entity`** — Update status/fields on any entity.
-
-**`orgx_list_entities`** — Query entities by type and status.
-
-### Run Control
-
-**`orgx_delegation_preflight`** — Score scope quality and estimate ETA/cost before execution.
-
-**`orgx_run_action`** — Pause, resume, cancel, or rollback a run.
-
-**`orgx_checkpoints_list`** / **`orgx_checkpoint_restore`** — List and restore run checkpoints.
+Only orchestration and operations flows should assume `update_agent_config` is available.
 
 ## Reporting Protocol
 
-When working on a task or initiative, follow the two-tool reporting contract. This keeps state deterministic and idempotent.
-
 ### On task start
-Call `orgx_emit_activity` with `phase: "intent"` and a brief summary of what you're about to do.
+
+Call `orgx_emit_activity` with `phase: "intent"` and a short summary of the intended work.
 
 ### At meaningful progress points
-Call `orgx_emit_activity` at natural checkpoints: after finishing research, after implementation passes, after tests pass, etc. Include `progress_pct` when possible.
 
-### When you need a human decision
-Call `orgx_apply_changeset` with a `decision.create` operation including clear context/options. Set `blocking: true` when work must pause. Set urgency appropriately:
-- **low** — Can wait hours/days
-- **medium** — Should be decided today
-- **high** — Blocking progress, needs attention soon
-- **urgent** — Critical path, needs immediate attention
+Call `orgx_emit_activity` after research, implementation, verification, or handoff milestones. Include `progress_pct` when the state is clear.
 
-### When you produce a deliverable
-Call `orgx_register_artifact` for anything the team should see: PRs, documents, config changes, reports, design files. Include a URL when available.
+### When blocked
 
-### On task completion
-1. Call `orgx_emit_activity` with `phase: "completed"` and `progress_pct: 100`
-2. Call `orgx_apply_changeset` to mark task/milestone completion or record final decisions
-3. Call `orgx_quality_score` to self-assess your work (1-5 scale)
+1. Call `orgx_emit_activity` with `phase: "blocked"`.
+2. If a human decision is required, call `orgx_request_decision`.
+3. Only use `orgx_apply_changeset` directly if your scope explicitly allows mutation tools.
 
-### On blockers
-Call `orgx_emit_activity` with `phase: "blocked"` and describe the blocker. If human intervention is needed, use `orgx_apply_changeset` with a `decision.create` op.
+### On completion
 
-## Model Routing
-
-OrgX classifies tasks for model selection:
-
-| Task Type | Tier | Model |
-|---|---|---|
-| Architecture, strategy, decisions, RFCs | **opus** | `anthropic/claude-opus-4-6` |
-| Implementation, code, features, docs | **sonnet** | `anthropic/claude-sonnet-4` |
-| Status checks, formatting, templates | **local** | `ollama/qwen2.5-coder:32b` |
-
-Always call `orgx_spawn_check` before spawning sub-agents to get the right model tier.
+1. Call `orgx_emit_activity` with `phase: "completed"` and `progress_pct: 100`.
+2. Register the artifact if something ship-worthy was produced.
+3. Record a quality score when appropriate.
 
 ## Live Dashboard
 
-The plugin serves a live dashboard at `http://127.0.0.1:18789/orgx/live` showing:
-- **Activity Timeline** — Real-time feed of agent work with threaded session views
-- **Agents/Chats** — Active sessions grouped by agent
-- **Decisions** — Pending approvals with inline approve/reject
-- **Initiatives** — Active workstreams and progress
+The plugin serves a local dashboard at `http://127.0.0.1:18789/orgx/live` showing:
 
-## Entity API
+- activity timeline
+- active agent/chat sessions
+- pending decisions
+- initiative and workstream state
 
-For direct API access:
-```
-GET  /api/entities?type={type}&status={status}&limit={n}
-POST /api/entities
-PATCH /api/entities
-POST /api/entities/{type}/{id}/{action}
-```
+## Hosted OrgX MCP Server
 
-Entity types: `initiative`, `workstream`, `task`, `decision`, `milestone`, `artifact`, `agent`, `blocker`
-
-## MCP Server (mcp.useorgx.com)
-
-For environments that support MCP servers directly (Claude Desktop, Cursor, etc.), connect to `mcp.useorgx.com` for the full suite of 26+ OrgX tools including initiative management, decision workflows, and agent orchestration.
+`https://mcp.useorgx.com/mcp` exists as a separate hosted OrgX MCP surface. Treat that as **separate from this plugin skill** unless the user explicitly asks for the hosted, server-side toolset.
