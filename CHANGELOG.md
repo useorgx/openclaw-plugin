@@ -2,6 +2,17 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.30 - 2026-03-28
+
+### Release Management
+- Patch release bump for npm package, lockfile, and plugin manifest metadata.
+
+### Trust + Security Hardening
+- Made managed OrgX agent-suite provisioning opt-in by default instead of auto-applying after connect.
+- Made Claude/Cursor/Codex MCP client autoconfiguration opt-in by default instead of auto-patching local client config files after browser pairing.
+- Removed the published plugin's legacy dev fallback that read credentials from `~/Code/orgx/orgx/.env.local`.
+- Expanded the public README and skill copy with explicit transparency around local file writes, backups, credential storage, network endpoints, telemetry defaults, and background process behavior.
+
 ## 0.7.29 - 2026-03-28
 
 ### Release Management

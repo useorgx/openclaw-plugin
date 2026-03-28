@@ -1,7 +1,7 @@
 {
   "id": "orgx",
   "name": "OrgX for OpenClaw",
-  "version": "0.7.29",
+  "version": "0.7.30",
   "description": "Persistent organizational memory and coordinated execution for OpenClaw agents",
   "entry": "./dist/index.js",
   "author": "OrgX Team",
@@ -37,6 +37,16 @@
         "default": 300000,
         "description": "Background sync interval in milliseconds (default: 5 minutes)"
       },
+      "autoInstallAgentSuiteOnConnect": {
+        "type": "boolean",
+        "default": false,
+        "description": "Automatically apply the managed OrgX agent suite after connect/sync"
+      },
+      "autoConfigureMcpClientsOnConnect": {
+        "type": "boolean",
+        "default": false,
+        "description": "Automatically patch detected Claude, Cursor, and Codex MCP client configs after browser pairing"
+      },
       "enabled": {
         "type": "boolean",
         "default": true,
@@ -54,7 +64,7 @@
     "apiKey": {
       "label": "OrgX API Key",
       "sensitive": true,
-      "placeholder": "oxk_..."
+      "placeholder": "Enter API key"
     },
     "baseUrl": {
       "label": "OrgX API Base URL",
@@ -63,6 +73,12 @@
     "syncIntervalMs": {
       "label": "Sync Interval (ms)",
       "placeholder": "300000"
+    },
+    "autoInstallAgentSuiteOnConnect": {
+      "label": "Auto-install Agent Suite After Connect"
+    },
+    "autoConfigureMcpClientsOnConnect": {
+      "label": "Auto-configure MCP Clients After Connect"
     },
     "enabled": {
       "label": "Enable Plugin"

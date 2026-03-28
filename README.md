@@ -32,9 +32,9 @@ openclaw plugins install clawhub:@useorgx/openclaw-plugin
 openclaw plugins install @useorgx/openclaw-plugin
 ```
 
-Then open the OrgX dashboard in your OpenClaw gateway, click **Connect OrgX**, and approve the browser pairing flow. First sync runs automatically after connect, and the local bridge can be wired into supported MCP clients under `orgx-openclaw`.
+Then open the OrgX dashboard in your OpenClaw gateway, click **Connect OrgX**, and approve the browser pairing flow. First sync runs automatically after connect.
 
-If automatic agent-suite provisioning is enabled, OrgX will also install the managed suite after connect. You can review or re-apply that plan later from **Settings -> Agent Suite** in the dashboard.
+Agent-suite provisioning is **opt-in**. MCP client config edits are also **opt-in**. You can review and apply the managed suite later from **Settings -> Agent Suite** in the dashboard, and you can explicitly enable MCP client auto-configuration in plugin config if you want that behavior.
 
 **Manual key setup** is still available if you prefer it. Use the onboarding panel and choose **Manual API key**.
 
@@ -45,8 +45,8 @@ If automatic agent-suite provisioning is enabled, OrgX will also install the man
 ### Persistent Organizational Memory
 Your agents can query what happened in past sessions. Decisions persist. Context accumulates. An agent spawned today can ask, "What did we decide about the API design last week?" and get an answer.
 
-### Auto-Provisioned Agent Suite
-OrgX can create managed agent workspaces, install coordinated configurations, and preserve your local overrides. Your existing setup does not get clobbered. It gets enhanced.
+### Optional Agent Suite Provisioning
+OrgX can create managed agent workspaces, install coordinated configurations, and preserve your local overrides when you explicitly apply the suite. Your existing setup does not get clobbered. It gets enhanced.
 
 ### Shared Entity Graph
 Initiatives, workstreams, milestones, decisions, and tasks: all structured, all queryable, all shared across your agents. This is not a flat to-do list. It is a model of how your work actually connects.
@@ -55,7 +55,7 @@ Initiatives, workstreams, milestones, decisions, and tasks: all structured, all 
 See what your agents are doing, what decisions are pending, and what is blocked. One view across your entire agent operation.
 
 ### Local MCP Bridge
-OrgX connects through MCP, so the coordination layer can live wherever your agents work. The plugin exposes a local bridge and can wire that into common MCP clients automatically.
+OrgX connects through MCP, so the coordination layer can live wherever your agents work. The plugin exposes a local bridge at `/orgx/mcp`. If you want Claude, Cursor, or Codex wired to that bridge automatically, you can explicitly enable that behavior in plugin config.
 
 ---
 
@@ -114,6 +114,56 @@ OrgX creates the structure, and every agent in your setup can query and contribu
 OrgX Amplify is our guided setup service for founders and teams running serious agent operations. We configure OrgX for your exact stack, migrate your existing context, and get you operational in a week.
 
 -> [Book an Amplify call](https://useorgx.com/amplify)
+
+---
+
+## Security and transparency
+
+OrgX is designed for developers who want to know what a plugin changes before they install it.
+
+### Local files the plugin may write
+
+The plugin stores its own auth and local state under:
+
+- `~/.config/useorgx/openclaw-plugin/auth.json`
+- `~/.config/useorgx/openclaw-plugin/installation.json`
+- `~/.config/useorgx/openclaw-plugin/snapshot.json`
+- `~/.openclaw/orgx-outbox/`
+
+If you explicitly enable MCP client auto-configuration, the plugin may update supported client config files and create timestamped backups before writing:
+
+- `~/.claude/mcp.json`
+- `~/.codex/config.toml`
+- `~/.cursor/mcp.json`
+
+If you choose to apply the managed OrgX agent suite, the plugin may also create or update managed OpenClaw workspace files. Conflict detection is used to avoid silently overwriting out-of-band edits.
+
+### Credentials
+
+Browser pairing and manual API-key setup both store credentials locally on your machine. Auth files are written with restricted filesystem permissions. The current credential store is file-based rather than OS-keychain-backed. The README and plugin UI intentionally avoid printing full key values.
+
+### Network calls
+
+The plugin talks to OrgX services for pairing, sync, MCP, and dashboard-backed workflows:
+
+- `https://www.useorgx.com`
+- `https://mcp.useorgx.com/mcp`
+
+### Telemetry
+
+Product telemetry is **off by default**. PostHog events are only sent if you explicitly enable telemetry with environment variables such as `ORGX_TELEMETRY_ENABLED`. Telemetry can also be disabled via `ORGX_TELEMETRY_DISABLED`, `OPENCLAW_TELEMETRY_DISABLED`, or `POSTHOG_DISABLED`.
+
+### Background processes and local execution
+
+The plugin runs a background sync service as part of normal operation. It can also start a local gateway watchdog process to keep the OpenClaw gateway reachable; if you do not want that behavior, set `ORGX_DISABLE_GATEWAY_WATCHDOG=1`.
+
+Agent turns, terminal opens, and other `openclaw` CLI child-process actions are only triggered by explicit runtime or dashboard actions. They are not part of the passive install path.
+
+### What the plugin does not do by default
+
+- It does not auto-install the managed OrgX agent suite unless you enable that behavior.
+- It does not patch Claude, Cursor, or Codex MCP config files unless you enable that behavior.
+- It does not send product telemetry unless you explicitly enable it.
 
 ---
 
@@ -240,7 +290,7 @@ This plugin exposes the same `orgx_*` tools over a local MCP HTTP endpoint serve
 - URL: `http://127.0.0.1:18789/orgx/mcp` (port follows your OpenClaw gateway config)
 - Why: avoids the separate cloud MCP OAuth flow and keeps your OrgX credential in the plugin's local credential store.
 
-On successful browser pairing, the plugin will attempt to patch:
+If you explicitly enable MCP client auto-configuration, the plugin can patch:
 
 - `~/.claude/mcp.json` (adds `mcpServers["orgx-openclaw"]` pointing to the local bridge)
 - `~/.codex/config.toml` (add/update `[mcp_servers."orgx-openclaw"].url` to the local bridge)
@@ -248,7 +298,7 @@ On successful browser pairing, the plugin will attempt to patch:
 
 Each file is backed up first (only when a change is needed) with a `*.bak.<timestamp>-<rand>` suffix.
 
-Disable auto-config by setting `ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG=1`.
+You can also force-disable this path with `ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG=1`.
 
 Or manually add to your OpenClaw config:
 
@@ -277,6 +327,8 @@ Or manually add to your OpenClaw config:
 | `apiKey` | string | — | Your OrgX API key (optional if you use browser pairing from `/orgx/live`) |
 | `baseUrl` | string | `https://www.useorgx.com` | OrgX API base URL |
 | `syncIntervalMs` | number | `300000` | Background sync interval (ms) |
+| `autoInstallAgentSuiteOnConnect` | boolean | `false` | Automatically apply the managed OrgX agent suite after connect/sync |
+| `autoConfigureMcpClientsOnConnect` | boolean | `false` | Automatically patch detected Claude, Cursor, and Codex MCP client configs after browser pairing |
 | `enabled` | boolean | `true` | Enable/disable the plugin |
 | `dashboardEnabled` | boolean | `true` | Enable the live dashboard at `/orgx/live` |
 

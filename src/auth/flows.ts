@@ -18,7 +18,12 @@ type LoggerLike = {
 
 type RuntimeConfigState = Pick<
   ResolvedConfig,
-  "apiKey" | "apiKeySource" | "userId" | "baseUrl" | "installationId"
+  | "apiKey"
+  | "apiKeySource"
+  | "userId"
+  | "baseUrl"
+  | "installationId"
+  | "autoConfigureMcpClientsOnConnect"
 >;
 
 export function applyRuntimeApiKey(input: {
@@ -62,6 +67,7 @@ export function applyRuntimeApiKey(input: {
 
   if (
     input.source === "browser_pairing" &&
+    input.config.autoConfigureMcpClientsOnConnect === true &&
     process.env.ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG !== "1"
   ) {
     try {

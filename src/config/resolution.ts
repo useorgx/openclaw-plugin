@@ -15,7 +15,6 @@ export interface ResolvedConfig extends OrgXConfig {
     | "environment"
     | "persisted"
     | "openclaw-config-file"
-    | "legacy-dev"
     | "none";
 }
 
@@ -26,7 +25,6 @@ interface ResolvedApiKey {
     | "environment"
     | "persisted"
     | "openclaw-config-file"
-    | "legacy-dev"
     | "none";
 }
 
@@ -125,23 +123,14 @@ export function normalizeBaseUrl(raw: string | undefined): string {
   }
 }
 
-export function readLegacyEnvValue(keyPattern: RegExp): string {
-  try {
-    const envPath = join(homedir(), "Code", "orgx", "orgx", ".env.local");
-    const envContent = readFileSync(envPath, "utf-8");
-    const match = envContent.match(keyPattern);
-    return match?.[1]?.trim() ?? "";
-  } catch {
-    return "";
-  }
-}
-
 export function readOpenClawOrgxConfig(): {
   apiKey: string;
   userId: string;
   baseUrl: string;
   enabled?: boolean;
   dashboardEnabled?: boolean;
+  autoInstallAgentSuiteOnConnect?: boolean;
+  autoConfigureMcpClientsOnConnect?: boolean;
 } {
   try {
     const configPath = join(homedir(), ".openclaw", "openclaw.json");
@@ -174,7 +163,23 @@ export function readOpenClawOrgxConfig(): {
     const enabled = typeof orgx.enabled === "boolean" ? orgx.enabled : undefined;
     const dashboardEnabled =
       typeof config.dashboardEnabled === "boolean" ? config.dashboardEnabled : undefined;
-    return { apiKey, userId, baseUrl, enabled, dashboardEnabled };
+    const autoInstallAgentSuiteOnConnect =
+      typeof config.autoInstallAgentSuiteOnConnect === "boolean"
+        ? config.autoInstallAgentSuiteOnConnect
+        : undefined;
+    const autoConfigureMcpClientsOnConnect =
+      typeof config.autoConfigureMcpClientsOnConnect === "boolean"
+        ? config.autoConfigureMcpClientsOnConnect
+        : undefined;
+    return {
+      apiKey,
+      userId,
+      baseUrl,
+      enabled,
+      dashboardEnabled,
+      autoInstallAgentSuiteOnConnect,
+      autoConfigureMcpClientsOnConnect,
+    };
   } catch {
     return { apiKey: "", userId: "", baseUrl: "" };
   }
@@ -199,14 +204,6 @@ function resolveApiKey(
   const openclaw = readOpenClawOrgxConfig();
   if (openclaw.apiKey) {
     return { value: openclaw.apiKey, source: "openclaw-config-file" };
-  }
-
-  // For local dev convenience we read `ORGX_API_KEY` from `~/Code/orgx/orgx/.env.local`.
-  // Do not auto-consume `ORGX_SERVICE_KEY` because service keys often require `X-Orgx-User-Id`,
-  // and the dashboard/client flows are intended to run on user-scoped keys (`oxk_...`).
-  const legacy = readLegacyEnvValue(/^ORGX_API_KEY=["']?([^"'\n]+)["']?$/m);
-  if (legacy) {
-    return { value: legacy, source: "legacy-dev" };
   }
 
   return { value: "", source: "none" };
@@ -255,7 +252,6 @@ export function resolveConfig(
     process.env.ORGX_USER_ID,
     input.persistedUserId,
     openclaw.userId,
-    readLegacyEnvValue(/^ORGX_USER_ID=["']?([^"'\n]+)["']?$/m),
   ]);
 
   const baseUrl = normalizeBaseUrl(
@@ -268,7 +264,14 @@ export function resolveConfig(
     baseUrl,
     syncIntervalMs: pluginConf.syncIntervalMs ?? 300_000,
     enabled: pluginConf.enabled ?? openclaw.enabled ?? true,
-    autoInstallAgentSuiteOnConnect: pluginConf.autoInstallAgentSuiteOnConnect ?? true,
+    autoInstallAgentSuiteOnConnect:
+      pluginConf.autoInstallAgentSuiteOnConnect ??
+      openclaw.autoInstallAgentSuiteOnConnect ??
+      false,
+    autoConfigureMcpClientsOnConnect:
+      pluginConf.autoConfigureMcpClientsOnConnect ??
+      openclaw.autoConfigureMcpClientsOnConnect ??
+      false,
     dashboardEnabled: pluginConf.dashboardEnabled ?? openclaw.dashboardEnabled ?? true,
     installationId: input.installationId,
     pluginVersion: resolvePluginVersion(),
