@@ -1,7 +1,7 @@
 {
   "name": "@useorgx/openclaw-plugin",
-  "version": "0.7.27",
-  "description": "OrgX plugin for OpenClaw — agent orchestration, quality gates, model routing, and live dashboard",
+  "version": "0.7.29",
+  "description": "Persistent organizational memory and coordination for OpenClaw agents",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,7 +23,15 @@
   "openclaw": {
     "extensions": [
       "./dist/index.js"
-    ]
+    ],
+    "compat": {
+      "pluginApi": ">=2026.1.0",
+      "minGatewayVersion": "2026.1.0"
+    },
+    "build": {
+      "openclawVersion": "2026.3.24",
+      "pluginSdkVersion": "2026.3.24"
+    }
   },
   "files": [
     "dist/",
@@ -84,6 +92,7 @@
     "openclaw-plugin",
     "orgx",
     "agent-orchestration",
+    "agent-memory",
     "mcp",
     "ai-agents",
     "quality-gates",

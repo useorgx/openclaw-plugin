@@ -1,8 +1,8 @@
 {
-  "id": "openclaw-plugin",
-  "name": "OrgX Integration",
-  "version": "0.7.27",
-  "description": "Connects Clawdbot to OrgX for agent orchestration, quality gates, and model routing",
+  "id": "orgx",
+  "name": "OrgX for OpenClaw",
+  "version": "0.7.29",
+  "description": "Persistent organizational memory and coordinated execution for OpenClaw agents",
   "entry": "./dist/index.js",
   "author": "OrgX Team",
   "license": "MIT",

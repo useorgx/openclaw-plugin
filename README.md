@@ -1,20 +1,135 @@
-# @useorgx/openclaw-plugin
+# OrgX for OpenClaw
 
-OrgX plugin for [OpenClaw](https://openclaw.ai) — connect your AI agents to OrgX for orchestration, quality gates, model routing, and a live dashboard.
+**Your agents are capable. They just can't remember yesterday.**
 
-## 60-Second Onboarding
+OpenClaw agents are powerful. They write code, manage files, browse the web, and execute complex tasks. But every session starts from zero. Your agents do not know what the other agents decided. They do not know what you approved last Tuesday. They cannot build on work from three days ago without you manually pasting context back in.
 
-1. Install the plugin.
-2. Open `http://127.0.0.1:18789/orgx/live`.
-3. Click **Connect OrgX**.
-4. Sign in at [useorgx.com](https://useorgx.com) and approve the connection.
-5. Return to OpenClaw. The plugin stores a dedicated credential and runs first sync automatically (no key copy/paste).
+You are the one holding it all together. You are the human API.
 
-Primary UI route is `http://127.0.0.1:18789/orgx/live`. The plugin does not serve a separate `/orgx/chat` app route.
+**OrgX fixes this.** It gives your OpenClaw agents persistent organizational memory, shared structure, and coordinated execution so they stop working like strangers and start working like a team.
 
-If Claude/Cursor/Codex MCP configs are detected on this machine, the pairing flow also installs a local MCP bridge entry (no OAuth) pointing at `http://127.0.0.1:18789/orgx/mcp`. To avoid overwriting your hosted `orgx` server entry, the local bridge is installed under the name `orgx-openclaw`. To opt out entirely, set `ORGX_DISABLE_MCP_CLIENT_AUTOCONFIG=1`.
+---
 
-Manual API key entry is still available as a permanent fallback from the onboarding panel.
+## What changes after you install this
+
+| Before OrgX | After OrgX |
+|---|---|
+| Each agent starts every session with amnesia | Agents query decisions, context, and history from prior sessions |
+| You manually stitch context between agents | Agents read and write to a shared entity graph: initiatives, milestones, decisions, tasks |
+| "What was I working on?" requires you to remember | The morning brief tells your agents, and you, exactly where things stand |
+| Running 5+ agents means 5+ unsyncable contexts | One coordination layer across all agents and sessions |
+| Heartbeat files and markdown workarounds | Typed organizational structure with semantic relationships |
+
+---
+
+## Install
+
+```bash
+# From your OpenClaw workspace
+openclaw plugins install clawhub:@useorgx/openclaw-plugin
+
+# npm also works if you prefer the package directly
+openclaw plugins install @useorgx/openclaw-plugin
+```
+
+Then open the OrgX dashboard in your OpenClaw gateway, click **Connect OrgX**, and approve the browser pairing flow. First sync runs automatically after connect, and the local bridge can be wired into supported MCP clients under `orgx-openclaw`.
+
+If automatic agent-suite provisioning is enabled, OrgX will also install the managed suite after connect. You can review or re-apply that plan later from **Settings -> Agent Suite** in the dashboard.
+
+**Manual key setup** is still available if you prefer it. Use the onboarding panel and choose **Manual API key**.
+
+---
+
+## What you get
+
+### Persistent Organizational Memory
+Your agents can query what happened in past sessions. Decisions persist. Context accumulates. An agent spawned today can ask, "What did we decide about the API design last week?" and get an answer.
+
+### Auto-Provisioned Agent Suite
+OrgX can create managed agent workspaces, install coordinated configurations, and preserve your local overrides. Your existing setup does not get clobbered. It gets enhanced.
+
+### Shared Entity Graph
+Initiatives, workstreams, milestones, decisions, and tasks: all structured, all queryable, all shared across your agents. This is not a flat to-do list. It is a model of how your work actually connects.
+
+### Live Dashboard
+See what your agents are doing, what decisions are pending, and what is blocked. One view across your entire agent operation.
+
+### Local MCP Bridge
+OrgX connects through MCP, so the coordination layer can live wherever your agents work. The plugin exposes a local bridge and can wire that into common MCP clients automatically.
+
+---
+
+## How it works with your existing setup
+
+OrgX does not replace your OpenClaw agents or change how they work. It adds a shared memory and coordination layer underneath them.
+
+```text
+┌─────────────────────────────────────────┐
+│           Your OpenClaw Agents          │
+│  (coding, research, marketing, ops...)  │
+└──────────────┬──────────────────────────┘
+               │ read/write
+┌──────────────▼──────────────────────────┐
+│          OrgX Entity Graph              │
+│  decisions · initiatives · milestones   │
+│  tasks · memory · agent trust levels    │
+└──────────────┬──────────────────────────┘
+               │ persists across
+┌──────────────▼──────────────────────────┐
+│     Every session. Every agent.         │
+│     Every tool. Forever.                │
+└─────────────────────────────────────────┘
+```
+
+Your agents keep their skills, configurations, and autonomy. They just gain the ability to remember, coordinate, and build on each other's work.
+
+---
+
+## vs. heartbeat files, Paperclip, and manual context
+
+| Approach | Memory | Structure | Cross-agent coordination |
+|---|---|---|---|
+| Heartbeat `.md` files | File-based, fragile | Flat task lists | Manual |
+| Paperclip | File-based + schedules | Org chart + tickets | Delegation via hierarchy |
+| **OrgX** | **Typed entity graph** | **Semantic: initiatives -> workstreams -> milestones -> decisions -> tasks** | **Shared memory + trust architecture + autonomous coordination** |
+
+Heartbeat files are a workaround. Paperclip organizes the workaround. OrgX removes the need for the workaround entirely.
+
+---
+
+## Quick start: scaffold your first initiative
+
+After connecting, try this in any OpenClaw agent session:
+
+```text
+Scaffold an initiative called "MVP Launch" with workstreams for engineering, marketing, and operations.
+```
+
+OrgX creates the structure, and every agent in your setup can query and contribute to it. When your engineering agent finishes a task, your marketing agent can operate against the same shared context.
+
+---
+
+## Need help setting this up for your specific workflow?
+
+OrgX Amplify is our guided setup service for founders and teams running serious agent operations. We configure OrgX for your exact stack, migrate your existing context, and get you operational in a week.
+
+-> [Book an Amplify call](https://useorgx.com/amplify)
+
+---
+
+## Links
+
+- [OrgX Platform](https://useorgx.com)
+- [OrgX MCP Server](https://mcp.useorgx.com/mcp)
+- [Documentation](https://docs.useorgx.com)
+- [Discord](https://discord.gg/orgx)
+- [GitHub](https://github.com/useorgx)
+
+**Built by [Hope](https://twitter.com/hopeatogun)** - solo founder, bioengineering background, self-taught engineer. Building the coordination layer for the agent era since a 2016 ML thesis on directed network evolution.
+
+---
+
+## Technical reference
 
 ## What's New (0.7.x)
 
@@ -36,7 +151,7 @@ Manual API key entry is still available as a permanent fallback from the onboard
                          │  Quality Gates, Model Routing │
                          └──────────────┬───────────────┘
                                         │
-                              Bearer token (oxk_...)
+                              Authenticated OrgX session
                                         │
 ┌───────────────────────────────────────┼───────────────────────────────────────┐
 │  OpenClaw Gateway (localhost:18789)   │                                       │
@@ -123,7 +238,7 @@ openclaw plugins install @useorgx/openclaw-plugin
 This plugin exposes the same `orgx_*` tools over a local MCP HTTP endpoint served by the OpenClaw gateway:
 
 - URL: `http://127.0.0.1:18789/orgx/mcp` (port follows your OpenClaw gateway config)
-- Why: avoids the separate cloud MCP OAuth flow and keeps the `oxk_...` key stored only in the plugin's credential store.
+- Why: avoids the separate cloud MCP OAuth flow and keeps your OrgX credential in the plugin's local credential store.
 
 On successful browser pairing, the plugin will attempt to patch:
 
@@ -147,7 +262,7 @@ Or manually add to your OpenClaw config:
       "orgx": {
         "enabled": true,
         "config": {
-          "apiKey": "oxk_..."
+          "apiKey": "<orgx-api-key>"
         }
       }
     }
@@ -325,7 +440,7 @@ openclaw orgx doctor --json --no-remote
 Reusable orchestration job to dispatch/monitor parallel `codex --full-auto` workers against OrgX tasks and report progress back through the reporting control plane (`/api/client/live/activity` + `/api/client/live/changesets/apply`).
 
 ```bash
-export ORGX_API_KEY=oxk_...
+export ORGX_API_KEY="<orgx-api-key>"
 
 npm run job:dispatch -- \
   --initiative_id=aa6d16dc-d450-417f-8a17-fd89bd597195 \
@@ -352,7 +467,7 @@ Resume patterns:
 
 Notes:
 - `ORGX_USER_ID` is legacy and only needed with legacy service-key flows.
-- User-scoped `oxk_...` API keys should not send `X-Orgx-User-Id`.
+- User-scoped API keys should not send `X-Orgx-User-Id`.
 
 Manual dispatch:
 - Use `docs/marketing/manual-agent-dispatch-golden-prompt.md` when manually launching a marketing agent for a specific task (non-batched dispatch).
