@@ -2,6 +2,15 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.29 - 2026-03-28
+
+### Release Management
+- Patch release bump for npm package + plugin manifest metadata.
+
+### README + Package Surface
+- Tightened public README copy to avoid publishing implementation-specific credential details and token-prefix examples.
+- Promoted the ClawHub install path now that the package is live, while keeping the npm install path documented as a fallback.
+
 ## 0.7.28 - 2026-03-28
 
 ### Release Management

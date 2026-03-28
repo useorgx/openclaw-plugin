@@ -26,17 +26,17 @@ You are the one holding it all together. You are the human API.
 
 ```bash
 # From your OpenClaw workspace
-openclaw plugins install @useorgx/openclaw-plugin
-
-# Once the ClawHub package is live, this works too
 openclaw plugins install clawhub:@useorgx/openclaw-plugin
+
+# npm also works if you prefer the package directly
+openclaw plugins install @useorgx/openclaw-plugin
 ```
 
-Then open `http://127.0.0.1:18789/orgx/live`, click **Connect OrgX**, and approve the browser pairing flow. The plugin stores a dedicated credential, runs first sync automatically, and installs a local MCP bridge under `orgx-openclaw` when Claude, Cursor, or Codex configs are detected on this machine.
+Then open the OrgX dashboard in your OpenClaw gateway, click **Connect OrgX**, and approve the browser pairing flow. First sync runs automatically after connect, and the local bridge can be wired into supported MCP clients under `orgx-openclaw`.
 
 If automatic agent-suite provisioning is enabled, OrgX will also install the managed suite after connect. You can review or re-apply that plan later from **Settings -> Agent Suite** in the dashboard.
 
-**Manual key setup** is still available if you prefer it. Use the onboarding panel at `/orgx/live` and choose **Manual API key**.
+**Manual key setup** is still available if you prefer it. Use the onboarding panel and choose **Manual API key**.
 
 ---
 
@@ -55,7 +55,7 @@ Initiatives, workstreams, milestones, decisions, and tasks: all structured, all 
 See what your agents are doing, what decisions are pending, and what is blocked. One view across your entire agent operation.
 
 ### Local MCP Bridge
-OrgX connects through MCP, so the coordination layer can live wherever your agents work. The plugin serves the local bridge at `/orgx/mcp` and can wire that into Claude, Cursor, and Codex automatically.
+OrgX connects through MCP, so the coordination layer can live wherever your agents work. The plugin exposes a local bridge and can wire that into common MCP clients automatically.
 
 ---
 
@@ -151,7 +151,7 @@ OrgX Amplify is our guided setup service for founders and teams running serious 
                          │  Quality Gates, Model Routing │
                          └──────────────┬───────────────┘
                                         │
-                              Bearer token (oxk_...)
+                              Authenticated OrgX session
                                         │
 ┌───────────────────────────────────────┼───────────────────────────────────────┐
 │  OpenClaw Gateway (localhost:18789)   │                                       │
@@ -238,7 +238,7 @@ openclaw plugins install @useorgx/openclaw-plugin
 This plugin exposes the same `orgx_*` tools over a local MCP HTTP endpoint served by the OpenClaw gateway:
 
 - URL: `http://127.0.0.1:18789/orgx/mcp` (port follows your OpenClaw gateway config)
-- Why: avoids the separate cloud MCP OAuth flow and keeps the `oxk_...` key stored only in the plugin's credential store.
+- Why: avoids the separate cloud MCP OAuth flow and keeps your OrgX credential in the plugin's local credential store.
 
 On successful browser pairing, the plugin will attempt to patch:
 
@@ -262,7 +262,7 @@ Or manually add to your OpenClaw config:
       "orgx": {
         "enabled": true,
         "config": {
-          "apiKey": "oxk_..."
+          "apiKey": "<orgx-api-key>"
         }
       }
     }
@@ -440,7 +440,7 @@ openclaw orgx doctor --json --no-remote
 Reusable orchestration job to dispatch/monitor parallel `codex --full-auto` workers against OrgX tasks and report progress back through the reporting control plane (`/api/client/live/activity` + `/api/client/live/changesets/apply`).
 
 ```bash
-export ORGX_API_KEY=oxk_...
+export ORGX_API_KEY="<orgx-api-key>"
 
 npm run job:dispatch -- \
   --initiative_id=aa6d16dc-d450-417f-8a17-fd89bd597195 \
@@ -467,7 +467,7 @@ Resume patterns:
 
 Notes:
 - `ORGX_USER_ID` is legacy and only needed with legacy service-key flows.
-- User-scoped `oxk_...` API keys should not send `X-Orgx-User-Id`.
+- User-scoped API keys should not send `X-Orgx-User-Id`.
 
 Manual dispatch:
 - Use `docs/marketing/manual-agent-dispatch-golden-prompt.md` when manually launching a marketing agent for a specific task (non-batched dispatch).
