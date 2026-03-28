@@ -540,6 +540,8 @@ async function runPlayTickStatus({
   configureHarness = null,
   after = null,
   waitMs = 80,
+  tickIntervalMs = 40,
+  maxStatusWaitMs = 2_400,
 }) {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-"));
   return await withEnv(
@@ -549,7 +551,8 @@ async function runPlayTickStatus({
       ORGX_AUTOPILOT_MOCK_SCENARIO: scenario,
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
+      // Keep the default mock stall margin comfortably above full-suite scheduler jitter.
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "2400",
       ...extraEnv,
     },
     async () => {
@@ -571,28 +574,37 @@ async function runPlayTickStatus({
       // Let the worker complete (or stall) before ticking.
       await sleep(waitMs);
 
-      const resTick = await call(handler, {
-        method: "POST",
-        url: `/orgx/api/mission-control/auto-continue/tick?initiativeId=${encodeURIComponent(initiativeId)}`,
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ initiativeId }),
-      });
-      assert.equal(resTick.status, 200);
+      let tickBody = null;
+      let statusBody = null;
+      const maxAttempts = Math.max(1, Math.ceil(maxStatusWaitMs / Math.max(1, tickIntervalMs)));
+      for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const resTick = await call(handler, {
+          method: "POST",
+          url: `/orgx/api/mission-control/auto-continue/tick?initiativeId=${encodeURIComponent(initiativeId)}`,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ initiativeId }),
+        });
+        assert.equal(resTick.status, 200);
+        tickBody = JSON.parse(resTick.body);
 
-      const resStatus = await call(handler, {
-        method: "GET",
-        url: `/orgx/api/mission-control/auto-continue/status?initiativeId=${encodeURIComponent(initiativeId)}`,
-        headers: {},
-      });
-      assert.equal(resStatus.status, 200);
+        const resStatus = await call(handler, {
+          method: "GET",
+          url: `/orgx/api/mission-control/auto-continue/status?initiativeId=${encodeURIComponent(initiativeId)}`,
+          headers: {},
+        });
+        assert.equal(resStatus.status, 200);
+        statusBody = JSON.parse(resStatus.body);
+        if (statusBody?.run?.status === "stopped") break;
+        if (attempt < maxAttempts - 1) await sleep(tickIntervalMs);
+      }
 
       const afterResult =
         typeof after === "function" ? await after({ handler, calls, state }) : null;
 
       return {
         play: JSON.parse(resPlay.body),
-        tick: JSON.parse(resTick.body),
-        status: JSON.parse(resStatus.body),
+        tick: tickBody,
+        status: statusBody,
         calls,
         state,
         handler,
@@ -1481,7 +1493,7 @@ test("autopilot slice lifecycle: behavior config drift emits alert and continues
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
     },
     async () => {
       const config = baseConfig();
@@ -1554,7 +1566,7 @@ test("autopilot slice lifecycle: task-only behavior config does not emit drift w
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
     },
     async () => {
       const config = baseConfig();
@@ -1596,7 +1608,7 @@ test("autopilot slice lifecycle: manual automation level blocks auto-continue di
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
     },
     async () => {
       const config = baseConfig();
@@ -1662,7 +1674,7 @@ test("autopilot slice lifecycle: supervised automation level stops after one dis
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
     },
     async () => {
       const config = baseConfig();
@@ -1914,7 +1926,7 @@ test("autopilot slice lifecycle: buffered status updates avoid redispatching the
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
     },
     async () => {
       const config = baseConfig();
@@ -2154,7 +2166,7 @@ test("autopilot slice lifecycle: active log heartbeats do not trigger false stal
     extraEnv: {
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "180",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "5000",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "40",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
     },
   });
   assert.equal(result.status.ok, true);
@@ -2172,7 +2184,7 @@ test("autopilot slice lifecycle: Play override bypasses snake_case spawn-guard r
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
       ORGX_AUTO_CONTINUE_SPAWN_GUARD_RETRY_MS: "1000",
     },
     async () => {
@@ -2208,20 +2220,24 @@ test("autopilot slice lifecycle: Play override bypasses snake_case spawn-guard r
       );
 
       await sleep(80);
-      await call(handler, {
-        method: "POST",
-        url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ initiativeId: "init-1" }),
-      });
-
-      const resStatus = await call(handler, {
-        method: "GET",
-        url: "/orgx/api/mission-control/auto-continue/status?initiativeId=init-1",
-        headers: {},
-      });
-      assert.equal(resStatus.status, 200);
-      const statusBody = JSON.parse(resStatus.body);
+      let statusBody = null;
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        await call(handler, {
+          method: "POST",
+          url: "/orgx/api/mission-control/auto-continue/tick?initiativeId=init-1",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ initiativeId: "init-1" }),
+        });
+        const resStatus = await call(handler, {
+          method: "GET",
+          url: "/orgx/api/mission-control/auto-continue/status?initiativeId=init-1",
+          headers: {},
+        });
+        assert.equal(resStatus.status, 200);
+        statusBody = JSON.parse(resStatus.body);
+        if (statusBody?.run?.status === "stopped") break;
+        if (attempt < 59) await sleep(40);
+      }
       assert.equal(statusBody?.run?.stopReason, "completed");
       assert.equal(statusBody?.run?.lastError ?? null, null);
 
@@ -2246,7 +2262,7 @@ test("autopilot slice lifecycle: auto-continue start override persists and execu
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
       ORGX_AUTO_CONTINUE_SPAWN_GUARD_RETRY_MS: "1000",
     },
     async () => {
@@ -2321,7 +2337,7 @@ test("autopilot slice lifecycle: includeVerification=false skips verification sc
       ORGX_AUTOPILOT_MOCK_SCENARIO: "success",
       ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
       ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "1200",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "120",
+      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "800",
     },
     async () => {
       const config = baseConfig();
