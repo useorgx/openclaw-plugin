@@ -339,12 +339,6 @@ export async function registerArtifact(
     }
   }
 
-  const metadataInitiativeId =
-    typeof metadata.initiative_id === "string" && metadata.initiative_id.trim().length > 0
-      ? metadata.initiative_id.trim()
-      : null;
-  const initiativeIdHint = input.entity_type === "initiative" ? input.entity_id : metadataInitiativeId;
-
   let entity: any = null;
   let created = false;
   let usedLegacyCreate = false;
@@ -363,7 +357,6 @@ export async function registerArtifact(
       preview_markdown: input.preview_markdown ?? undefined,
       status,
       metadata,
-      ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
       ...createdBy,
     });
 
@@ -389,7 +382,6 @@ export async function registerArtifact(
         confidence_score: confidenceScore ?? undefined,
         entity_type: input.entity_type,
         entity_id: input.entity_id,
-        ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
         artifact_url: artifactUrl,
         status,
         metadata,
@@ -410,7 +402,6 @@ export async function registerArtifact(
         confidence_score: confidenceScore ?? undefined,
         entity_type: input.entity_type,
         entity_id: input.entity_id,
-        ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
         artifact_url: artifactUrl,
         status,
         metadata,

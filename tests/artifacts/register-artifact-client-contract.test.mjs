@@ -219,6 +219,58 @@ test("registerArtifact sends confidence_score via metadata for client contract c
   assert.equal(createCall.body.metadata.confidence_score, 0.67);
 });
 
+test("registerArtifact keeps initiative context in metadata and off the top-level artifact payload", async () => {
+  const artifactId = "12121212-1212-4212-8212-121212121212";
+  const entityId = "34343434-3434-4434-8434-343434343434";
+  const baseUrl = "https://www.useorgx.com";
+  const calls = [];
+
+  const client = {
+    getUserId: () => "",
+    rawRequest: async (method, path, body) => {
+      calls.push({ method, path, body });
+      if (method === "POST" && path === "/api/client/artifacts") {
+        return {
+          ok: true,
+          artifact: {
+            id: artifactId,
+            artifact_url: `${baseUrl}/artifacts/${artifactId}`,
+            entity_type: "initiative",
+            entity_id: entityId,
+          },
+        };
+      }
+      throw new Error(`Unexpected request: ${method} ${path}`);
+    },
+    createEntity: async () => {
+      throw new Error("createEntity should not be called");
+    },
+    updateEntity: async () => {
+      throw new Error("updateEntity should not be called");
+    },
+  };
+
+  const result = await registerArtifact(client, baseUrl, {
+    entity_type: "initiative",
+    entity_id: entityId,
+    name: "Initiative Scoped Artifact",
+    artifact_type: "shared.project_handbook",
+    description: "Ensure initiative scope stays in metadata only.",
+    external_url: "https://example.com/artifacts/init-scope",
+    metadata: {
+      initiative_id: entityId,
+      workstream_id: "ws-1",
+    },
+  });
+
+  assert.equal(result.ok, true);
+  const createCall = calls.find((call) => call.method === "POST" && call.path === "/api/client/artifacts");
+  assert.ok(createCall);
+  assert.equal(Object.hasOwn(createCall.body, "initiative_id"), false);
+  assert.equal(createCall.body.metadata.initiative_id, entityId);
+  assert.equal(createCall.body.metadata.workstream_id, "ws-1");
+});
+
 test("validateRegisterArtifactInput rejects unknown entity_type values", () => {
   const errors = validateRegisterArtifactInput({
     entity_type: "artifact",

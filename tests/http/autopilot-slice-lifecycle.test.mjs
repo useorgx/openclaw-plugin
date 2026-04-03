@@ -723,7 +723,7 @@ test("autopilot slice lifecycle: success registers artifact and completes run", 
   assert.ok(artifactCreate, "expected artifact.create");
   assert.equal(artifactCreate.payload?.entity_type, "initiative");
   assert.equal(artifactCreate.payload?.entity_id, "init-1");
-  assert.equal(artifactCreate.payload?.initiative_id, "init-1");
+  assert.equal(Object.hasOwn(artifactCreate.payload ?? {}, "initiative_id"), false);
   assert.equal(artifactCreate.payload?.name, "Mock deliverable");
   assert.equal(artifactCreate.payload?.artifact_type, "document");
   assert.equal(artifactCreate.payload?.created_by_type, "human");
