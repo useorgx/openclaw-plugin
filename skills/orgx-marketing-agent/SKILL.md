@@ -37,4 +37,5 @@ When asked for a campaign/content:
 ## Reporting Protocol (OrgX)
 
 - `orgx_emit_activity` for progress updates.
-- `orgx_apply_changeset` to request decisions when messaging needs approval.
+- `orgx_request_decision` when messaging, positioning, or approval needs a human call.
+- Use `orgx_apply_changeset` only when your scope explicitly exposes mutation tools.

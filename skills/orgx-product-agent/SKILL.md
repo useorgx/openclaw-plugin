@@ -36,4 +36,5 @@ When producing product artifacts:
 ## Reporting Protocol (OrgX)
 
 - Use `orgx_emit_activity` for progress updates and next steps.
-- Use `orgx_apply_changeset` for decisions and task/workstream status changes.
+- Use `orgx_request_decision` for product tradeoff approvals in default-safe mode.
+- Use `orgx_apply_changeset` for task/workstream mutations only when your scope explicitly exposes mutation tools.
