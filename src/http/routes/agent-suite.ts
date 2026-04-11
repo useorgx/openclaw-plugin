@@ -167,6 +167,21 @@ function readOptionalBlockingBehavior(
   return undefined;
 }
 
+function readOptionalEnum<T extends string>(
+  payload: JsonRecord,
+  allowed: readonly T[],
+  ...keys: string[]
+): T | undefined {
+  for (const key of keys) {
+    const raw = payload[key];
+    if (typeof raw !== "string") continue;
+    const normalized = raw.trim().toLowerCase();
+    const match = allowed.find((value) => value === normalized);
+    if (match) return match;
+  }
+  return undefined;
+}
+
 function normalizeRuntimeSettingsPatch(payload: JsonRecord): JsonRecord {
   const runtime = toRecord(payload.runtime_settings ?? payload.runtimeSettings);
   const patch: JsonRecord = {};
@@ -207,6 +222,70 @@ function normalizeRuntimeSettingsPatch(payload: JsonRecord): JsonRecord {
   if (typeof decisionAutoResolveGuardedEnabled === "boolean") {
     patch.decision_auto_resolve_guarded_enabled =
       decisionAutoResolveGuardedEnabled;
+  }
+
+  const executionLayer = readOptionalEnum(
+    runtime,
+    ["orgx-managed-agents", "local-openclaw"],
+    "execution_layer",
+    "executionLayer"
+  );
+  if (executionLayer) {
+    patch.execution_layer = executionLayer;
+  }
+
+  const managedAgentProfile = toOptionalString(
+    runtime.managed_agent_profile ?? runtime.managedAgentProfile
+  )?.trim();
+  if (managedAgentProfile) {
+    patch.managed_agent_profile = managedAgentProfile.slice(0, 120);
+  }
+
+  const personaAlias = toOptionalString(
+    runtime.persona_alias ?? runtime.personaAlias
+  )?.trim();
+  if (personaAlias) {
+    patch.persona_alias = personaAlias.slice(0, 80);
+  }
+
+  const environmentProfile = readOptionalEnum(
+    runtime,
+    ["restricted", "coding", "integration"],
+    "environment_profile",
+    "environmentProfile"
+  );
+  if (environmentProfile) {
+    patch.environment_profile = environmentProfile;
+  }
+
+  const toolPolicyProfile = readOptionalEnum(
+    runtime,
+    ["repo_readwrite", "workspace_operator", "go_to_market"],
+    "tool_policy_profile",
+    "toolPolicyProfile"
+  );
+  if (toolPolicyProfile) {
+    patch.tool_policy_profile = toolPolicyProfile;
+  }
+
+  const rolloutStage = readOptionalEnum(
+    runtime,
+    ["shadow", "canary", "ga"],
+    "rollout_stage",
+    "rolloutStage"
+  );
+  if (rolloutStage) {
+    patch.rollout_stage = rolloutStage;
+  }
+
+  const runtimeProvider = readOptionalEnum(
+    runtime,
+    ["anthropic", "openai", "google", "cursor", "orgx"],
+    "runtime_provider",
+    "runtimeProvider"
+  );
+  if (runtimeProvider) {
+    patch.runtime_provider = runtimeProvider;
   }
 
   const questionAutoAnswerEnabled = readOptionalBoolean(

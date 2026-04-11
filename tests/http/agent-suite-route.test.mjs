@@ -420,6 +420,13 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
               decision_dedupe_enabled: true,
               decision_evidence_required_for_blocking: false,
               decision_auto_resolve_guarded_enabled: true,
+              execution_layer: "orgx-managed-agents",
+              managed_agent_profile: "engineering-managed",
+              persona_alias: "Eli",
+              environment_profile: "coding",
+              tool_policy_profile: "workspace_operator",
+              rollout_stage: "canary",
+              runtime_provider: "anthropic",
               question_auto_answer_enabled: true,
               question_auto_answer_delay_seconds: 60,
               question_auto_answer_action: "approve",
@@ -468,6 +475,10 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
       getBody?.data?.agents?.[0]?.runtime_settings?.question_auto_answer_delay_seconds,
       60
     );
+    assert.equal(
+      getBody?.data?.agents?.[0]?.runtime_settings?.managed_agent_profile,
+      "engineering-managed"
+    );
 
     const patchRes = createStubResponse();
     await handler(
@@ -483,6 +494,13 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
             decision_dedupe_enabled: true,
             decision_evidence_required_for_blocking: true,
             decision_auto_resolve_guarded_enabled: false,
+            execution_layer: "local-openclaw",
+            managed_agent_profile: "engineering-local",
+            persona_alias: "Eli",
+            environment_profile: "integration",
+            tool_policy_profile: "workspace_operator",
+            rollout_stage: "ga",
+            runtime_provider: "openai",
             question_auto_answer_enabled: true,
             question_auto_answer_delay_seconds: 90,
             question_auto_answer_action: "reject",
@@ -503,6 +521,10 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
       patchBody?.data?.agent?.runtime_settings?.question_auto_answer_action,
       "reject"
     );
+    assert.equal(
+      patchBody?.data?.agent?.runtime_settings?.runtime_provider,
+      "openai"
+    );
     assert.deepEqual(patchPayload, {
       workspace_id: projectId,
       command_center_id: projectId,
@@ -512,6 +534,13 @@ test("Agent suite runtime settings endpoints proxy read/write", async () => {
         decision_dedupe_enabled: true,
         decision_evidence_required_for_blocking: true,
         decision_auto_resolve_guarded_enabled: false,
+        execution_layer: "local-openclaw",
+        managed_agent_profile: "engineering-local",
+        persona_alias: "Eli",
+        environment_profile: "integration",
+        tool_policy_profile: "workspace_operator",
+        rollout_stage: "ga",
+        runtime_provider: "openai",
         question_auto_answer_enabled: true,
         question_auto_answer_delay_seconds: 90,
         question_auto_answer_action: "reject",
@@ -660,6 +689,89 @@ test("Agent suite runtime settings PATCH ignores malformed numeric delay strings
       agent_id: "11111111-1111-1111-1111-111111111111",
       runtime_settings: {
         decision_v2_enabled: true,
+      },
+    });
+  } finally {
+    if (prevOpenclawHome == null) {
+      delete process.env.OPENCLAW_HOME;
+    } else {
+      process.env.OPENCLAW_HOME = prevOpenclawHome;
+    }
+  }
+});
+
+test("Agent suite runtime settings PATCH normalizes managed runtime metadata", async () => {
+  const openclawHome = mkdtempSync(
+    join(tmpdir(), "orgx-openclaw-runtime-settings-managed-runtime-http-")
+  );
+  const prevOpenclawHome = process.env.OPENCLAW_HOME;
+  process.env.OPENCLAW_HOME = openclawHome;
+
+  try {
+    const config = baseConfig();
+    let patchPayload = null;
+    const client = {
+      getBaseUrl: () => config.baseUrl,
+      getClientAgentRuntimeSettings: async () => ({
+        ok: true,
+        project_id: null,
+        agents: [],
+      }),
+      updateClientAgentRuntimeSettings: async (input) => {
+        patchPayload = input;
+        return {
+          ok: true,
+          project_id: null,
+          agent: {
+            id: input.agent_id,
+            name: "OrgX Engineering",
+            type: "workflow_optimizer",
+            status: "active",
+            model: "gpt-5.1",
+            runtime_settings: input.runtime_settings,
+          },
+        };
+      },
+    };
+    const handler = createHttpHandler(
+      config,
+      client,
+      () => null,
+      createNoopOnboarding()
+    );
+
+    const patchRes = createStubResponse();
+    await handler(
+      {
+        method: "PATCH",
+        url: "/orgx/api/agent-suite/runtime-settings",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          agent_id: "11111111-1111-1111-1111-111111111111",
+          runtime_settings: {
+            executionLayer: "local-openclaw",
+            managedAgentProfile: "engineering-local",
+            personaAlias: "Eli",
+            environmentProfile: "coding",
+            toolPolicyProfile: "repo_readwrite",
+            rolloutStage: "canary",
+            runtimeProvider: "cursor",
+          },
+        }),
+      },
+      patchRes
+    );
+    assert.equal(patchRes.status, 200);
+    assert.deepEqual(patchPayload, {
+      agent_id: "11111111-1111-1111-1111-111111111111",
+      runtime_settings: {
+        execution_layer: "local-openclaw",
+        managed_agent_profile: "engineering-local",
+        persona_alias: "Eli",
+        environment_profile: "coding",
+        tool_policy_profile: "repo_readwrite",
+        rollout_stage: "canary",
+        runtime_provider: "cursor",
       },
     });
   } finally {

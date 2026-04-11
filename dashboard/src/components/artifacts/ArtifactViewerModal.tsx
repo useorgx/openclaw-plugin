@@ -63,6 +63,27 @@ const statusLabels: Record<string, string> = {
   archived: 'Archived',
 };
 
+function normalizeArtifactLink(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('file://')) {
+    try {
+      const fileUrl = new URL(trimmed);
+      return `/orgx/api/live/filesystem/open?path=${encodeURIComponent(
+        decodeURIComponent(fileUrl.pathname)
+      )}`;
+    } catch {
+      return trimmed;
+    }
+  }
+  if (trimmed.startsWith('/')) {
+    return `/orgx/api/live/filesystem/open?path=${encodeURIComponent(trimmed)}`;
+  }
+  return trimmed;
+}
+
 function ArtifactIcon() {
   return (
     <svg
@@ -163,8 +184,14 @@ export function ArtifactViewerModal() {
     if (/^https?:\/\//i.test(fallbackSourcePath)) return fallbackSourcePath;
     return `/orgx/api/live/filesystem/open?path=${encodeURIComponent(fallbackSourcePath)}`;
   }, [fallbackSourcePath]);
-  const externalUrl =
-    (artifact?.metadata?.external_url as string) ?? artifact?.artifact_url;
+  const externalUrl = useMemo(
+    () =>
+      normalizeArtifactLink(
+        ((artifact?.metadata?.external_url as string | undefined) ??
+          artifact?.artifact_url) as string | null | undefined
+      ),
+    [artifact?.artifact_url, artifact?.metadata]
+  );
 
   useEffect(() => {
     if (!copyNotice) return undefined;

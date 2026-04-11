@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { OrgXClient } from "../../dist/api.js";
 import { getAuthFilePath, readPersistedAuth } from "../../dist/auth-store.js";
@@ -45,13 +48,23 @@ test("e2e: registerArtifact persists and links to entity (real OrgX)", { timeout
   const client = new OrgXClient(apiKey, baseUrl, process.env.ORGX_E2E_USER_ID || "");
 
   const runStamp = new Date().toISOString();
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "orgx-e2e-artifact-"));
+  t.after(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+  const proofPath = path.join(tempDir, "artifact-proof.md");
+  await writeFile(
+    proofPath,
+    `# E2E Artifact Persistence\n\nCreated by plugin e2e at ${runStamp}\n\nEntity: ${entityType}/${entityId}\n`,
+    "utf8"
+  );
   const result = await registerArtifact(client, baseUrl, {
     entity_type: entityType,
     entity_id: entityId,
     name: `E2E Artifact Persistence (${runStamp})`,
     artifact_type: artifactType,
     description: "Automated e2e write + read-after-write validation for artifact loop closure.",
-    external_url: null,
+    external_url: proofPath,
     preview_markdown: `Created by plugin e2e at ${runStamp}\n\nEntity: ${entityType}/${entityId}`,
     status: "draft",
     metadata: {

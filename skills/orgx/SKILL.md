@@ -133,6 +133,12 @@ Backward-compatible aliases still exist:
 
 Register anything that should show up in OrgX history with `orgx_register_artifact`.
 
+Durable proof rule:
+
+- Always use a durable source for `url`: a GitHub PR URL, commit permalink, blob permalink, published doc URL, or an absolute file path.
+- Never use OrgX wrapper pages such as `/live/...`, `/artifacts/...`, or `/console/...` as artifact proof.
+- Treat `content` as preview material only. It is helpful for inspection, but it does not replace the durable source.
+
 ```js
 orgx_register_artifact({
   name: "PR #107: Fix Vercel build size",

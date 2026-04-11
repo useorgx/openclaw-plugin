@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { OrgXClient } from "../../dist/api.js";
 import { getAuthFilePath, readPersistedAuth } from "../../dist/auth-store.js";
@@ -32,25 +35,36 @@ function isEnabled() {
 
 async function runOne(client, baseUrl, { entity_type, entity_id, artifact_type }) {
   const stamp = new Date().toISOString();
-  const result = await registerArtifact(client, baseUrl, {
-    entity_type,
-    entity_id,
-    name: `E2E Artifact Persistence Matrix (${entity_type}) (${stamp})`,
-    artifact_type,
-    description: "Automated e2e matrix write + read-after-write validation for artifact loop closure.",
-    external_url: null,
-    preview_markdown: `Created by plugin e2e matrix at ${stamp}\n\nEntity: ${entity_type}/${entity_id}`,
-    status: "draft",
-    metadata: { source: "e2e-matrix", e2e: true, stamp, entity_type },
-    validate_persistence: true,
-  });
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "orgx-e2e-matrix-"));
+  try {
+    const proofPath = path.join(tempDir, `${entity_type}-proof.md`);
+    await writeFile(
+      proofPath,
+      `# E2E Artifact Persistence Matrix\n\nEntity: ${entity_type}/${entity_id}\nGenerated at: ${stamp}\n`,
+      "utf8"
+    );
+    const result = await registerArtifact(client, baseUrl, {
+      entity_type,
+      entity_id,
+      name: `E2E Artifact Persistence Matrix (${entity_type}) (${stamp})`,
+      artifact_type,
+      description: "Automated e2e matrix write + read-after-write validation for artifact loop closure.",
+      external_url: proofPath,
+      preview_markdown: `Created by plugin e2e matrix at ${stamp}\n\nEntity: ${entity_type}/${entity_id}`,
+      status: "draft",
+      metadata: { source: "e2e-matrix", e2e: true, stamp, entity_type },
+      validate_persistence: true,
+    });
 
-  assert.equal(result.ok, true);
-  assert.ok(result.artifact_id);
-  assert.ok(result.artifact_url);
-  assert.equal(result.persistence.checked, true);
-  assert.equal(result.persistence.artifact_detail_ok, true);
-  assert.equal(result.persistence.linked_ok, true);
+    assert.equal(result.ok, true);
+    assert.ok(result.artifact_id);
+    assert.ok(result.artifact_url);
+    assert.equal(result.persistence.checked, true);
+    assert.equal(result.persistence.artifact_detail_ok, true);
+    assert.equal(result.persistence.linked_ok, true);
+  } finally {
+    await rm(tempDir, { recursive: true, force: true });
+  }
 }
 
 for (const [entity_type, envName] of [
@@ -75,4 +89,3 @@ for (const [entity_type, envName] of [
     await runOne(client, baseUrl, { entity_type, entity_id: entityId, artifact_type: artifactType });
   });
 }
-

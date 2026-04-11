@@ -56,12 +56,33 @@ export interface HealthReport {
   };
 }
 
+export interface UpdateInitiativeInput {
+  title?: string;
+  summary?: string;
+  status?: "draft" | "active" | "paused" | "completed" | "archived";
+  priority?: "critical" | "active" | "maintenance" | "hold";
+}
+
+/** Shape returned by getLiveInitiatives for each initiative entry. */
+interface InitiativeRecord {
+  id: string;
+  title: string;
+  status: string;
+  progress?: number;
+  summary?: string;
+  priority?: string;
+  workstreams?: string[];
+  [key: string]: unknown;
+}
+
 export interface RegisterOrgxCliDeps {
   registerCli: (fn: (ctx: { program: any }) => void, options?: { commands?: string[] }) => void;
   client: OrgXClient;
   formatSnapshot: (snapshot: OrgSnapshot) => string;
   buildHealthReport: (input?: { probeRemote?: boolean }) => Promise<HealthReport>;
   apiKeySourceLabel: (source: ResolvedConfig["apiKeySource"]) => string;
+  /** Patch an initiative via the OrgX API. Injected by the caller. */
+  patchInitiative?: (id: string, input: UpdateInitiativeInput) => Promise<void>;
 }
 
 export function registerOrgxCli(deps: RegisterOrgxCliDeps): void {
@@ -191,6 +212,257 @@ export function registerOrgxCli(deps: RegisterOrgxCliDeps): void {
           } catch (err: unknown) {
             console.error(
               `Doctor failed: ${err instanceof Error ? err.message : err}`
+            );
+            process.exit(1);
+          }
+        });
+
+      // ── orgx initiative ──────────────────────────────────────────────────
+      const initiativeCmd = cmd
+        .command("initiative")
+        .description("Manage OrgX initiatives");
+
+      initiativeCmd
+        .command("list")
+        .description("List all live initiatives")
+        .option("--json", "Output as JSON")
+        .action(async (opts: { json?: boolean } = {}) => {
+          try {
+            const result = await deps.client.getLiveInitiatives();
+            const initiatives = result.initiatives as InitiativeRecord[];
+
+            if (opts.json) {
+              console.log(JSON.stringify(initiatives, null, 2));
+              return;
+            }
+
+            if (initiatives.length === 0) {
+              console.log("No initiatives found.");
+              return;
+            }
+
+            // Plain-text table
+            const colWidths = {
+              id: Math.max(4, ...initiatives.map((i) => String(i.id ?? "").length)),
+              title: Math.max(5, ...initiatives.map((i) => String(i.title ?? "").length)),
+              status: Math.max(6, ...initiatives.map((i) => String(i.status ?? "").length)),
+              progress: 8,
+            };
+
+            const pad = (s: string, n: number) => s.padEnd(n);
+            const header = [
+              pad("ID", colWidths.id),
+              pad("TITLE", colWidths.title),
+              pad("STATUS", colWidths.status),
+              pad("PROGRESS", colWidths.progress),
+            ].join("  ");
+            const divider = "-".repeat(header.length);
+
+            console.log(header);
+            console.log(divider);
+            for (const ini of initiatives) {
+              const progress =
+                ini.progress != null ? `${ini.progress}%` : "-";
+              console.log(
+                [
+                  pad(String(ini.id ?? ""), colWidths.id),
+                  pad(String(ini.title ?? ""), colWidths.title),
+                  pad(String(ini.status ?? ""), colWidths.status),
+                  pad(progress, colWidths.progress),
+                ].join("  ")
+              );
+            }
+            console.log(`\nTotal: ${result.total}`);
+          } catch (err: unknown) {
+            console.error(
+              `Error listing initiatives: ${err instanceof Error ? err.message : err}`
+            );
+            process.exit(1);
+          }
+        });
+
+      initiativeCmd
+        .command("show <id>")
+        .description("Show details of a single initiative")
+        .action(async (id: string) => {
+          try {
+            const result = await deps.client.getLiveInitiatives({ id });
+            const initiatives = result.initiatives as InitiativeRecord[];
+
+            if (initiatives.length === 0) {
+              console.error(`Initiative not found: ${id}`);
+              process.exit(1);
+              return;
+            }
+
+            const ini = initiatives[0];
+            console.log(`Initiative: ${ini.title}`);
+            console.log(`  ID:       ${ini.id}`);
+            console.log(`  Status:   ${ini.status}`);
+            if (ini.priority != null) {
+              console.log(`  Priority: ${ini.priority}`);
+            }
+            if (ini.progress != null) {
+              console.log(`  Progress: ${ini.progress}%`);
+            }
+            if (ini.summary) {
+              console.log(`  Summary:  ${ini.summary}`);
+            }
+            if (Array.isArray(ini.workstreams) && ini.workstreams.length > 0) {
+              console.log(`  Workstreams:`);
+              for (const ws of ini.workstreams) {
+                console.log(`    - ${ws}`);
+              }
+            }
+          } catch (err: unknown) {
+            console.error(
+              `Error fetching initiative: ${err instanceof Error ? err.message : err}`
+            );
+            process.exit(1);
+          }
+        });
+
+      initiativeCmd
+        .command("update <id>")
+        .description("Update an initiative's fields")
+        .option("--title <text>", "New title")
+        .option("--summary <text>", "New summary")
+        .option(
+          "--status <value>",
+          "New status (draft|active|paused|completed|archived)"
+        )
+        .option(
+          "--priority <value>",
+          "New priority (critical|active|maintenance|hold)"
+        )
+        .action(
+          async (
+            id: string,
+            opts: {
+              title?: string;
+              summary?: string;
+              status?: string;
+              priority?: string;
+            } = {}
+          ) => {
+            try {
+              if (!deps.patchInitiative) {
+                console.error(
+                  "patchInitiative is not configured for this installation."
+                );
+                process.exit(1);
+                return;
+              }
+
+              const input: UpdateInitiativeInput = {};
+              if (opts.title !== undefined) input.title = opts.title;
+              if (opts.summary !== undefined) input.summary = opts.summary;
+              if (opts.status !== undefined) {
+                const validStatuses = [
+                  "draft",
+                  "active",
+                  "paused",
+                  "completed",
+                  "archived",
+                ] as const;
+                if (
+                  !validStatuses.includes(
+                    opts.status as (typeof validStatuses)[number]
+                  )
+                ) {
+                  console.error(
+                    `Invalid status "${opts.status}". Must be one of: ${validStatuses.join(", ")}`
+                  );
+                  process.exit(1);
+                  return;
+                }
+                input.status =
+                  opts.status as UpdateInitiativeInput["status"];
+              }
+              if (opts.priority !== undefined) {
+                const validPriorities = [
+                  "critical",
+                  "active",
+                  "maintenance",
+                  "hold",
+                ] as const;
+                if (
+                  !validPriorities.includes(
+                    opts.priority as (typeof validPriorities)[number]
+                  )
+                ) {
+                  console.error(
+                    `Invalid priority "${opts.priority}". Must be one of: ${validPriorities.join(", ")}`
+                  );
+                  process.exit(1);
+                  return;
+                }
+                input.priority =
+                  opts.priority as UpdateInitiativeInput["priority"];
+              }
+
+              if (Object.keys(input).length === 0) {
+                console.error(
+                  "No fields to update. Use --title, --summary, --status, or --priority."
+                );
+                process.exit(1);
+                return;
+              }
+
+              await deps.patchInitiative(id, input);
+              console.log(`Initiative ${id} updated successfully.`);
+              const changed = Object.entries(input)
+                .map(([k, v]) => `  ${k}: ${v}`)
+                .join("\n");
+              console.log(changed);
+            } catch (err: unknown) {
+              console.error(
+                `Error updating initiative: ${err instanceof Error ? err.message : err}`
+              );
+              process.exit(1);
+            }
+          }
+        );
+
+      initiativeCmd
+        .command("launch <id>")
+        .description("Launch an initiative (set status to active)")
+        .action(async (id: string) => {
+          try {
+            if (!deps.patchInitiative) {
+              console.error(
+                "patchInitiative is not configured for this installation."
+              );
+              process.exit(1);
+              return;
+            }
+            await deps.patchInitiative(id, { status: "active" });
+            console.log(`Initiative ${id} launched (status → active).`);
+          } catch (err: unknown) {
+            console.error(
+              `Error launching initiative: ${err instanceof Error ? err.message : err}`
+            );
+            process.exit(1);
+          }
+        });
+
+      initiativeCmd
+        .command("pause <id>")
+        .description("Pause an initiative (set status to paused)")
+        .action(async (id: string) => {
+          try {
+            if (!deps.patchInitiative) {
+              console.error(
+                "patchInitiative is not configured for this installation."
+              );
+              process.exit(1);
+              return;
+            }
+            await deps.patchInitiative(id, { status: "paused" });
+            console.log(`Initiative ${id} paused (status → paused).`);
+          } catch (err: unknown) {
+            console.error(
+              `Error pausing initiative: ${err instanceof Error ? err.message : err}`
             );
             process.exit(1);
           }

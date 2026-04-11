@@ -143,6 +143,33 @@ export function renderKickoffMessage(input: {
     typeof runtimeSettings.workspace_question_defaults === "object"
       ? "- Workspace question defaults available"
       : null,
+    runtimeSettings &&
+    typeof runtimeSettings.execution_layer === "string"
+      ? `- Execution layer: ${runtimeSettings.execution_layer}`
+      : null,
+    runtimeSettings &&
+    typeof runtimeSettings.managed_agent_profile === "string"
+      ? `- Managed agent profile: ${runtimeSettings.managed_agent_profile}`
+      : null,
+    runtimeSettings && typeof runtimeSettings.persona_alias === "string"
+      ? `- Persona alias: ${runtimeSettings.persona_alias}`
+      : null,
+    runtimeSettings &&
+    typeof runtimeSettings.environment_profile === "string"
+      ? `- Environment profile: ${runtimeSettings.environment_profile}`
+      : null,
+    runtimeSettings &&
+    typeof runtimeSettings.tool_policy_profile === "string"
+      ? `- Tool policy profile: ${runtimeSettings.tool_policy_profile}`
+      : null,
+    runtimeSettings &&
+    typeof runtimeSettings.rollout_stage === "string"
+      ? `- Rollout stage: ${runtimeSettings.rollout_stage}`
+      : null,
+    runtimeSettings &&
+    typeof runtimeSettings.runtime_provider === "string"
+      ? `- Runtime provider: ${runtimeSettings.runtime_provider}`
+      : null,
   ].filter((line): line is string => Boolean(line));
 
   const contextHash = kickoff.context_hash?.trim() || null;

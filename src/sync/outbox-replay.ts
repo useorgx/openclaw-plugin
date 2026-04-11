@@ -697,6 +697,41 @@ export function createOutboxReplayer(deps: CreateOutboxReplayerDeps): {
 
       return;
     }
+
+    if (event.type === "quality") {
+      const taskId = pickStringField(payload, "taskId") ?? "";
+      const agentDomain =
+        pickStringField(payload, "agentDomain") ??
+        pickStringField(payload, "domain") ??
+        "";
+      const scoreRaw = payload.score;
+      const score =
+        typeof scoreRaw === "number" && Number.isFinite(scoreRaw) ? scoreRaw : null;
+      const notes = pickStringField(payload, "notes") ?? undefined;
+      const scoredByRaw = pickStringField(payload, "scoredBy");
+      const scoredBy =
+        scoredByRaw === "human" || scoredByRaw === "peer" || scoredByRaw === "auto"
+          ? scoredByRaw
+          : "auto";
+      if (!taskId || !agentDomain || score == null || score < 1 || score > 5) {
+        logger.warn?.("[orgx] Dropping invalid quality outbox event", {
+          eventId: event.id,
+          taskId,
+          agentDomain,
+          score,
+        });
+        return;
+      }
+
+      await client.recordQuality({
+        taskId,
+        agentDomain,
+        score,
+        scoredBy,
+        notes,
+      });
+      return;
+    }
   }
 
   async function flushOutboxQueues(): Promise<void> {

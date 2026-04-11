@@ -57,7 +57,14 @@ async function hardenPath(path: string, mode: number): Promise<void> {
 
 export interface OutboxEvent {
   id: string;
-  type: "progress" | "decision" | "artifact" | "changeset" | "retro" | "outcome";
+  type:
+    | "progress"
+    | "decision"
+    | "artifact"
+    | "changeset"
+    | "retro"
+    | "outcome"
+    | "quality";
   timestamp: string;
   payload: Record<string, unknown>;
   activityItem: LiveActivityItem;

@@ -89,6 +89,103 @@ function isUuid(value: string): boolean {
   );
 }
 
+function isAbsoluteFilesystemPath(value: string): boolean {
+  return value.startsWith("/");
+}
+
+function tryParseUrl(value: string): URL | null {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+}
+
+function isSelfReferentialOrgXUrl(value: string, baseUrl?: string): boolean {
+  const parsed = tryParseUrl(value);
+  if (!parsed) return false;
+  if (!/^https?:$/i.test(parsed.protocol)) return false;
+
+  const knownHosts = new Set([
+    "useorgx.com",
+    "www.useorgx.com",
+    "mcp.useorgx.com",
+    "localhost",
+    "127.0.0.1",
+  ]);
+  const normalizedBaseHost = baseUrl ? tryParseUrl(baseUrl)?.hostname ?? null : null;
+  if (normalizedBaseHost) knownHosts.add(normalizedBaseHost);
+  if (!knownHosts.has(parsed.hostname.toLowerCase())) return false;
+
+  const path = parsed.pathname.toLowerCase();
+  return (
+    path.startsWith("/live/") ||
+    path.startsWith("/orgx/live/") ||
+    path.startsWith("/artifacts/") ||
+    path.startsWith("/orgx/artifacts/") ||
+    path.startsWith("/console/") ||
+    path.startsWith("/orgx/console/")
+  );
+}
+
+type DurableArtifactSource = {
+  canonicalUrl: string;
+  metadataPatch: Record<string, unknown>;
+  hashSource: string;
+};
+
+function resolveDurableArtifactSource(
+  rawSource: string,
+  baseUrl: string
+): DurableArtifactSource | null {
+  const trimmed = rawSource.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith("file://")) {
+    const fileUrl = tryParseUrl(trimmed);
+    const filePath = fileUrl?.pathname ? decodeURIComponent(fileUrl.pathname) : "";
+    if (!filePath) return null;
+    return {
+      canonicalUrl: `${normalizeBaseUrl(
+        baseUrl
+      )}/orgx/api/live/filesystem/open?path=${encodeURIComponent(filePath)}`,
+      metadataPatch: {
+        external_url: trimmed,
+        local_source_path: filePath,
+        file_path: filePath,
+      },
+      hashSource: trimmed,
+    };
+  }
+
+  if (isAbsoluteFilesystemPath(trimmed)) {
+    return {
+      canonicalUrl: `${normalizeBaseUrl(
+        baseUrl
+      )}/orgx/api/live/filesystem/open?path=${encodeURIComponent(trimmed)}`,
+      metadataPatch: {
+        external_url: trimmed,
+        local_source_path: trimmed,
+        file_path: trimmed,
+      },
+      hashSource: trimmed,
+    };
+  }
+
+  const parsed = tryParseUrl(trimmed);
+  if (parsed && /^https?:$/i.test(parsed.protocol) && !isSelfReferentialOrgXUrl(trimmed, baseUrl)) {
+    return {
+      canonicalUrl: trimmed,
+      metadataPatch: {
+        external_url: trimmed,
+      },
+      hashSource: trimmed,
+    };
+  }
+
+  return null;
+}
+
 function resolveCreatedById(client: OrgXClient, input: RegisterArtifactInput): string | null {
   const explicit = normalizeText(input.created_by_id);
   if (explicit && isUuid(explicit)) return explicit;
@@ -141,9 +238,16 @@ export function validateRegisterArtifactInput(input: RegisterArtifactInput): str
   }
 
   const externalUrl = normalizeText(input.external_url);
-  const preview = normalizeText(input.preview_markdown);
-  if (!externalUrl && !preview) {
-    errors.push("at least one of external_url or preview_markdown is required");
+  if (!externalUrl) {
+    errors.push("external_url is required and must point to a durable source");
+  } else if (
+    !externalUrl.startsWith("file://") &&
+    !isAbsoluteFilesystemPath(externalUrl) &&
+    !tryParseUrl(externalUrl)
+  ) {
+    errors.push("external_url must be an absolute https URL, file URL, or absolute filesystem path");
+  } else if (isSelfReferentialOrgXUrl(externalUrl)) {
+    errors.push("external_url cannot be an OrgX live/artifact wrapper page");
   }
 
   return errors;
@@ -266,7 +370,28 @@ export async function registerArtifact(
 
   const requestedId = normalizeText(input.artifact_id);
   const desiredId = requestedId && isUuid(requestedId) ? requestedId : randomUUID();
-  const artifactUrl = `${normalizeBaseUrl(baseUrl)}/artifacts/${desiredId}`;
+  const resolvedSource = resolveDurableArtifactSource(
+    String(input.external_url ?? ""),
+    baseUrl
+  );
+  if (!resolvedSource) {
+    return {
+      ok: false,
+      artifact_id: null,
+      artifact_url: null,
+      created: false,
+      persistence: {
+        checked: false,
+        artifact_detail_ok: false,
+        linked_ok: false,
+        attempts: 0,
+        last_error:
+          "external_url must be a durable public URL or absolute file path, not an OrgX live/artifact page",
+      },
+      warnings: [],
+    };
+  }
+  const artifactUrl = resolvedSource.canonicalUrl;
   const status = normalizeText(input.status) || "draft";
   const createdByType = normalizeText(input.created_by_type) || "human";
   const createdById = resolveCreatedById(client, input);
@@ -277,10 +402,10 @@ export async function registerArtifact(
     ...(input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata)
       ? input.metadata
       : {}),
+    ...resolvedSource.metadataPatch,
   };
   const confidenceScore = normalizeConfidenceScore(input.confidence_score);
   if (confidenceScore != null) metadata.confidence_score = confidenceScore;
-  if (input.external_url) metadata.external_url = String(input.external_url);
   if (input.preview_markdown) {
     const preview = String(input.preview_markdown);
     metadata.preview_markdown =
@@ -306,7 +431,7 @@ export async function registerArtifact(
   }
 
   // --- Proof Ladder: artifact content hash ---
-  const hashSource = input.preview_markdown || input.external_url || input.name;
+  const hashSource = resolvedSource.hashSource || input.preview_markdown || input.name;
   if (hashSource && !metadata.artifact_hash) {
     metadata.artifact_hash = stableHash(String(hashSource));
   }
@@ -339,12 +464,6 @@ export async function registerArtifact(
     }
   }
 
-  const metadataInitiativeId =
-    typeof metadata.initiative_id === "string" && metadata.initiative_id.trim().length > 0
-      ? metadata.initiative_id.trim()
-      : null;
-  const initiativeIdHint = input.entity_type === "initiative" ? input.entity_id : metadataInitiativeId;
-
   let entity: any = null;
   let created = false;
   let usedLegacyCreate = false;
@@ -359,11 +478,10 @@ export async function registerArtifact(
       artifact_type: input.artifact_type,
       description: input.description ?? undefined,
       artifact_url: artifactUrl,
-      external_url: input.external_url ?? undefined,
+      external_url: String(input.external_url ?? ""),
       preview_markdown: input.preview_markdown ?? undefined,
       status,
       metadata,
-      ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
       ...createdBy,
     });
 
@@ -389,7 +507,6 @@ export async function registerArtifact(
         confidence_score: confidenceScore ?? undefined,
         entity_type: input.entity_type,
         entity_id: input.entity_id,
-        ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
         artifact_url: artifactUrl,
         status,
         metadata,
@@ -410,7 +527,6 @@ export async function registerArtifact(
         confidence_score: confidenceScore ?? undefined,
         entity_type: input.entity_type,
         entity_id: input.entity_id,
-        ...(initiativeIdHint ? { initiative_id: initiativeIdHint } : {}),
         artifact_url: artifactUrl,
         status,
         metadata,
@@ -425,12 +541,14 @@ export async function registerArtifact(
       ? String((entity as any).id)
       : null;
 
-  let finalArtifactUrl: string | null =
+  const returnedArtifactUrl =
     entity && typeof entity === "object" && typeof (entity as any).artifact_url === "string"
       ? String((entity as any).artifact_url)
-      : artifactId
-      ? `${normalizeBaseUrl(baseUrl)}/artifacts/${artifactId}`
       : null;
+  let finalArtifactUrl: string | null =
+    returnedArtifactUrl && !isSelfReferentialOrgXUrl(returnedArtifactUrl, baseUrl)
+      ? returnedArtifactUrl
+      : artifactUrl;
 
   if (artifactId && usedLegacyCreate) {
     try {
@@ -440,7 +558,10 @@ export async function registerArtifact(
     } catch (err: unknown) {
       warnings.push(`artifact_url patch failed: ${safeErrorMessage(err)}`);
       // Keep whatever we sent originally.
-      finalArtifactUrl = typeof (entity as any)?.artifact_url === "string" ? (entity as any).artifact_url : finalArtifactUrl;
+      finalArtifactUrl =
+        returnedArtifactUrl && !isSelfReferentialOrgXUrl(returnedArtifactUrl, baseUrl)
+          ? returnedArtifactUrl
+          : artifactUrl;
     }
   }
 

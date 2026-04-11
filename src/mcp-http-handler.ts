@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ORGX_MANAGED_RUNTIME_CONTRACT } from "./agent-suite.js";
 
 export type Logger = {
   info?: (message: string, meta?: Record<string, unknown>) => void;
@@ -75,6 +76,9 @@ type ToolScope = {
 export const ORGX_BASE_TOOLS = [
   "orgx_status",
   "orgx_sync",
+  "orgx_get_morning_brief",
+  "orgx_query_org_memory",
+  "orgx_recommend_next_action",
   "list_agent_configs",
   "get_agent_config",
   "orgx_emit_activity",
@@ -302,6 +306,10 @@ async function handleRpcMessage(input: {
       capabilities: {
         tools: {},
         prompts: {},
+        orgx: {
+          managedRuntime: ORGX_MANAGED_RUNTIME_CONTRACT,
+          scope: input.toolScope?.key ?? "all",
+        },
       },
       serverInfo: {
         name: scopedServerName,

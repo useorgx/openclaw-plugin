@@ -61,6 +61,23 @@ test("initialize responds with serverInfo and tools capability", async () => {
   assert.equal(payload.result.serverInfo.version, "0.0.0");
   assert.ok(payload.result.capabilities);
   assert.ok(payload.result.capabilities.tools);
+  assert.deepEqual(payload.result.capabilities.orgx.managedRuntime, {
+    executionLayer: "orgx-managed-agents",
+    substrate: "remote-managed-runtime",
+    languages: {
+      nodejs: "22",
+      python: "3.11",
+    },
+    commonTools: ["node", "npm", "pnpm", "python3", "pip3", "git"],
+    commonPackages: {
+      javascript: ["typescript", "tsx", "zod", "undici"],
+      python: ["httpx", "pydantic", "pytest"],
+    },
+    preferredAuthPath: "browser-pairing",
+    fallbackAuthPath: "direct-api-byok",
+    fallbackProviders: ["anthropic", "openai", "google", "cursor"],
+  });
+  assert.equal(payload.result.capabilities.orgx.scope, "all");
 });
 
 test("tools/list returns registered tools", async () => {

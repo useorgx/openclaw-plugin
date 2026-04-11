@@ -278,6 +278,172 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     { optional: true }
   );
 
+  registerMcpTool(
+    {
+      name: "orgx_get_morning_brief",
+      description:
+        "Get the morning brief value surface: session summary, value signals, exceptions, trust events, and top receipts. Preferred replacement for ROI summary lookups.",
+      parameters: {
+        type: "object",
+        properties: {
+          workspace_id: {
+            type: "string",
+            description: "Workspace ID to load the brief for",
+          },
+          session_id: {
+            type: "string",
+            description: "Optional autonomous session ID",
+          },
+        },
+        required: ["workspace_id"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: { workspace_id: string; session_id?: string } = {
+          workspace_id: "",
+        }
+      ) {
+        try {
+          const result = await client.getMorningBrief({
+            workspace_id: params.workspace_id,
+            session_id: params.session_id,
+          });
+          return json("Morning brief:", result);
+        } catch (err: unknown) {
+          return text(
+            `❌ Morning brief lookup failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  registerMcpTool(
+    {
+      name: "orgx_query_org_memory",
+      description:
+        "Search OrgX organizational memory (decisions, initiatives, artifacts). Preferred replacement for older decision-history lookups.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "What to search for",
+          },
+          scope: {
+            type: "string",
+            enum: ["all", "artifacts", "decisions", "initiatives"],
+            description: "Optional memory scope",
+          },
+          limit: {
+            type: "number",
+            description: "Max results to return",
+          },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          query: string;
+          scope?: "all" | "artifacts" | "decisions" | "initiatives";
+          limit?: number;
+        } = { query: "" }
+      ) {
+        try {
+          const result = await client.queryOrgMemory(params);
+          const count = Array.isArray(result.results) ? result.results.length : 0;
+          return json(
+            count === 0
+              ? "No matching results found."
+              : `Found ${count} relevant item${count === 1 ? "" : "s"}.`,
+            result
+          );
+        } catch (err: unknown) {
+          return text(
+            `❌ Org memory query failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
+  registerMcpTool(
+    {
+      name: "orgx_recommend_next_action",
+      description:
+        "Get the preferred next action for a workspace, initiative, workstream, or milestone. Preferred replacement for raw queue scoring in operator workflows.",
+      parameters: {
+        type: "object",
+        properties: {
+          entity_type: {
+            type: "string",
+            enum: ["workspace", "initiative", "workstream", "milestone"],
+            description: "Entity type to recommend for (default: workspace)",
+          },
+          entity_id: {
+            type: "string",
+            description: "Entity ID. For workspace, use \"default\" or a workspace ID.",
+          },
+          workspace_id: {
+            type: "string",
+            description: "Optional canonical workspace scope",
+          },
+          command_center_id: {
+            type: "string",
+            description: "Deprecated alias for workspace_id",
+          },
+          limit: {
+            type: "number",
+            description: "Max recommendations to return",
+          },
+          cascade: {
+            type: "boolean",
+            description: "Refresh recommendations across the entity chain first",
+          },
+        },
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          entity_type?: "workspace" | "initiative" | "workstream" | "milestone";
+          entity_id?: string;
+          workspace_id?: string;
+          command_center_id?: string;
+          limit?: number;
+          cascade?: boolean;
+        } = {}
+      ) {
+        try {
+          const result = await client.recommendNextAction(params);
+          const recommendations = Array.isArray(result.recommendations)
+            ? result.recommendations
+            : Array.isArray(result.items)
+            ? result.items
+            : [];
+          return json(
+            recommendations.length === 0
+              ? "No recommendations available."
+              : `Recommended ${recommendations.length} next action${
+                  recommendations.length === 1 ? "" : "s"
+                }.`,
+            result
+          );
+        } catch (err: unknown) {
+          return text(
+            `❌ Recommendation lookup failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
   // --- orgx_delegation_preflight ---
   registerMcpTool(
     {
@@ -544,6 +710,10 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           },
           domain: {
             type: "string",
+            description: "Legacy alias for agentDomain",
+          },
+          agentDomain: {
+            type: "string",
             description: "Agent domain that did the work",
           },
           score: {
@@ -557,25 +727,76 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             description: "Notes on the assessment",
           },
         },
-        required: ["taskId", "domain", "score"],
+        required: ["taskId", "score"],
       },
       async execute(
         _callId: string,
         params: {
           taskId: string;
-          domain: string;
+          domain?: string;
+          agentDomain?: string;
           score: number;
           notes?: string;
-        } = { taskId: "", domain: "", score: 0 }
+        } = { taskId: "", score: 0 }
       ) {
+        const agentDomain = pickNonEmptyString(
+          params.agentDomain,
+          params.domain
+        );
+        if (!agentDomain) {
+          return text("❌ Provide domain or agentDomain.");
+        }
+
         try {
-          await client.recordQuality(params);
+          await client.recordQuality({
+            ...params,
+            agentDomain,
+          });
           return text(
-            `✅ Quality score recorded: ${params.score}/5 for task ${params.taskId} (${params.domain})`
+            `✅ Quality score recorded: ${params.score}/5 for task ${params.taskId} (${agentDomain})`
           );
         } catch (err: unknown) {
+          const now = new Date().toISOString();
+          const id = `quality:${randomUUID().slice(0, 8)}`;
+          const { agentId, agentName } = deriveAgentIdentity(params);
+          const activityItem: LiveActivityItem = {
+            id,
+            type: "artifact_created",
+            title: "Quality score queued",
+            description: `Task ${params.taskId} · ${agentDomain} · ${params.score}/5`,
+            agentId,
+            agentName,
+            requesterAgentId: agentId,
+            requesterAgentName: agentName,
+            executorAgentId: agentId,
+            executorAgentName: agentName,
+            runId: null,
+            initiativeId: null,
+            timestamp: now,
+            phase: "review",
+            summary: `Quality ${params.score}/5 for ${agentDomain}`,
+            metadata: {
+              task_id: params.taskId,
+              agent_domain: agentDomain,
+              score: params.score,
+            },
+          };
+          await appendToOutbox("quality", {
+            id,
+            type: "quality",
+            timestamp: now,
+            payload: {
+              taskId: params.taskId,
+              agentDomain,
+              score: params.score,
+              scoredAt: now,
+              scoredBy: "auto",
+              notes: params.notes,
+            } as Record<string, unknown>,
+            activityItem,
+          });
           return text(
-            `❌ Quality recording failed: ${err instanceof Error ? err.message : err}`
+            `Quality score saved locally: ${params.score}/5 for task ${params.taskId} (${agentDomain}) (will sync when connected)`
           );
         }
       },
@@ -2927,11 +3148,13 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           },
           url: {
             type: "string",
-            description: "External link to the artifact (PR URL, file path, etc.)",
+            description:
+              "Durable proof source for the artifact: a public permalink (GitHub PR/commit/blob, published doc URL) or an absolute file path.",
           },
           content: {
             type: "string",
-            description: "Inline preview content (markdown/text). At least one of url or content is required.",
+            description:
+              "Inline preview content (markdown/text). Supplemental only; it does not replace a durable source URL or file path.",
           },
         },
         required: ["name", "artifact_type"],
@@ -2976,8 +3199,19 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           return text("❌ Cannot register artifact: provide entity_type + entity_id, or initiative_id, so the artifact can be attached to an entity.");
         }
 
-        if (!params.url && !params.content) {
-          return text("❌ Cannot register artifact: provide at least one of url or content.");
+        if (!params.url) {
+          return text(
+            "❌ Cannot register artifact: provide a durable source URL or absolute file path."
+          );
+        }
+        if (
+          /^https?:\/\/(?:www\.)?useorgx\.com\/(?:orgx\/)?live\//i.test(params.url) ||
+          /^https?:\/\/(?:www\.)?useorgx\.com\/(?:orgx\/)?artifacts\//i.test(params.url) ||
+          /^https?:\/\/(?:www\.)?useorgx\.com\/(?:orgx\/)?console\//i.test(params.url)
+        ) {
+          return text(
+            "❌ Cannot register artifact: OrgX live/artifact pages are wrappers, not durable proof sources. Use a GitHub permalink, published URL, or absolute file path."
+          );
         }
         if (
           typeof params.confidence_score !== "undefined" &&
