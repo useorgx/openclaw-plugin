@@ -77,6 +77,15 @@ test("agents/launch dry-run renders deterministic kickoff message when kickoff c
       collaboration_style: "Challenge weak assumptions with concrete alternatives.",
       defaults: ["State assumptions explicitly.", "Provide verification evidence."],
     },
+    runtime_settings: {
+      execution_layer: "orgx-managed-agents",
+      managed_agent_profile: "engineering-managed",
+      persona_alias: "Eli",
+      environment_profile: "coding",
+      tool_policy_profile: "workspace_operator",
+      rollout_stage: "canary",
+      runtime_provider: "anthropic",
+    },
     tool_scope: { allow: ["orgx_sync", "orgx_emit_activity"], deny: ["rm -rf"], notes: "Prefer read-only when unsure." },
     reporting_expectations: ["Post progress when tests pass", "Ask for decisions when blocked"],
     task: { id: "task-1", title: "Implement kickoff context", status: "todo" },
@@ -134,6 +143,9 @@ test("agents/launch dry-run renders deterministic kickoff message when kickoff c
   assert.ok(parsed.message.includes("## Behavior"));
   assert.ok(parsed.message.includes("Voice: Concise, direct, and pragmatic."));
   assert.ok(parsed.message.includes("Collaboration style: Challenge weak assumptions with concrete alternatives."));
+  assert.ok(parsed.message.includes("## Runtime Settings"));
+  assert.ok(parsed.message.includes("Execution layer: orgx-managed-agents"));
+  assert.ok(parsed.message.includes("Managed agent profile: engineering-managed"));
   assert.ok(parsed.message.includes("## Provenance"));
   assert.ok(parsed.message.includes("kickoff_context_hash: ctx_abc123"));
   assert.ok(parsed.message.includes("## Tool Scope"));

@@ -36,6 +36,23 @@ export type OrgxSuiteAgentSpec = {
   domain: OrgxSuiteDomain;
 };
 
+export type OrgxManagedRuntimeContract = {
+  executionLayer: "orgx-managed-agents";
+  substrate: "remote-managed-runtime";
+  languages: {
+    nodejs: string;
+    python: string;
+  };
+  commonTools: string[];
+  commonPackages: {
+    javascript: string[];
+    python: string[];
+  };
+  preferredAuthPath: "browser-pairing";
+  fallbackAuthPath: "direct-api-byok";
+  fallbackProviders: string[];
+};
+
 export type OrgxAgentConfigHealthStatus = "healthy" | "needs_apply" | "conflict";
 
 export const ORGX_AGENT_SUITE_PACK_ID = "orgx-agent-suite";
@@ -49,6 +66,23 @@ export const ORGX_AGENT_SUITE_AGENTS: OrgxSuiteAgentSpec[] = [
   { id: "orgx-operations", name: "OrgX Operations", domain: "operations" },
   { id: "orgx-orchestrator", name: "OrgX Orchestrator", domain: "orchestration" },
 ];
+
+export const ORGX_MANAGED_RUNTIME_CONTRACT: OrgxManagedRuntimeContract = {
+  executionLayer: "orgx-managed-agents",
+  substrate: "remote-managed-runtime",
+  languages: {
+    nodejs: "22",
+    python: "3.11",
+  },
+  commonTools: ["node", "npm", "pnpm", "python3", "pip3", "git"],
+  commonPackages: {
+    javascript: ["typescript", "tsx", "zod", "undici"],
+    python: ["httpx", "pydantic", "pytest"],
+  },
+  preferredAuthPath: "browser-pairing",
+  fallbackAuthPath: "direct-api-byok",
+  fallbackProviders: ["anthropic", "openai", "google", "cursor"],
+};
 
 const SUITE_WORKSPACE_DIRNAME = "agents";
 const SUITE_MANAGED_DIR = join(".orgx", "managed");
@@ -393,6 +427,9 @@ function buildManagedFileContent(input: {
         engineering: [
           "orgx_status",
           "orgx_sync",
+          "orgx_get_morning_brief",
+          "orgx_query_org_memory",
+          "orgx_recommend_next_action",
           "orgx_emit_activity",
           "orgx_report_progress",
           "orgx_register_artifact",
@@ -407,6 +444,9 @@ function buildManagedFileContent(input: {
         product: [
           "orgx_status",
           "orgx_sync",
+          "orgx_get_morning_brief",
+          "orgx_query_org_memory",
+          "orgx_recommend_next_action",
           "orgx_emit_activity",
           "orgx_report_progress",
           "orgx_register_artifact",
@@ -421,6 +461,9 @@ function buildManagedFileContent(input: {
         design: [
           "orgx_status",
           "orgx_sync",
+          "orgx_get_morning_brief",
+          "orgx_query_org_memory",
+          "orgx_recommend_next_action",
           "orgx_emit_activity",
           "orgx_report_progress",
           "orgx_register_artifact",
@@ -435,6 +478,9 @@ function buildManagedFileContent(input: {
         marketing: [
           "orgx_status",
           "orgx_sync",
+          "orgx_get_morning_brief",
+          "orgx_query_org_memory",
+          "orgx_recommend_next_action",
           "orgx_emit_activity",
           "orgx_report_progress",
           "orgx_register_artifact",
@@ -449,6 +495,9 @@ function buildManagedFileContent(input: {
         sales: [
           "orgx_status",
           "orgx_sync",
+          "orgx_get_morning_brief",
+          "orgx_query_org_memory",
+          "orgx_recommend_next_action",
           "orgx_emit_activity",
           "orgx_report_progress",
           "orgx_register_artifact",
@@ -463,6 +512,9 @@ function buildManagedFileContent(input: {
         operations: [
           "orgx_status",
           "orgx_sync",
+          "orgx_get_morning_brief",
+          "orgx_query_org_memory",
+          "orgx_recommend_next_action",
           "orgx_emit_activity",
           "orgx_report_progress",
           "orgx_register_artifact",
@@ -479,6 +531,9 @@ function buildManagedFileContent(input: {
         orchestration: [
           "orgx_status",
           "orgx_sync",
+          "orgx_get_morning_brief",
+          "orgx_query_org_memory",
+          "orgx_recommend_next_action",
           "orgx_emit_activity",
           "orgx_report_progress",
           "orgx_register_artifact",
@@ -500,6 +555,9 @@ function buildManagedFileContent(input: {
         "Primary tool surface (OrgX MCP tools exposed by this plugin):",
         "- orgx_status",
         "- orgx_sync",
+        "- orgx_get_morning_brief",
+        "- orgx_query_org_memory",
+        "- orgx_recommend_next_action",
         "- orgx_emit_activity",
         "- orgx_apply_changeset",
         "- orgx_register_artifact",

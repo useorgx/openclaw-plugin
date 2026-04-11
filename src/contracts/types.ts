@@ -154,6 +154,13 @@ export interface KickoffContext {
       question_blocking_behavior?: "require_human" | "guarded_auto_resolve_then_human";
     } | null;
     custom_run_instructions?: string | null;
+    execution_layer?: "orgx-managed-agents" | "local-openclaw";
+    managed_agent_profile?: string | null;
+    persona_alias?: string | null;
+    environment_profile?: "restricted" | "coding" | "integration";
+    tool_policy_profile?: "repo_readwrite" | "workspace_operator" | "go_to_market";
+    rollout_stage?: "shadow" | "canary" | "ga";
+    runtime_provider?: "anthropic" | "openai" | "google" | "cursor" | "orgx";
   } | null;
 
   /** Recent team activity for cross-agent awareness. */
@@ -235,6 +242,13 @@ export interface AgentRuntimeSettingsPayload {
   question_auto_answer_delay_seconds?: number;
   question_auto_answer_action?: "approve" | "reject";
   custom_run_instructions?: string | null;
+  execution_layer?: "orgx-managed-agents" | "local-openclaw";
+  managed_agent_profile?: string | null;
+  persona_alias?: string | null;
+  environment_profile?: "restricted" | "coding" | "integration";
+  tool_policy_profile?: "repo_readwrite" | "workspace_operator" | "go_to_market";
+  rollout_stage?: "shadow" | "canary" | "ga";
+  runtime_provider?: "anthropic" | "openai" | "google" | "cursor" | "orgx";
 }
 
 export interface ClientRuntimeSettingsAgent {
@@ -595,7 +609,10 @@ export interface ModelRoutingPolicy {
 
 export interface QualityScore {
   taskId: string;
-  domain: string;
+  /** Legacy plugin field; normalized to agentDomain before POSTing to OrgX. */
+  domain?: string;
+  /** Current OrgX API field. */
+  agentDomain?: string;
   score: number; // 1-5
   notes?: string;
   scoredBy?: "human" | "auto" | "peer";

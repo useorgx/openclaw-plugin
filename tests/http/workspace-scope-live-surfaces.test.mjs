@@ -92,6 +92,10 @@ function withEnv(patch, fn) {
     });
 }
 
+function recentIso(minutesAgo = 0) {
+  return new Date(Date.now() - minutesAgo * 60_000).toISOString();
+}
+
 function createScopedHarness() {
   const initiatives = [
     {
@@ -229,7 +233,7 @@ function createScopedActivityHarness() {
         executorAgentName: null,
         runId: "run-a-1",
         initiativeId: "init-a",
-        timestamp: "2026-03-07T12:00:00.000Z",
+        timestamp: recentIso(10),
         metadata: { initiativeId: "init-a" },
       },
       {
@@ -245,7 +249,7 @@ function createScopedActivityHarness() {
         executorAgentName: null,
         runId: "run-b-1",
         initiativeId: "init-b",
-        timestamp: "2026-03-07T11:59:00.000Z",
+        timestamp: recentIso(11),
         metadata: { initiativeId: "init-b" },
       },
     ],

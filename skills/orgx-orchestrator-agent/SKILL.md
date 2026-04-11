@@ -42,4 +42,5 @@ When creating work:
 ## Reporting Protocol (OrgX)
 
 - Use `orgx_emit_activity` frequently (append-only).
-- Use `orgx_apply_changeset` for entity mutations and decisions.
+- Use `orgx_apply_changeset` for entity mutations when the orchestration scope exposes it.
+- Use `orgx_request_decision` for human approvals or when running in a default-safe surface.

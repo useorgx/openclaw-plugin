@@ -125,6 +125,31 @@ function normalizeClientBaseUrl(raw: string, fallback: string): string {
   }
 }
 
+function normalizeQualityScorePayload(
+  score: QualityScore
+): Omit<QualityScore, "domain" | "agentDomain"> & { agentDomain: string } {
+  const legacyDomain =
+    typeof score.domain === "string" ? score.domain.trim() : "";
+  const explicitAgentDomain =
+    typeof score.agentDomain === "string" ? score.agentDomain.trim() : "";
+  const agentDomain = explicitAgentDomain || legacyDomain;
+
+  if (!agentDomain) {
+    throw new Error("Quality score requires domain or agentDomain");
+  }
+
+  const { domain: _domain, agentDomain: _agentDomain, ...rest } = score;
+  return { ...rest, agentDomain };
+}
+
+type ClientToolExecutionResponse<T> = {
+  ok: boolean;
+  data?: T;
+  error?: string;
+  tool_id?: string;
+  execution_time_ms?: number;
+};
+
 export type DecisionAction = "approve" | "reject";
 export type RunAction = "pause" | "resume" | "cancel" | "rollback";
 
@@ -288,6 +313,25 @@ export class OrgXClient {
       return response.data;
     }
     return response as SyncResponse;
+  }
+
+  private async executeClientTool<T>(
+    toolId: string,
+    args: Record<string, unknown>
+  ): Promise<T> {
+    const response = await this.post<ClientToolExecutionResponse<T>>(
+      "/api/client/tools/execute",
+      {
+        tool_id: toolId,
+        args,
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(response.error || `Tool ${toolId} execution failed`);
+    }
+
+    return (response.data ?? {}) as T;
   }
 
   // ===========================================================================
@@ -510,9 +554,10 @@ export class OrgXClient {
   // ===========================================================================
 
   async recordQuality(score: QualityScore): Promise<{ success: boolean }> {
+    const normalizedScore = normalizeQualityScorePayload(score);
     const response = await this.post<
       { success: boolean } | { ok?: boolean; data?: unknown }
-    >("/api/client/quality", score);
+    >("/api/client/quality", normalizedScore);
 
     // Backwards-compatible: accept either { success: true } or { ok: true, data: ... }.
     if (
@@ -529,6 +574,42 @@ export class OrgXClient {
     }
 
     return { success: true };
+  }
+
+  async getMorningBrief(params: {
+    workspace_id: string;
+    session_id?: string;
+  }): Promise<Record<string, unknown>> {
+    const query = this.buildQuery({
+      workspace_id: params.workspace_id,
+      session_id: params.session_id,
+    });
+    return this.get<Record<string, unknown>>(`/api/flywheel/briefs${query}`);
+  }
+
+  async queryOrgMemory(params: {
+    query: string;
+    scope?: "all" | "artifacts" | "decisions" | "initiatives";
+    limit?: number;
+  }): Promise<Record<string, unknown>> {
+    return this.executeClientTool<Record<string, unknown>>(
+      "query_org_memory",
+      params
+    );
+  }
+
+  async recommendNextAction(params: {
+    entity_type?: "workspace" | "initiative" | "workstream" | "milestone";
+    entity_id?: string;
+    workspace_id?: string;
+    command_center_id?: string;
+    limit?: number;
+    cascade?: boolean;
+  }): Promise<Record<string, unknown>> {
+    return this.executeClientTool<Record<string, unknown>>(
+      "recommend_next_action",
+      params
+    );
   }
 
   // ===========================================================================

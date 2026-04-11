@@ -35,4 +35,5 @@ For UI changes:
 ## Reporting Protocol (OrgX)
 
 - `orgx_emit_activity` for intent/execution/review/completed.
-- `orgx_apply_changeset` for decisions and state updates.
+- `orgx_request_decision` for the default-safe human approval path.
+- Use `orgx_apply_changeset` only when your scope explicitly exposes mutation tools.

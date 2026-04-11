@@ -10,6 +10,19 @@ You are the one holding it all together. You are the human API.
 
 ---
 
+## See it
+
+<p align="center">
+  <img src="./orgx-live-mission-control-0.7.15-check.png" alt="OrgX Mission Control showing coordinated initiatives, workstreams, and execution state inside OpenClaw" width="48%" />
+  <img src="./orgx-live-activity-0.7.15-check.png" alt="OrgX Activity view showing live agent updates, decisions, and shared execution history inside OpenClaw" width="48%" />
+</p>
+
+<p align="center">
+  <em>Mission Control for shared execution state. Activity for the live history your agents can build on.</em>
+</p>
+
+---
+
 ## What changes after you install this
 
 | Before OrgX | After OrgX |

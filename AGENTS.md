@@ -198,6 +198,14 @@ When the user asks to “verify blockers/initiatives”, “find one and verify�
 - Mask tokens in examples as `oxk_...abcd` (or equivalent).
 - Never commit secrets (`.env`, local creds). Prefer `.env.local` and keep it untracked.
 
+### 14) Artifact proof must be durable
+
+- When calling `orgx_register_artifact`, the proof source must be durable:
+  - preferred: GitHub PR links, commit permalinks, blob permalinks, published docs
+  - acceptable: absolute local file paths when the artifact is repo-local
+- Do not register OrgX wrapper pages (`/live/...`, `/artifacts/...`, `/console/...`) as the artifact URL.
+- `content` / preview markdown is supplemental only and never counts as sufficient proof by itself.
+
 ---
 
 ## Brand Identity

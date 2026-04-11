@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import {
   registerArtifact,
@@ -139,6 +142,145 @@ test("registerArtifact falls back to legacy /api/entities path when client route
   );
   assert.equal(calls.length, 1);
   assert.equal(calls[0].path, "/api/client/artifacts");
+});
+
+test("registerArtifact uses the durable source URL when legacy create response omits artifact_url", async () => {
+  const artifactId = "10101010-1010-4010-8010-101010101010";
+  const entityId = "20202020-2020-4020-8020-202020202020";
+  const baseUrl = "https://www.useorgx.com";
+  const updateCalls = [];
+
+  const client = {
+    getUserId: () => "",
+    rawRequest: async (method, path) => {
+      if (method === "POST" && path === "/api/client/artifacts") {
+        throw new Error("404 Not Found");
+      }
+      throw new Error(`Unexpected request: ${method} ${path}`);
+    },
+    createEntity: async () => ({ id: artifactId }),
+    updateEntity: async (_type, id, payload) => {
+      updateCalls.push({ id, payload });
+      return { ok: true };
+    },
+  };
+
+  const result = await registerArtifact(client, baseUrl, {
+    entity_type: "initiative",
+    entity_id: entityId,
+    name: "Legacy durable proof",
+    artifact_type: "shared.project_handbook",
+    external_url: "https://github.com/useorgx/orgx/pull/509",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.artifact_url, "https://github.com/useorgx/orgx/pull/509");
+  assert.equal(updateCalls.length, 1);
+  assert.equal(
+    updateCalls[0].payload.artifact_url,
+    "https://github.com/useorgx/orgx/pull/509"
+  );
+});
+
+test("registerArtifact rejects OrgX wrapper URLs as proof sources", async () => {
+  const errors = validateRegisterArtifactInput({
+    entity_type: "initiative",
+    entity_id: "22222222-2222-4222-8222-222222222222",
+    name: "Wrapper proof",
+    artifact_type: "shared.project_handbook",
+    external_url: "https://useorgx.com/live/16aaaf48-bc33-489d-bf4d-c25ea80cd8b9",
+  });
+
+  assert.ok(
+    errors.includes("external_url cannot be an OrgX live/artifact wrapper page")
+  );
+
+  const client = {
+    getUserId: () => "",
+    rawRequest: async () => {
+      throw new Error("rawRequest should not be called");
+    },
+    createEntity: async () => {
+      throw new Error("createEntity should not be called");
+    },
+    updateEntity: async () => {
+      throw new Error("updateEntity should not be called");
+    },
+  };
+
+  const result = await registerArtifact(client, "https://www.useorgx.com", {
+    entity_type: "initiative",
+    entity_id: "22222222-2222-4222-8222-222222222222",
+    name: "Wrapper proof",
+    artifact_type: "shared.project_handbook",
+    external_url: "https://useorgx.com/live/16aaaf48-bc33-489d-bf4d-c25ea80cd8b9",
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(
+    result.persistence.last_error ?? "",
+    /cannot be an OrgX live\/artifact wrapper page/i
+  );
+});
+
+test("registerArtifact canonicalizes absolute file paths to filesystem-open URLs", async (t) => {
+  const artifactId = "30303030-3030-4030-8030-303030303030";
+  const entityId = "40404040-4040-4040-8040-404040404040";
+  const baseUrl = "https://www.useorgx.com";
+  const calls = [];
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "orgx-artifact-"));
+  t.after(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+  const proofPath = path.join(tempDir, "proof.md");
+  await writeFile(proofPath, "# Proof\n", "utf8");
+
+  const client = {
+    getUserId: () => "",
+    rawRequest: async (method, path, body) => {
+      calls.push({ method, path, body });
+      if (method === "POST" && path === "/api/client/artifacts") {
+        return {
+          ok: true,
+          artifact: {
+            id: artifactId,
+            artifact_url: body.artifact_url,
+            entity_type: "initiative",
+            entity_id: entityId,
+          },
+        };
+      }
+      throw new Error(`Unexpected request: ${method} ${path}`);
+    },
+    createEntity: async () => {
+      throw new Error("createEntity should not be called");
+    },
+    updateEntity: async () => {
+      throw new Error("updateEntity should not be called");
+    },
+  };
+
+  const result = await registerArtifact(client, baseUrl, {
+    entity_type: "initiative",
+    entity_id: entityId,
+    name: "Filesystem proof",
+    artifact_type: "shared.project_handbook",
+    external_url: proofPath,
+  });
+
+  const createCall = calls.find((call) => call.method === "POST");
+  assert.ok(createCall);
+  assert.equal(
+    createCall.body.artifact_url,
+    `${baseUrl}/orgx/api/live/filesystem/open?path=${encodeURIComponent(proofPath)}`
+  );
+  assert.equal(createCall.body.metadata.external_url, proofPath);
+  assert.equal(createCall.body.metadata.local_source_path, proofPath);
+  assert.equal(createCall.body.metadata.file_path, proofPath);
+  assert.equal(
+    result.artifact_url,
+    `${baseUrl}/orgx/api/live/filesystem/open?path=${encodeURIComponent(proofPath)}`
+  );
 });
 
 test("registerArtifact sends confidence_score via metadata for client contract compatibility", async () => {

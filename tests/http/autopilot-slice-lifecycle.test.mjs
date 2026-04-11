@@ -727,7 +727,11 @@ test("autopilot slice lifecycle: success registers artifact and completes run", 
   assert.equal(artifactCreate.payload?.name, "Mock deliverable");
   assert.equal(artifactCreate.payload?.artifact_type, "document");
   assert.equal(artifactCreate.payload?.created_by_type, "human");
-  assert.ok(typeof artifactCreate.payload?.artifact_url === "string" && artifactCreate.payload.artifact_url.includes("/artifacts/"));
+  assert.equal(
+    artifactCreate.payload?.artifact_url,
+    "https://www.useorgx.com/orgx/api/live/filesystem/open?path=%2Fartifact.txt"
+  );
+  assert.equal(artifactCreate.payload?.metadata?.external_url, "file://mock/artifact.txt");
   assert.ok(
     result.calls.applyChangeset.some((c) =>
       Array.isArray(c.operations) && c.operations.some((op) => op.op === "task.update" && op.task_id === "task-1")
