@@ -3156,6 +3156,33 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             description:
               "Inline preview content (markdown/text). Supplemental only; it does not replace a durable source URL or file path.",
           },
+          metadata: {
+            type: "object",
+            description:
+              "Optional artifact metadata. Use for proof fields such as commit_sha, branch, artifact_hash, quality_gate, or schema validation signals.",
+          },
+          queue_ref: {
+            type: "object",
+            description:
+              "Optional proof-chain queue reference linking this artifact to the initiative/workstream/task queue item.",
+            properties: {
+              initiative_id: { type: "string" },
+              workstream_id: { type: "string" },
+              task_id: { type: "string" },
+            },
+            additionalProperties: false,
+          },
+          run_ref: {
+            type: "object",
+            description:
+              "Optional proof-chain run reference linking this artifact to the producing run/session.",
+            properties: {
+              run_id: { type: "string" },
+              correlation_id: { type: "string" },
+              session_id: { type: "string" },
+            },
+            additionalProperties: false,
+          },
         },
         required: ["name", "artifact_type"],
         additionalProperties: false,
@@ -3172,6 +3199,17 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           description?: string;
           url?: string;
           content?: string;
+          metadata?: Record<string, unknown>;
+          queue_ref?: {
+            initiative_id?: string;
+            workstream_id?: string;
+            task_id?: string;
+          };
+          run_ref?: {
+            run_id?: string;
+            correlation_id?: string;
+            session_id?: string;
+          };
         } = { name: "", artifact_type: "other" }
       ) {
         const now = new Date().toISOString();
@@ -3227,6 +3265,26 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
         const baseUrl = client.getBaseUrl();
         const artifactId = randomUUID();
         const { agentId, agentName } = deriveAgentIdentity(params);
+        const callerMetadata =
+          params.metadata && typeof params.metadata === "object" && !Array.isArray(params.metadata)
+            ? params.metadata
+            : {};
+        const queueRef =
+          params.queue_ref && typeof params.queue_ref === "object" && !Array.isArray(params.queue_ref)
+            ? params.queue_ref
+            : undefined;
+        const runRef =
+          params.run_ref && typeof params.run_ref === "object" && !Array.isArray(params.run_ref)
+            ? params.run_ref
+            : undefined;
+        const proofMetadata = {
+          ...callerMetadata,
+          source: "orgx_register_artifact",
+          artifact_id: artifactId,
+          confidence_score: confidenceScore,
+          ...(queueRef ? { queue_ref: queueRef } : {}),
+          ...(runRef ? { run_ref: runRef } : {}),
+        };
 
         const activityItem: LiveActivityItem = {
           id,
@@ -3250,6 +3308,8 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             url: params.url,
             entity_type: resolvedEntityType,
             entity_id: resolvedEntityId,
+            ...(queueRef ? { queue_ref: queueRef } : {}),
+            ...(runRef ? { run_ref: runRef } : {}),
             ...(agentId ? { agent_id: agentId } : {}),
             ...(agentName ? { agent_name: agentName } : {}),
           }),
@@ -3267,11 +3327,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             external_url: params.url ?? null,
             preview_markdown: params.content ?? null,
             status: "draft",
-            metadata: {
-              source: "orgx_register_artifact",
-              artifact_id: artifactId,
-              confidence_score: confidenceScore,
-            },
+            metadata: proofMetadata,
             validate_persistence: true,
           });
 
@@ -3307,6 +3363,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
               content: params.content,
               entity_type: resolvedEntityType,
               entity_id: resolvedEntityId,
+              metadata: proofMetadata,
             } as Record<string, unknown>,
             activityItem,
           });
