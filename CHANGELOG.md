@@ -2,6 +2,12 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.32 - 2026-04-13
+
+### Release Management
+- Switched the GitHub release workflow to npm trusted publishing with provenance so releases do not depend on a missing long-lived npm token secret.
+- Patch release bump for npm package, lockfile, and plugin manifest metadata.
+
 ## 0.7.31 - 2026-04-13
 
 ### Release Management
