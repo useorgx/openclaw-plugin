@@ -2,6 +2,13 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.33 - 2026-04-13
+
+### Release Management
+- Switched the publish workflow to Node 24 so the release job uses an npm runtime that supports trusted publishing without a fragile global npm self-upgrade.
+- Removed token-oriented npm registry setup from the release workflow so GitHub OIDC trusted publishing can drive npm authentication.
+- Patch release bump after the `v0.7.32` release workflow failed before publish during the npm upgrade step.
+
 ## 0.7.32 - 2026-04-13
 
 ### Release Management

@@ -762,7 +762,7 @@ Not all of the above is accidental. Some context for why the architecture looks 
 ## Maintainers: Release to NPM
 
 This repo publishes on GitHub Release via `.github/workflows/publish.yml`.
-The npm package must have trusted publishing configured for this repository and workflow so the release can publish with provenance through GitHub OIDC.
+The npm package must have trusted publishing configured for this repository and workflow so the Node 24 release job can publish through GitHub OIDC without `NPM_TOKEN`.
 
 1. Update versions
    - `package.json` version (NPM version)
@@ -774,7 +774,7 @@ The npm package must have trusted publishing configured for this repository and 
    - `npm run build`
    - Optional: `npm run verify:clean-install`
 3. Publish
-   - Create a GitHub release for the tag (workflow publishes with provenance)
+   - Create a GitHub release for the tag (the workflow publishes through npm trusted publishing)
 4. Smoke test
    - `openclaw plugins install @useorgx/openclaw-plugin@<version>`
    - Verify `http://127.0.0.1:18789/orgx/live` pairing and `http://127.0.0.1:18789/orgx/mcp` MCP bridge
