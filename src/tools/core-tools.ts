@@ -973,6 +973,27 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             type: "string",
             description: "Execution/run ID that produced this outcome",
           },
+          execution_type: {
+            type: "string",
+            description:
+              "Execution type label. Defaults to agent_run when omitted.",
+          },
+          run_id: {
+            type: "string",
+            description:
+              "Existing OrgX run ID to attach the outcome to. If omitted, correlation_id and source_client are used.",
+          },
+          correlation_id: {
+            type: "string",
+            description:
+              "Idempotency/correlation ID for this execution. Defaults to execution_id when run_id is omitted.",
+          },
+          source_client: {
+            type: "string",
+            enum: ["openclaw", "codex", "claude-code", "api"],
+            description:
+              "Client that produced the outcome. Defaults to openclaw when run_id is omitted.",
+          },
           agent_id: {
             type: "string",
             description: "Agent that did the work",
@@ -995,12 +1016,17 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           },
         },
         required: ["initiative_id", "execution_id", "agent_id", "success"],
+        additionalProperties: false,
       },
       async execute(
         _callId: string,
         params: {
           initiative_id: string;
           execution_id: string;
+          execution_type?: string;
+          run_id?: string;
+          correlation_id?: string;
+          source_client?: ReportingSourceClient;
           agent_id: string;
           success: boolean;
           quality_score?: number;
@@ -1014,15 +1040,28 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
         }
       ) {
         try {
+          const runId = pickNonEmptyString(params.run_id);
+          const correlationId = pickNonEmptyString(
+            params.correlation_id,
+            params.execution_id
+          );
+          const sourceClient = params.source_client ?? "openclaw";
           const result = await client.recordRunOutcome({
             initiative_id: params.initiative_id,
             execution_id: params.execution_id,
-            execution_type: "agent_run",
+            execution_type:
+              pickNonEmptyString(params.execution_type) ?? "agent_run",
             agent_id: params.agent_id,
             success: params.success,
             quality_score: params.quality_score,
             domain: params.domain,
             metadata: params.metadata,
+            ...(runId
+              ? { run_id: runId }
+              : {
+                  correlation_id: correlationId,
+                  source_client: sourceClient,
+                }),
           });
           return json(
             `✅ Outcome recorded for run ${result.run_id} (event: ${result.event_id})`,
