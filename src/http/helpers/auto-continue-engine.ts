@@ -2760,8 +2760,14 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         run.activeTaskId = null;
         run.updatedAt = now;
       } else {
-	        const pid = slice.pid;
-	        if (pid && pidAlive(pid)) {
+        const pid = slice.pid;
+        const child = autoContinueSliceChildren.get(slice.runId) ?? null;
+        const childClosed = Boolean(child && (child.exitCode !== null || child.signalCode !== null));
+        if (childClosed && slice.pid !== null) {
+          slice.pid = null;
+          autoContinueSliceRuns.set(slice.runId, slice);
+        }
+        if (pid && !childClosed && pidAlive(pid)) {
 	          const nowMs = Date.now();
 	          const outputTail = readFileTailSafe(slice.outputPath, 240_000);
 	          const outputParsed = outputTail

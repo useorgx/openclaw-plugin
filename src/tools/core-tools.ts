@@ -973,6 +973,27 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             type: "string",
             description: "Execution/run ID that produced this outcome",
           },
+          execution_type: {
+            type: "string",
+            description:
+              "Execution type label. Defaults to agent_run when omitted.",
+          },
+          run_id: {
+            type: "string",
+            description:
+              "Existing OrgX run ID to attach the outcome to. If omitted, correlation_id and source_client are used.",
+          },
+          correlation_id: {
+            type: "string",
+            description:
+              "Idempotency/correlation ID for this execution. Defaults to execution_id when run_id is omitted.",
+          },
+          source_client: {
+            type: "string",
+            enum: ["openclaw", "codex", "claude-code", "api"],
+            description:
+              "Client that produced the outcome. Defaults to openclaw when run_id is omitted.",
+          },
           agent_id: {
             type: "string",
             description: "Agent that did the work",
@@ -995,12 +1016,17 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           },
         },
         required: ["initiative_id", "execution_id", "agent_id", "success"],
+        additionalProperties: false,
       },
       async execute(
         _callId: string,
         params: {
           initiative_id: string;
           execution_id: string;
+          execution_type?: string;
+          run_id?: string;
+          correlation_id?: string;
+          source_client?: ReportingSourceClient;
           agent_id: string;
           success: boolean;
           quality_score?: number;
@@ -1014,15 +1040,28 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
         }
       ) {
         try {
+          const runId = pickNonEmptyString(params.run_id);
+          const correlationId = pickNonEmptyString(
+            params.correlation_id,
+            params.execution_id
+          );
+          const sourceClient = params.source_client ?? "openclaw";
           const result = await client.recordRunOutcome({
             initiative_id: params.initiative_id,
             execution_id: params.execution_id,
-            execution_type: "agent_run",
+            execution_type:
+              pickNonEmptyString(params.execution_type) ?? "agent_run",
             agent_id: params.agent_id,
             success: params.success,
             quality_score: params.quality_score,
             domain: params.domain,
             metadata: params.metadata,
+            ...(runId
+              ? { run_id: runId }
+              : {
+                  correlation_id: correlationId,
+                  source_client: sourceClient,
+                }),
           });
           return json(
             `✅ Outcome recorded for run ${result.run_id} (event: ${result.event_id})`,
@@ -3156,6 +3195,33 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             description:
               "Inline preview content (markdown/text). Supplemental only; it does not replace a durable source URL or file path.",
           },
+          metadata: {
+            type: "object",
+            description:
+              "Optional artifact metadata. Use for proof fields such as commit_sha, branch, artifact_hash, quality_gate, or schema validation signals.",
+          },
+          queue_ref: {
+            type: "object",
+            description:
+              "Optional proof-chain queue reference linking this artifact to the initiative/workstream/task queue item.",
+            properties: {
+              initiative_id: { type: "string" },
+              workstream_id: { type: "string" },
+              task_id: { type: "string" },
+            },
+            additionalProperties: false,
+          },
+          run_ref: {
+            type: "object",
+            description:
+              "Optional proof-chain run reference linking this artifact to the producing run/session.",
+            properties: {
+              run_id: { type: "string" },
+              correlation_id: { type: "string" },
+              session_id: { type: "string" },
+            },
+            additionalProperties: false,
+          },
         },
         required: ["name", "artifact_type"],
         additionalProperties: false,
@@ -3172,6 +3238,17 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           description?: string;
           url?: string;
           content?: string;
+          metadata?: Record<string, unknown>;
+          queue_ref?: {
+            initiative_id?: string;
+            workstream_id?: string;
+            task_id?: string;
+          };
+          run_ref?: {
+            run_id?: string;
+            correlation_id?: string;
+            session_id?: string;
+          };
         } = { name: "", artifact_type: "other" }
       ) {
         const now = new Date().toISOString();
@@ -3227,6 +3304,26 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
         const baseUrl = client.getBaseUrl();
         const artifactId = randomUUID();
         const { agentId, agentName } = deriveAgentIdentity(params);
+        const callerMetadata =
+          params.metadata && typeof params.metadata === "object" && !Array.isArray(params.metadata)
+            ? params.metadata
+            : {};
+        const queueRef =
+          params.queue_ref && typeof params.queue_ref === "object" && !Array.isArray(params.queue_ref)
+            ? params.queue_ref
+            : undefined;
+        const runRef =
+          params.run_ref && typeof params.run_ref === "object" && !Array.isArray(params.run_ref)
+            ? params.run_ref
+            : undefined;
+        const proofMetadata = {
+          ...callerMetadata,
+          source: "orgx_register_artifact",
+          artifact_id: artifactId,
+          confidence_score: confidenceScore,
+          ...(queueRef ? { queue_ref: queueRef } : {}),
+          ...(runRef ? { run_ref: runRef } : {}),
+        };
 
         const activityItem: LiveActivityItem = {
           id,
@@ -3250,6 +3347,8 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             url: params.url,
             entity_type: resolvedEntityType,
             entity_id: resolvedEntityId,
+            ...(queueRef ? { queue_ref: queueRef } : {}),
+            ...(runRef ? { run_ref: runRef } : {}),
             ...(agentId ? { agent_id: agentId } : {}),
             ...(agentName ? { agent_name: agentName } : {}),
           }),
@@ -3267,11 +3366,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             external_url: params.url ?? null,
             preview_markdown: params.content ?? null,
             status: "draft",
-            metadata: {
-              source: "orgx_register_artifact",
-              artifact_id: artifactId,
-              confidence_score: confidenceScore,
-            },
+            metadata: proofMetadata,
             validate_persistence: true,
           });
 
@@ -3307,6 +3402,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
               content: params.content,
               entity_type: resolvedEntityType,
               entity_id: resolvedEntityId,
+              metadata: proofMetadata,
             } as Record<string, unknown>,
             activityItem,
           });

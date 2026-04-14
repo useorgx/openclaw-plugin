@@ -319,7 +319,6 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
       });
 
       child.on("close", (code, signal) => {
-        deps.autoContinueSliceChildren.delete(input.runId);
         const stamp = new Date().toISOString();
         const wroteFallback = writeFallbackSliceOutput({
           outputPath: input.outputPath,
@@ -350,7 +349,6 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
         }
       });
       child.on("error", (error) => {
-        deps.autoContinueSliceChildren.delete(input.runId);
         const msg = deps.safeErrorMessage(error);
         try {
           logStream.write(`\nworker error: ${msg}\n`);
@@ -496,7 +494,6 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
       });
 
       child.on("close", (code, signal) => {
-        deps.autoContinueSliceChildren.delete(input.runId);
         const stamp = new Date().toISOString();
         const wroteFallback = writeFallbackSliceOutput({
           outputPath: input.outputPath,
@@ -528,7 +525,6 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
       });
 
       child.on("error", (error) => {
-        deps.autoContinueSliceChildren.delete(input.runId);
         const msg = deps.safeErrorMessage(error);
         try {
           logStream.write(`\nworker error: ${msg}\n`);
@@ -663,7 +659,6 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     });
 
     child.on("close", (code, signal) => {
-      deps.autoContinueSliceChildren.delete(input.runId);
       const stamp = new Date().toISOString();
       const wroteFallback = writeFallbackSliceOutput({
         outputPath: input.outputPath,
@@ -689,7 +684,6 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
       }
     });
     child.on("error", (error) => {
-      deps.autoContinueSliceChildren.delete(input.runId);
       const msg = deps.safeErrorMessage(error);
       try {
         logStream.write(`\nworker error: ${msg}\n`);

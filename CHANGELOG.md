@@ -2,6 +2,19 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.31 - 2026-04-13
+
+### Release Management
+- Patch release bump for npm package, lockfile, and plugin manifest metadata.
+
+### Outcome Reporting + Proof Chain
+- Fixed `orgx_record_outcome` so coordinator calls include the run context required by OrgX reporting APIs, while preserving explicit `run_id` overrides.
+- Added regression coverage for strict MCP schema behavior and outcome payload forwarding.
+
+### Autopilot Continuation Reliability
+- Kept closed slice child processes available until reconciliation so the auto-continue engine can read their terminal output before clearing process state.
+- Prevented closed slices with stale PIDs from being treated as still alive and falsely killed by stall detection.
+
 ## 0.7.30 - 2026-03-28
 
 ### Release Management
