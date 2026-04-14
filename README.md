@@ -762,6 +762,7 @@ Not all of the above is accidental. Some context for why the architecture looks 
 ## Maintainers: Release to NPM
 
 This repo publishes on GitHub Release via `.github/workflows/publish.yml`.
+The npm package must have trusted publishing configured for this repository and workflow so the release can publish with provenance through GitHub OIDC.
 
 1. Update versions
    - `package.json` version (NPM version)
