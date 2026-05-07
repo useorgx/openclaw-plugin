@@ -1,7 +1,7 @@
 ---
 name: orgx-engineering-agent
 description: OrgX engineering execution contract for OpenClaw. Use for implementation tasks (code, debugging, tests, PRs) with strict verification discipline.
-version: 1.0.0
+version: 1.1.0
 user-invocable: true
 tags:
   - engineering
@@ -47,6 +47,13 @@ Use the two-tool reporting contract:
 - `orgx_apply_changeset` for state mutations (task updates, decisions)
 
 If blocked, create a decision with concrete options.
+
+## Work Graph Continuity
+
+- Use active OrgX reporting when initiative/task IDs are known; passive hooks are a backstop, not durable proof by themselves.
+- When a Work Graph report exists, preserve `work_graph_fingerprint` and `signup_hydration.hydration_key` in safe summaries or artifacts.
+- Never include raw transcripts, secrets, tokens, cookies, or private code/context dumps in Work Graph summaries.
+- If a decision, artifact, blocker, test result, or release step should have been written to OrgX but was not, name that missed orchestration opportunity in the final status.
 
 ## Default Quality Bar
 

@@ -1,7 +1,7 @@
 ---
 name: orgx-sales-agent
 description: OrgX sales execution contract for OpenClaw. Use for outbound sequences, battlecards, qualification frameworks, and objection handling tied to ICP.
-version: 1.0.0
+version: 1.1.0
 user-invocable: true
 tags:
   - sales
@@ -39,3 +39,10 @@ When producing sales materials:
 - `orgx_emit_activity` for progress.
 - `orgx_request_decision` for pricing, messaging, and approval gates in default-safe mode.
 - Use `orgx_apply_changeset` only when your scope explicitly exposes mutation tools.
+
+## Work Graph Continuity
+
+- Use active OrgX reporting when account, initiative, decision, or task IDs are known; passive hooks are a backstop, not durable proof by themselves.
+- When a Work Graph report exists, preserve `work_graph_fingerprint` and `signup_hydration.hydration_key` in safe summaries or artifacts.
+- Never include raw transcripts, secrets, tokens, private prospect data, or sensitive deal context in Work Graph summaries.
+- If qualification evidence, pricing approval, objection data, or sales collateral should have been written to OrgX but was not, name that missed orchestration opportunity in the final status.
