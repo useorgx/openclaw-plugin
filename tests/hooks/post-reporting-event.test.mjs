@@ -1,13 +1,23 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
   buildActivityPayload,
   buildCompletionChangesetPayload,
   buildRuntimePayload,
+  buildWorkGraphHookRecord,
   main,
   parseArgs,
+  sanitizeArgs,
 } from "../../templates/hooks/scripts/post-reporting-event.mjs";
+
+async function createOutboxPath(prefix = "orgx-openclaw-hook-") {
+  const dir = await mkdtemp(join(tmpdir(), prefix));
+  return join(dir, "events.jsonl");
+}
 
 test("parseArgs parses --key=value pairs", () => {
   const args = parseArgs([
@@ -86,9 +96,45 @@ test("buildRuntimePayload emits runtime relay envelope", () => {
   assert.equal(payload.metadata.source, "hook_runtime_relay");
 });
 
+test("sanitizeArgs redacts token-like hook arguments", () => {
+  const sanitized = sanitizeArgs({
+    event: "session_stop",
+    hook_token: "secret-token",
+    runtime_hook_token: "secret-token",
+    api_key: "oxk_secret",
+  });
+  assert.equal(sanitized.event, "session_stop");
+  assert.equal(sanitized.hook_token, "[redacted]");
+  assert.equal(sanitized.runtime_hook_token, "[redacted]");
+  assert.equal(sanitized.api_key, "[redacted]");
+});
+
+test("buildWorkGraphHookRecord emits redacted reconciliation metadata", () => {
+  const payload = buildWorkGraphHookRecord({
+    args: { run_id: "run-1", task_id: "task-1" },
+    payload: {
+      session_id: "session-1",
+      prompt: "do the work",
+      secret: "do-not-copy",
+    },
+    sourceClient: "codex",
+    event: "Stop",
+    cwd: "/repo",
+    timestamp: "2026-05-07T00:00:00.000Z",
+  });
+
+  assert.equal(payload.source, "orgx_openclaw_plugin_runtime_hook");
+  assert.equal(payload.source_client, "codex");
+  assert.equal(payload.session_id, "session-1");
+  assert.equal(payload.summary.prompt_chars, 11);
+  assert.equal(payload.summary.task_id, "task-1");
+  assert.equal(JSON.stringify(payload).includes("do the work"), false);
+  assert.equal(JSON.stringify(payload).includes("do-not-copy"), false);
+});
+
 test("main returns early when API key is missing", async () => {
   const result = await main({
-    argv: [],
+    argv: [`--outbox=${await createOutboxPath()}`],
     env: {},
     fetchImpl: async () => {
       throw new Error("fetch should not be called");
@@ -96,6 +142,32 @@ test("main returns early when API key is missing", async () => {
   });
 
   assert.equal(result.skipped, "missing_api_key");
+});
+
+test("main spools Work Graph event when API key is missing", async () => {
+  const outbox = await createOutboxPath();
+
+  const result = await main({
+    argv: ["--event=session_stop", "--source_client=codex", `--outbox=${outbox}`],
+    env: {},
+    stdinText: JSON.stringify({ session_id: "session-1", prompt: "hello" }),
+    fetchImpl: async () => {
+      throw new Error("fetch should not be called");
+    },
+    now: () => Date.parse("2026-05-07T00:00:00.000Z"),
+    cwd: "/repo",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.work_graph_spooled, true);
+  assert.equal(result.skipped, "missing_api_key");
+
+  const lines = (await readFile(outbox, "utf8")).trim().split("\n");
+  assert.equal(lines.length, 1);
+  const event = JSON.parse(lines[0]);
+  assert.equal(event.source, "orgx_openclaw_plugin_runtime_hook");
+  assert.equal(event.source_client, "codex");
+  assert.equal(event.summary.prompt_chars, 5);
 });
 
 test("main posts runtime relay when hook token is provided", async () => {
@@ -121,6 +193,7 @@ test("main posts runtime relay when hook token is provided", async () => {
       "--event=session_start",
       "--phase=intent",
       "--source_client=codex",
+      `--outbox=${await createOutboxPath()}`,
     ],
     env: {
       ORGX_HOOK_TOKEN: "hook_test",
@@ -153,7 +226,12 @@ test("main does not synthesize correlation ids when run id is missing", async ()
   };
 
   await main({
-    argv: ["--event=progress", "--phase=execution", "--source_client=openclaw"],
+    argv: [
+      "--event=progress",
+      "--phase=execution",
+      "--source_client=openclaw",
+      `--outbox=${await createOutboxPath()}`,
+    ],
     env: {
       ORGX_HOOK_TOKEN: "hook_test",
       ORGX_RUNTIME_HOOK_URL: "http://127.0.0.1:18789/orgx/api/hooks/runtime",
@@ -189,6 +267,7 @@ test("main posts activity and optional completion changeset", async () => {
       "--phase=completed",
       "--apply_completion=true",
       "--task_id=15f34642-4fc5-47a0-b604-f0056c1958c6",
+      `--outbox=${await createOutboxPath()}`,
     ],
     env: {
       ORGX_API_KEY: "oxk_test",

@@ -142,6 +142,8 @@ The plugin stores its own auth and local state under:
 - `~/.config/useorgx/openclaw-plugin/installation.json`
 - `~/.config/useorgx/openclaw-plugin/snapshot.json`
 - `~/.openclaw/orgx-outbox/`
+- `~/.config/useorgx/wizard/hooks/events.jsonl` for compact, redacted Work
+  Graph hook events when runtime hooks are installed
 
 If you explicitly enable MCP client auto-configuration, the plugin may update supported client config files and create timestamped backups before writing:
 
@@ -177,6 +179,9 @@ Agent turns, terminal opens, and other `openclaw` CLI child-process actions are 
 - It does not auto-install the managed OrgX agent suite unless you enable that behavior.
 - It does not patch Claude, Cursor, or Codex MCP config files unless you enable that behavior.
 - It does not send product telemetry unless you explicitly enable it.
+- It does not send raw transcripts through runtime hooks. Hook scripts write
+  redacted event summaries locally so the OrgX wizard can reconcile Work Graph
+  fingerprints, missed OrgX writeback, and safe public readouts later.
 
 ---
 
