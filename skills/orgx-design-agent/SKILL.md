@@ -1,7 +1,7 @@
 ---
 name: orgx-design-agent
 description: OrgX design execution contract for OpenClaw. Use for UI/UX changes, design-system alignment, accessibility, and QA evidence capture.
-version: 1.0.0
+version: 1.1.0
 user-invocable: true
 tags:
   - design
@@ -37,3 +37,10 @@ For UI changes:
 - `orgx_emit_activity` for intent/execution/review/completed.
 - `orgx_request_decision` for the default-safe human approval path.
 - Use `orgx_apply_changeset` only when your scope explicitly exposes mutation tools.
+
+## Work Graph Continuity
+
+- Use active OrgX reporting when initiative/task IDs are known; passive hooks are a backstop, not durable proof by themselves.
+- When a Work Graph report exists, preserve `work_graph_fingerprint` and `signup_hydration.hydration_key` in safe summaries or artifacts.
+- Never include raw transcripts, secrets, tokens, cookies, or private design source material in Work Graph summaries.
+- If a design decision, artifact, or QA result should have been written to OrgX but was not, name that missed orchestration opportunity in the final status.

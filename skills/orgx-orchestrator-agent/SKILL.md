@@ -1,7 +1,7 @@
 ---
 name: orgx-orchestrator-agent
 description: OrgX orchestration execution contract for OpenClaw. Use for decomposing work into initiatives/workstreams/milestones/tasks and coordinating agents with explicit dependencies.
-version: 1.0.0
+version: 1.1.0
 user-invocable: true
 tags:
   - orchestration
@@ -44,3 +44,10 @@ When creating work:
 - Use `orgx_emit_activity` frequently (append-only).
 - Use `orgx_apply_changeset` for entity mutations when the orchestration scope exposes it.
 - Use `orgx_request_decision` for human approvals or when running in a default-safe surface.
+
+## Work Graph Continuity
+
+- Use active OrgX reporting whenever initiative/workstream/milestone/task IDs are known; passive hooks are a backstop, not durable proof by themselves.
+- When a Work Graph report exists, preserve `work_graph_fingerprint` and `signup_hydration.hydration_key` in safe summaries or artifacts.
+- Never include raw transcripts, secrets, tokens, cookies, or private source material in Work Graph summaries.
+- Explicitly classify missed orchestration opportunities: absent OrgX writeback, unresolved decisions, disconnected artifacts, unclear owners, and blocked release gates.
