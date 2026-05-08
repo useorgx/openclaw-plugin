@@ -593,7 +593,7 @@ export class OrgXClient {
     limit?: number;
   }): Promise<Record<string, unknown>> {
     return this.executeClientTool<Record<string, unknown>>(
-      "query_org_memory",
+      "orgx_search",
       params
     );
   }
@@ -607,7 +607,7 @@ export class OrgXClient {
     cascade?: boolean;
   }): Promise<Record<string, unknown>> {
     return this.executeClientTool<Record<string, unknown>>(
-      "recommend_next_action",
+      "orgx_recommend",
       params
     );
   }

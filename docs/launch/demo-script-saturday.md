@@ -37,7 +37,7 @@ Goal: show the full flow from zero to visible autonomous progress, end-to-end.
 5. Ask "what should I do next?"
    - In chat: "What should I do next?"
    - Expect:
-     - `recommend_next_action` includes active agent/stream progress (e.g. "Agents running: marketing (25%) ...")
+     - `orgx_recommend` includes active agent/stream progress (e.g. "Agents running: marketing (25%) ...")
      - Suggested parallel workstream to review.
 
 6. Completion + artifact visibility

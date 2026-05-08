@@ -20,7 +20,7 @@ Discovery-only slice to verify whether Org Memory returns real data today and wh
 
 ### G3.1 (Org Memory Returns Real Data)
 
-1. There is no dedicated MCP tool for querying org memory/history (for example `query_org_memory`) in current tool registration; memory visibility is indirect through `orgx_sync` and live snapshot endpoints.
+1. There is no dedicated MCP tool for querying org memory/history (for example `orgx_search`) in current tool registration; memory visibility is indirect through `orgx_sync` and live snapshot endpoints.
 2. `orgx_sync` currently acts as a thin pass-through and does not enrich or expose a normalized memory-focused view for operators.
 3. The background sync loop only sends local `agents` telemetry in `syncMemory` calls, so text memory/daily logs are not auto-refreshed unless explicitly pushed by a caller.
 
