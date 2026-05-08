@@ -61,8 +61,8 @@ Workflow (do not skip):
   - docs/marketing/live/* (if relevant)
   - docs/orgx-openclaw-launch-workstreams-plan-2026-02-14.md (if relevant)
 - If OrgX MCP tools are available:
-  - mcp__orgx__query_org_memory (prior messaging, constraints, decisions)
-  - mcp__orgx__list_entities (existing campaign/content artifacts to avoid duplication)
+  - mcp__orgx__orgx_search (prior messaging, constraints, decisions)
+  - mcp__orgx__orgx_search (existing campaign/content artifacts to avoid duplication)
 4) Draft the artifact as JSON first (no prose-first).
 5) Validate and fix until clean:
 python3 /Users/hopeatina/.codex/skills/marketing-agent/scripts/validate_marketing.py <artifact_file> --type <campaign|content|sequence>

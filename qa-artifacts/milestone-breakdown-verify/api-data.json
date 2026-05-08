@@ -1909,7 +1909,7 @@
           "tasks": [
             {
               "id": "d9a7293a-cd64-4d43-ba99-7919bbfbd07c",
-              "title": "Test entity_action lifecycle (launch → pause → complete) on each entity type",
+              "title": "Test orgx_act lifecycle (launch → pause → complete) on each entity type",
               "status": "todo"
             },
             {
@@ -1929,7 +1929,7 @@
             },
             {
               "id": "177f9786-edb7-4abe-8ab6-88b6b8e36391",
-              "title": "Test score_next_up_queue returns ranked items with factor breakdowns",
+              "title": "Test orgx_recommend returns ranked items with factor breakdowns",
               "status": "todo"
             },
             {
