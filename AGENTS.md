@@ -53,6 +53,26 @@ npm run qa:capture      # Playwright QA evidence screenshots
 npm run ship            # Commit all changes, open PR, and auto-merge (requires gh auth)
 ```
 
+## Codex Cloud Environment
+
+Use the checked-in setup scripts when configuring this repo in Codex cloud:
+
+```bash
+bash .codex/setup-cloud.sh
+```
+
+Use this as the cached-environment maintenance script:
+
+```bash
+bash .codex/maintenance-cloud.sh
+```
+
+The setup script installs root and dashboard dependencies from their lockfiles,
+then runs `npm run typecheck`, the client API compatibility test, and
+`npm run build`. Run `npm run test:hooks` separately for release signoff because
+it is a long lifecycle suite. Local deployment, publishing, and live OrgX flows
+require scoped credentials and are not part of baseline cloud setup.
+
 ## Codex Slash Commands
 
 When working with Codex/Claude/Cursor chat in this repo, treat the following as "slash commands":
