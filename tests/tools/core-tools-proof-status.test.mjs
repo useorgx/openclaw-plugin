@@ -62,6 +62,48 @@ test("proof ladder tools are registered by registerCoreTools", async () => {
   }
 });
 
+test("orgx_proof_status returns auth guidance for unauthorized responses", async () => {
+  const { registerCoreTools } = await import("../../dist/tools/core-tools.js");
+
+  const deps = {
+    registerTool: () => {},
+    client: {
+      syncMemory: async () => ({}),
+      checkSpawnGuard: async () => ({ ok: true, allowed: true, modelTier: "sonnet", checks: {} }),
+      createEntity: async () => ({}),
+      updateEntity: async () => ({}),
+      updateEntityDetailed: async () => ({ entity: {} }),
+      listEntities: async () => ({ data: [] }),
+      emitActivity: async () => ({}),
+      applyChangeset: async () => ({ applied_count: 1, replayed: false, run_id: "run" }),
+      rawRequest: async () => {
+        throw new Error("401 Unauthorized");
+      },
+    },
+    config: { syncIntervalMs: 10_000, pluginVersion: "test" },
+    getCachedSnapshot: () => null,
+    getLastSnapshotAt: () => 0,
+    doSync: async () => {},
+    text: (v) => ({ content: [{ type: "text", text: v }] }),
+    json: (l, d) => ({ content: [{ type: "text", text: `${l}\n${JSON.stringify(d)}` }] }),
+    formatSnapshot: () => "snapshot",
+    autoAssignEntityForCreate: async () => ({ assignmentSource: "manual", assignedAgents: [], warnings: [] }),
+    toReportingPhase: () => "execution",
+    inferReportingInitiativeId: () => undefined,
+    isUuid: () => true,
+    pickNonEmptyString: (...vs) => vs.find((v) => typeof v === "string" && v.trim())?.trim(),
+    resolveReportingContext: () => ({ ok: false, error: "unused" }),
+    readSkillPackState: () => ({}),
+    randomUUID: () => "uuid-test",
+  };
+
+  const tool = registerCoreTools(deps).get("orgx_proof_status");
+  const result = await tool.execute("call-proof-auth", { task_id: "task-1" });
+
+  assert.match(result.content[0].text, /Proof status requires authentication/);
+  assert.match(result.content[0].text, /auth_required/);
+});
+
 // ---------------------------------------------------------------------------
 // 2. MCP scope inclusion – proof tools in all 7 domain scopes
 // ---------------------------------------------------------------------------

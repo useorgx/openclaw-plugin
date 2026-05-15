@@ -1,7 +1,7 @@
 import { randomUUID as randomUuidFn } from "node:crypto";
 
 import type { OrgXClient } from "../api.js";
-import { registerArtifact } from "../artifacts/register-artifact.js";
+import { registerArtifact, type ArtifactEntityType } from "../artifacts/register-artifact.js";
 import { validateOpenClawSkillPackManifest } from "../contracts/skill-pack-schema.js";
 import type { AutoAssignedAgent } from "../entities/auto-assignment.js";
 import { listBuiltInSentinels } from "../http/helpers/sentinel-catalog.js";
@@ -138,6 +138,46 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
   const registerMcpTool: RegisterToolFn = (tool, options) => {
     mcpToolRegistry.set(tool.name, tool as unknown as RegisteredTool);
     registerTool(tool, options);
+  };
+
+  const normalizeEntityUpdates = (
+    entityType: string,
+    updates: Record<string, unknown>
+  ): Record<string, unknown> => {
+    const normalized = { ...updates };
+    if (entityType === "workstream" && normalized.status === "in_progress") {
+      normalized.status = "active";
+    }
+    return normalized;
+  };
+
+  const resolveArtifactAssociation = (
+    params: Record<string, unknown>
+  ):
+    | { ok: true; entityType: ArtifactEntityType; entityId: string }
+    | { ok: false; error: string } => {
+    const entityType = pickNonEmptyString(params.entity_type) as ArtifactEntityType | undefined;
+    const entityId = pickNonEmptyString(
+      params.entity_id,
+      params.task_id,
+      params.workstream_id,
+      params.milestone_id,
+      params.decision_id
+    );
+    if (entityType && entityId) {
+      return { ok: true, entityType, entityId };
+    }
+
+    const initiativeId = pickNonEmptyString(params.initiative_id);
+    if (initiativeId) {
+      return { ok: true, entityType: "initiative", entityId: initiativeId };
+    }
+
+    return {
+      ok: false,
+      error:
+        "artifact creation requires entity_type and entity_id, or initiative_id as the association target",
+    };
   };
 
 
@@ -879,6 +919,21 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
         } catch (err: unknown) {
           // Graceful degradation: if proof API is not deployed, return helpful guidance
           const msg = err instanceof Error ? err.message : String(err);
+          if (
+            msg.includes("401") ||
+            /unauthorized/i.test(msg) ||
+            /auth required/i.test(msg)
+          ) {
+            return json("Proof status requires authentication", {
+              task_id: taskId,
+              run_id: runId,
+              note: "Proof-status requires an authenticated OrgX user context. Run the MCP login flow or configure service auth before checking proof status.",
+              overall_passed: false,
+              reason_codes: ["auth_required"],
+              suggested_next_step:
+                "Authenticate OrgX MCP, then retry orgx_proof_status with the same task_id or run_id.",
+            });
+          }
           if (msg.includes("404") || msg.includes("not found") || msg.includes("Not Found")) {
             return json("Proof status (server not ready)", {
               task_id: taskId,
@@ -1181,6 +1236,61 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
       async execute(_callId: string, params: Record<string, unknown> = {}) {
         try {
           const { type, ...data } = params;
+          if (type === "artifact") {
+            const association = resolveArtifactAssociation(data);
+            if (!association.ok) {
+              return text(`❌ Creation failed: ${association.error}`);
+            }
+
+            const name = pickNonEmptyString(data.name, data.title);
+            const artifactType = pickNonEmptyString(data.artifact_type);
+            const externalUrl = pickNonEmptyString(
+              data.external_url,
+              data.url,
+              data.artifact_url
+            );
+            if (!name || !artifactType || !externalUrl) {
+              return text(
+                "❌ Creation failed: artifact creation requires name/title, artifact_type, and external_url/url/artifact_url."
+              );
+            }
+
+            const result = await registerArtifact(client, client.getBaseUrl(), {
+              entity_type: association.entityType,
+              entity_id: association.entityId,
+              name,
+              artifact_type: artifactType,
+              external_url: externalUrl,
+              description: pickNonEmptyString(data.description, data.summary) ?? null,
+              preview_markdown:
+                pickNonEmptyString(data.preview_markdown, data.content) ?? null,
+              status: pickNonEmptyString(data.status),
+              metadata:
+                data.metadata && typeof data.metadata === "object" && !Array.isArray(data.metadata)
+                  ? {
+                      ...(data.metadata as Record<string, unknown>),
+                      compatibility_alias: "orgx_create_entity type=artifact",
+                      preferred_tool: "orgx_register_artifact",
+                    }
+                  : {
+                      compatibility_alias: "orgx_create_entity type=artifact",
+                      preferred_tool: "orgx_register_artifact",
+                    },
+            });
+
+            if (!result.ok) {
+              return text(
+                `❌ Creation failed: ${result.persistence.last_error ?? "artifact registration failed"}`
+              );
+            }
+
+            return json(`✅ Created artifact: ${name}`, {
+              artifact: result,
+              compatibility_alias: "orgx_create_entity type=artifact",
+              preferred_tool: "orgx_register_artifact",
+            });
+          }
+
           let entity = await client.createEntity(type as string, data);
           let assignmentSummary: {
             assignment_source: "orchestrator" | "fallback" | "manual";
@@ -1275,10 +1385,11 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
       async execute(_callId: string, params: Record<string, unknown> = {}) {
         try {
           const { type, id, ...updates } = params;
+          const normalizedUpdates = normalizeEntityUpdates(String(type), updates);
           const result = await client.updateEntityDetailed(
             type as string,
             id as string,
-            updates
+            normalizedUpdates
           );
           const payload =
             result.reassignment || result.initiative_reassignment

@@ -155,3 +155,33 @@ test("orgx_register_artifact forwards caller proof metadata to durable artifacts
   });
   assert.ok(createRequest.body.metadata.artifact_hash, "expected artifact hash to be generated");
 });
+
+test("orgx_create_entity routes artifact payloads to durable artifact registration", async () => {
+  const { deps, requests } = createDeps();
+  const tool = registerCoreTools(deps).get("orgx_create_entity");
+
+  const result = await tool.execute("call-create-artifact", {
+    type: "artifact",
+    title: "OrgX MCP error audit",
+    artifact_type: "engineering.report",
+    initiative_id: INITIATIVE_ID,
+    external_url: "https://github.com/useorgx/orgx-mcp/pull/184",
+    summary: "Audit and fix notes for MCP tool-call failures.",
+  });
+
+  assert.match(result.content[0].text, /Created artifact: OrgX MCP error audit/);
+
+  const createRequest = requests.find(
+    (request) => request.method === "POST" && request.path === "/api/client/artifacts"
+  );
+  assert.ok(createRequest, "expected canonical artifact create request");
+  assert.equal(createRequest.body.entity_type, "initiative");
+  assert.equal(createRequest.body.entity_id, INITIATIVE_ID);
+  assert.equal(createRequest.body.name, "OrgX MCP error audit");
+  assert.equal(createRequest.body.artifact_type, "engineering.report");
+  assert.equal(
+    createRequest.body.metadata.compatibility_alias,
+    "orgx_create_entity type=artifact"
+  );
+  assert.equal(createRequest.body.metadata.preferred_tool, "orgx_register_artifact");
+});
