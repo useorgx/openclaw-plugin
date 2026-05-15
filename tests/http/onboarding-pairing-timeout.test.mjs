@@ -57,10 +57,48 @@ function createApiStub(configOverrides = {}) {
   return stub;
 }
 
+function isolateOnboardingConfig(dir) {
+  const previous = {
+    pluginDir: process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR,
+    openclawHome: process.env.OPENCLAW_HOME,
+    home: process.env.HOME,
+    orgxApiKey: process.env.ORGX_API_KEY,
+  };
+  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+  process.env.OPENCLAW_HOME = dir;
+  process.env.HOME = dir;
+  delete process.env.ORGX_API_KEY;
+
+  return () => {
+    if (previous.pluginDir === undefined) {
+      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+    } else {
+      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = previous.pluginDir;
+    }
+
+    if (previous.openclawHome === undefined) {
+      delete process.env.OPENCLAW_HOME;
+    } else {
+      process.env.OPENCLAW_HOME = previous.openclawHome;
+    }
+
+    if (previous.home === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previous.home;
+    }
+
+    if (previous.orgxApiKey === undefined) {
+      delete process.env.ORGX_API_KEY;
+    } else {
+      process.env.ORGX_API_KEY = previous.orgxApiKey;
+    }
+  };
+}
+
 test("Onboarding pairing start uses an extended timeout for /api/plugin/openclaw/pairings", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-pairing-"));
-  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
-  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+  const restoreConfig = isolateOnboardingConfig(dir);
 
   const prevFetch = globalThis.fetch;
   const prevSetTimeout = globalThis.setTimeout;
@@ -145,18 +183,13 @@ test("Onboarding pairing start uses an extended timeout for /api/plugin/openclaw
     globalThis.fetch = prevFetch;
     globalThis.setTimeout = prevSetTimeout;
     globalThis.clearTimeout = prevClearTimeout;
-    if (prevPluginDir === undefined) {
-      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
-    } else {
-      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
-    }
+    restoreConfig();
   }
 });
 
 test("Onboarding pairing start surfaces request tracing on failure", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-pairing-"));
-  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
-  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+  const restoreConfig = isolateOnboardingConfig(dir);
 
   const prevFetch = globalThis.fetch;
 
@@ -207,18 +240,13 @@ test("Onboarding pairing start surfaces request tracing on failure", async () =>
     assert.ok(String(payload.error).includes("clerk=signed-out"));
   } finally {
     globalThis.fetch = prevFetch;
-    if (prevPluginDir === undefined) {
-      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
-    } else {
-      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
-    }
+    restoreConfig();
   }
 });
 
 test("Onboarding pairing start retries against canonical OrgX URL when configured base URL is unreachable", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-pairing-retry-canonical-"));
-  const prevPluginDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
-  process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = dir;
+  const restoreConfig = isolateOnboardingConfig(dir);
 
   const prevFetch = globalThis.fetch;
   const calls = [];
@@ -285,10 +313,6 @@ test("Onboarding pairing start retries against canonical OrgX URL when configure
     );
   } finally {
     globalThis.fetch = prevFetch;
-    if (prevPluginDir === undefined) {
-      delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
-    } else {
-      process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = prevPluginDir;
-    }
+    restoreConfig();
   }
 });

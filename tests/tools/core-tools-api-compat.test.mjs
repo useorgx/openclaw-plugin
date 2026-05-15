@@ -11,6 +11,7 @@ async function importMcpHandler() {
 
 function createDeps(overrides = {}) {
   let recordedQuality = null;
+  let updatedEntity = null;
 
   const deps = {
     registerTool: () => {},
@@ -22,7 +23,10 @@ function createDeps(overrides = {}) {
       checkSpawnGuard: async () => ({ ok: true, allowed: true, modelTier: "sonnet", checks: {} }),
       createEntity: async () => ({}),
       updateEntity: async () => ({}),
-      updateEntityDetailed: async () => ({ entity: {} }),
+      updateEntityDetailed: async (type, id, updates) => {
+        updatedEntity = { type, id, updates };
+        return { entity: { id, ...updates } };
+      },
       listEntities: async () => ({ data: [] }),
       emitActivity: async () => ({}),
       applyChangeset: async () => ({ applied_count: 1, replayed: false, run_id: "run" }),
@@ -54,7 +58,11 @@ function createDeps(overrides = {}) {
     ...overrides,
   };
 
-  return { deps, getRecordedQuality: () => recordedQuality };
+  return {
+    deps,
+    getRecordedQuality: () => recordedQuality,
+    getUpdatedEntity: () => updatedEntity,
+  };
 }
 
 test("compatibility tools are registered with strict schemas", () => {
@@ -90,6 +98,24 @@ test("orgx_quality_score accepts agentDomain-only requests", async () => {
     taskId: "task-1",
     agentDomain: "engineering",
     score: 5,
+  });
+});
+
+test("orgx_update_entity normalizes legacy workstream in_progress status", async () => {
+  const { deps, getUpdatedEntity } = createDeps();
+  const tool = registerCoreTools(deps).get("orgx_update_entity");
+
+  const result = await tool.execute("call-update-workstream", {
+    type: "workstream",
+    id: "workstream-1",
+    status: "in_progress",
+  });
+
+  assert.match(result.content[0].text, /Updated workstream/);
+  assert.deepEqual(getUpdatedEntity(), {
+    type: "workstream",
+    id: "workstream-1",
+    updates: { status: "active" },
   });
 });
 
