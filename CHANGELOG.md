@@ -2,6 +2,14 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.35 - 2026-05-18
+
+### OpenClaw 2026.5 Compatibility
+- Declared startup activation so the OrgX dashboard and local HTTP routes load when the gateway starts.
+- Added the runtime tool ownership contract required by newer OpenClaw plugin loading.
+- Redirected legacy `/orgx/chat` deep links into the live dashboard while preserving query parameters.
+- Updated local deploy/dev scripts to target OpenClaw's managed npm plugin install before the legacy extension path.
+
 ## 0.7.33 - 2026-04-13
 
 ### Release Management

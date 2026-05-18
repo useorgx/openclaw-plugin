@@ -1,6 +1,6 @@
 {
   "name": "@useorgx/openclaw-plugin",
-  "version": "0.7.34",
+  "version": "0.7.35",
   "description": "Persistent organizational memory and coordination for OpenClaw agents",
   "type": "module",
   "main": "./dist/index.js",

@@ -11,7 +11,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-EXTENSIONS_DIR="${HOME}/.openclaw/extensions/openclaw-plugin"
+LEGACY_EXTENSIONS_DIR="${HOME}/.openclaw/extensions/openclaw-plugin"
+NPM_PLUGIN_DIR="${HOME}/.openclaw/npm/node_modules/@useorgx/openclaw-plugin"
 CONFIG_FILE="${HOME}/.openclaw/openclaw.json"
 LAUNCH_AGENT="gui/$(id -u)/ai.openclaw.gateway"
 
@@ -60,23 +61,35 @@ if ! $LOCAL_ONLY; then
   echo "Published @useorgx/openclaw-plugin@${VERSION}"
 fi
 
-# --- Install to extensions dir ---
-echo "Installing to ${EXTENSIONS_DIR}..."
-if [ -d "$EXTENSIONS_DIR" ]; then
-  find "$EXTENSIONS_DIR" -mindepth 1 -delete 2>/dev/null || true
-fi
-mkdir -p "$EXTENSIONS_DIR"
-
-if $LOCAL_ONLY; then
-  cp -R dist openclaw.plugin.json package.json LICENSE README.md "$EXTENSIONS_DIR/"
-  [ -d dashboard/dist ] && mkdir -p "$EXTENSIONS_DIR/dashboard" && cp -R dashboard/dist "$EXTENSIONS_DIR/dashboard/"
-  [ -d skills ] && cp -R skills "$EXTENSIONS_DIR/"
-  echo "Installing runtime dependencies for local extension..."
-  (cd "$EXTENSIONS_DIR" && npm install --omit=dev)
+INSTALL_DIRS=()
+if [ -d "$NPM_PLUGIN_DIR" ]; then
+  INSTALL_DIRS+=("$NPM_PLUGIN_DIR")
 else
-  TMPDIR=$(mktemp -d)
-  (cd "$TMPDIR" && npm pack "@useorgx/openclaw-plugin@${VERSION}" --silent && tar xzf *.tgz && cp -R package/* "$EXTENSIONS_DIR/")
+  INSTALL_DIRS+=("$LEGACY_EXTENSIONS_DIR")
 fi
+
+if ! $LOCAL_ONLY; then
+  TMPDIR=$(mktemp -d)
+  (cd "$TMPDIR" && npm pack "@useorgx/openclaw-plugin@${VERSION}" --silent && tar xzf *.tgz)
+fi
+
+for INSTALL_DIR in "${INSTALL_DIRS[@]}"; do
+  echo "Installing to ${INSTALL_DIR}..."
+  if [ -d "$INSTALL_DIR" ]; then
+    find "$INSTALL_DIR" -mindepth 1 -delete 2>/dev/null || true
+  fi
+  mkdir -p "$INSTALL_DIR"
+
+  if $LOCAL_ONLY; then
+    cp -R dist openclaw.plugin.json package.json LICENSE README.md "$INSTALL_DIR/"
+    [ -d dashboard/dist ] && mkdir -p "$INSTALL_DIR/dashboard" && cp -R dashboard/dist "$INSTALL_DIR/dashboard/"
+    [ -d skills ] && cp -R skills "$INSTALL_DIR/"
+    echo "Installing runtime dependencies for local plugin at ${INSTALL_DIR}..."
+    (cd "$INSTALL_DIR" && npm install --omit=dev)
+  else
+    cp -R "$TMPDIR"/package/* "$INSTALL_DIR/"
+  fi
+done
 
 # --- Update config version ---
 if [ -f "$CONFIG_FILE" ]; then
@@ -89,5 +102,8 @@ launchctl kickstart -k "$LAUNCH_AGENT" 2>/dev/null || echo "Gateway not running 
 
 echo ""
 echo "Deployed @useorgx/openclaw-plugin@${VERSION}"
-echo "  Extensions: ${EXTENSIONS_DIR}"
+printf "  Installed paths:\\n"
+for INSTALL_DIR in "${INSTALL_DIRS[@]}"; do
+  printf "    - %s\\n" "$INSTALL_DIR"
+done
 echo "  Gateway: restarted"
