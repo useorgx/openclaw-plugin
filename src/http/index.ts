@@ -4880,6 +4880,19 @@ export function createHttpHandler(
       return true;
     }
 
+    // Legacy/direct chat links load the dashboard SPA. The chat surface is a
+    // dock within /orgx/live, while chat data APIs remain under /orgx/api/chat/*.
+    if (url === "/orgx/chat" || url.startsWith("/orgx/chat/")) {
+      const suffix = queryString && queryString.trim().length > 0 ? `?${queryString}` : "";
+      res.writeHead(302, {
+        Location: `/orgx/live${suffix}`,
+        ...SECURITY_HEADERS,
+        ...CORS_HEADERS,
+      });
+      res.end();
+      return true;
+    }
+
     // Requests under /orgx/live
     if (url === "/orgx/live" || url.startsWith("/orgx/live/")) {
       const subPath = url.replace(/^\/orgx\/live\/?/, "");

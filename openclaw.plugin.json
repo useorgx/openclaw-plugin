@@ -1,7 +1,7 @@
 {
   "id": "orgx",
   "name": "OrgX for OpenClaw",
-  "version": "0.7.34",
+  "version": "0.7.35",
   "description": "Persistent organizational memory and coordinated execution for OpenClaw agents",
   "entry": "./dist/index.js",
   "author": "OrgX Team",
@@ -13,12 +13,52 @@
   "engines": {
     "node": ">=18.0.0"
   },
+  "activation": {
+    "onStartup": true
+  },
   "skills": ["skills"],
   "capabilities": {
     "tools": true,
     "services": true,
     "cli": true,
     "http": true
+  },
+  "contracts": {
+    "tools": [
+      "orgx_status",
+      "orgx_sentinel_catalog",
+      "orgx_sync",
+      "orgx_get_morning_brief",
+      "orgx_query_org_memory",
+      "orgx_recommend_next_action",
+      "orgx_delegation_preflight",
+      "orgx_run_action",
+      "orgx_checkpoints_list",
+      "orgx_checkpoint_restore",
+      "orgx_spawn_check",
+      "orgx_quality_score",
+      "orgx_proof_status",
+      "orgx_verify_completion",
+      "orgx_record_outcome",
+      "orgx_get_outcome_attribution",
+      "orgx_create_entity",
+      "orgx_update_entity",
+      "orgx_reassign_stream",
+      "orgx_reassign_streams",
+      "orgx_list_entities",
+      "orgx_emit_activity",
+      "orgx_apply_changeset",
+      "orgx_report_progress",
+      "orgx_request_decision",
+      "orgx_register_artifact",
+      "orgx_agent_sessions",
+      "orgx_resume_agent_session",
+      "orgx_clear_agent_session",
+      "list_agent_configs",
+      "get_agent_config",
+      "update_agent_config",
+      "update_stream_progress"
+    ]
   },
   "configSchema": {
     "type": "object",

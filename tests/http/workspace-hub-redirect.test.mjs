@@ -90,3 +90,23 @@ test("legacy /workspace-hub deep links redirect to /orgx/live", async () => {
     "/orgx/live?center=2577519c-d0bf-4682-a7ec-e9ab28d19822&view=activity"
   );
 });
+
+test("legacy /orgx/chat deep links redirect to /orgx/live", async () => {
+  const config = baseConfig();
+  const client = { getBaseUrl: () => config.baseUrl };
+  const handler = createHttpHandler(config, client, () => null, createNoopOnboarding());
+
+  const res = createStubResponse();
+  const handled = await handler(
+    {
+      method: "GET",
+      url: "/orgx/chat?session=agent%3Amain%3Amain",
+      headers: {},
+    },
+    res
+  );
+
+  assert.equal(handled, true);
+  assert.equal(res.status, 302);
+  assert.equal(res.headers?.Location, "/orgx/live?session=agent%3Amain%3Amain");
+});

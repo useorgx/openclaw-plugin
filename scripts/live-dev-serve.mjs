@@ -8,10 +8,17 @@ import { fileURLToPath } from "node:url";
 const scriptDir = resolve(fileURLToPath(new URL(".", import.meta.url)));
 const repoRoot = resolve(scriptDir, "..");
 const dashboardDir = resolve(repoRoot, "dashboard");
-const extensionRoot = resolve(
-  process.env.HOME || "~",
-  ".openclaw/extensions/openclaw-plugin"
+const openclawHome = resolve(process.env.HOME || "~", ".openclaw");
+const npmPluginRoot = resolve(
+  openclawHome,
+  "npm/node_modules/@useorgx/openclaw-plugin"
 );
+const legacyExtensionRoot = resolve(openclawHome, "extensions/openclaw-plugin");
+const extensionRoot = process.env.ORGX_OPENCLAW_PLUGIN_EXTENSION_ROOT
+  ? resolve(process.env.ORGX_OPENCLAW_PLUGIN_EXTENSION_ROOT)
+  : existsSync(npmPluginRoot)
+    ? npmPluginRoot
+    : legacyExtensionRoot;
 const gatewayPort = String(process.env.ORGX_DEV_GATEWAY_PORT || "18890").trim();
 
 function log(message) {
