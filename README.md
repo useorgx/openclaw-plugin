@@ -166,6 +166,24 @@ The plugin talks to OrgX services for pairing, sync, MCP, and dashboard-backed w
 
 Product telemetry is **off by default**. PostHog events are only sent if you explicitly enable telemetry with environment variables such as `ORGX_TELEMETRY_ENABLED`. Telemetry can also be disabled via `ORGX_TELEMETRY_DISABLED`, `OPENCLAW_TELEMETRY_DISABLED`, or `POSTHOG_DISABLED`.
 
+Passive AI-client hooks write compact, summary-only records to
+`~/.config/useorgx/wizard/hooks/events.jsonl`. The packaged
+`orgx-openclaw-reconcile-hooks` command can turn that outbox into a Work Graph
+hydration report with a stable `work_graph_fingerprint` and
+`signup_hydration.hydration_key`:
+
+```bash
+orgx-openclaw-reconcile-hooks \
+  --outbox ~/.config/useorgx/wizard/hooks/events.jsonl \
+  --output /tmp/orgx-work-graph-report.json
+```
+
+Publishing is explicit:
+
+```bash
+ORGX_API_KEY=oxk_... orgx-openclaw-reconcile-hooks --post
+```
+
 ### Background processes and local execution
 
 The plugin runs a background sync service as part of normal operation. It can also start a local gateway watchdog process to keep the OpenClaw gateway reachable; if you do not want that behavior, set `ORGX_DISABLE_GATEWAY_WATCHDOG=1`.

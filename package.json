@@ -5,6 +5,9 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "orgx-openclaw-reconcile-hooks": "./dist/hooks/orgx-work-graph-reconcile.mjs"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

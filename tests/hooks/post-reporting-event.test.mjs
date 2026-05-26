@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import {
   buildActivityPayload,
   buildCompletionChangesetPayload,
+  buildHookOutboxRecord,
   buildRuntimePayload,
   main,
   parseArgs,
@@ -86,16 +90,36 @@ test("buildRuntimePayload emits runtime relay envelope", () => {
   assert.equal(payload.metadata.source, "hook_runtime_relay");
 });
 
+test("buildHookOutboxRecord captures redacted runtime evidence", () => {
+  const record = buildHookOutboxRecord({
+    sourceClient: "openclaw",
+    event: "post_tool_use",
+    args: { tool_name: "mcp__orgx__orgx_emit_activity" },
+    env: { OPENCLAW_PROJECT_DIR: "/repo" },
+    payload: { thread_id: "thread-1", prompt: "ship this" },
+    now: () => new Date("2026-05-07T12:00:00.000Z"),
+  });
+
+  assert.equal(record.source, "orgx_openclaw_plugin_runtime_hook");
+  assert.equal(record.source_client, "openclaw");
+  assert.equal(record.session_id, "thread-1");
+  assert.equal(record.cwd, "/repo");
+  assert.equal(record.summary.tool_name, "mcp__orgx__orgx_emit_activity");
+});
+
 test("main returns early when API key is missing", async () => {
+  const outbox = join(mkdtempSync(join(tmpdir(), "orgx-openclaw-hook-")), "events.jsonl");
   const result = await main({
     argv: [],
-    env: {},
+    env: { ORGX_WIZARD_HOOK_OUTBOX: outbox },
     fetchImpl: async () => {
       throw new Error("fetch should not be called");
     },
+    readStdinImpl: async () => JSON.stringify({ session_id: "session-1" }),
   });
 
   assert.equal(result.skipped, "missing_api_key");
+  assert.equal(result.hook_outbox_written, true);
 });
 
 test("main posts runtime relay when hook token is provided", async () => {
@@ -128,6 +152,7 @@ test("main posts runtime relay when hook token is provided", async () => {
       ORGX_INITIATIVE_ID: "aa6d16dc-d450-417f-8a17-fd89bd597195",
     },
     fetchImpl,
+    readStdinImpl: async () => "",
   });
 
   assert.equal(result.ok, true);
@@ -160,6 +185,7 @@ test("main does not synthesize correlation ids when run id is missing", async ()
       ORGX_INITIATIVE_ID: "aa6d16dc-d450-417f-8a17-fd89bd597195",
     },
     fetchImpl,
+    readStdinImpl: async () => "",
   });
 
   assert.equal(calls.length, 1);
@@ -199,6 +225,7 @@ test("main posts activity and optional completion changeset", async () => {
     },
     fetchImpl,
     now: () => 1700000000000,
+    readStdinImpl: async () => "",
   });
 
   assert.equal(result.ok, true);

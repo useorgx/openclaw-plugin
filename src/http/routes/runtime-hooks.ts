@@ -100,7 +100,9 @@ export function registerRuntimeHookRoutes<
 
       const hooksDir = join(getOrgxPluginConfigDir(), "hooks");
       const hookScriptPath = join(hooksDir, "post-reporting-event.mjs");
+      const workGraphReconcilerPath = join(hooksDir, "orgx-work-graph-reconcile.mjs");
       const hookScriptInstalled = existsSync(hookScriptPath);
+      const workGraphReconcilerInstalled = existsSync(workGraphReconcilerPath);
 
       const codexHome = (process.env.CODEX_HOME ?? "").trim();
       const codexCandidates = [
@@ -144,11 +146,13 @@ export function registerRuntimeHookRoutes<
         hookTokenHint: deps.maskSecret(hookToken),
         paths: {
           hookScriptPath,
+          workGraphReconcilerPath,
           codexConfigPath,
           claudeSettingsPath,
         },
         installed: {
           hookScript: hookScriptInstalled,
+          workGraphReconciler: workGraphReconcilerInstalled,
           codex: codexInstalled,
           claudeCode: claudeInstalled,
         },
@@ -212,32 +216,45 @@ export function registerRuntimeHookRoutes<
         const hooksDir = join(getOrgxPluginConfigDir(), "hooks");
         mkdirSync(hooksDir, { recursive: true, mode: 0o700 });
         const hookScriptPath = join(hooksDir, "post-reporting-event.mjs");
+        const workGraphReconcilerPath = join(hooksDir, "orgx-work-graph-reconcile.mjs");
 
         const handlerFilename = fileURLToPath(import.meta.url);
         const distDir = resolve(join(handlerFilename, ".."));
-        const bundledScriptPath = resolve(distDir, "hooks", "post-reporting-event.mjs");
-        const fallbackScriptPath = resolve(
-          distDir,
-          "..",
-          "templates",
-          "hooks",
-          "scripts",
-          "post-reporting-event.mjs"
+        const installBundledHookScript = (filename: string, targetPath: string) => {
+          const bundledScriptPath = resolve(distDir, "hooks", filename);
+          const fallbackScriptPath = resolve(
+            distDir,
+            "..",
+            "templates",
+            "hooks",
+            "scripts",
+            filename
+          );
+
+          let scriptContent = "";
+          let sourcePath = bundledScriptPath;
+          try {
+            scriptContent = readFileSync(bundledScriptPath, "utf8");
+          } catch {
+            sourcePath = fallbackScriptPath;
+            scriptContent = readFileSync(fallbackScriptPath, "utf8");
+          }
+
+          writeFileAtomicSync(targetPath, scriptContent, {
+            mode: 0o700,
+            encoding: "utf8",
+          });
+          return sourcePath;
+        };
+
+        const hookScriptSourcePath = installBundledHookScript(
+          "post-reporting-event.mjs",
+          hookScriptPath
         );
-
-        let scriptContent = "";
-        let hookScriptSourcePath = bundledScriptPath;
-        try {
-          scriptContent = readFileSync(bundledScriptPath, "utf8");
-        } catch {
-          hookScriptSourcePath = fallbackScriptPath;
-          scriptContent = readFileSync(fallbackScriptPath, "utf8");
-        }
-
-        writeFileAtomicSync(hookScriptPath, scriptContent, {
-          mode: 0o700,
-          encoding: "utf8",
-        });
+        const workGraphReconcilerSourcePath = installBundledHookScript(
+          "orgx-work-graph-reconcile.mjs",
+          workGraphReconcilerPath
+        );
 
         const result = {
           ok: true,
@@ -245,6 +262,8 @@ export function registerRuntimeHookRoutes<
           hookTokenHint: deps.maskSecret(hookToken),
           hookScriptPath,
           hookScriptSourcePath,
+          workGraphReconcilerPath,
+          workGraphReconcilerSourcePath,
           targets: {
             codex: targets.has("codex"),
             claudeCode: targets.has("claude-code"),

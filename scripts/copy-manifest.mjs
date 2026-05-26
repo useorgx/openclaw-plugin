@@ -32,16 +32,20 @@ if (Array.isArray(manifest.skills)) {
 
 writeFileSync(target, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 
-// Bundle local runtime hook script into dist/ so the plugin can install hooks on user machines.
-const hookSource = resolve(rootDir, 'templates', 'hooks', 'scripts', 'post-reporting-event.mjs');
+// Bundle local runtime hook scripts into dist/ so the plugin can install hooks on user machines.
 const hookTargetDir = resolve(distDir, 'hooks');
-const hookTarget = resolve(hookTargetDir, 'post-reporting-event.mjs');
 
-if (existsSync(hookSource)) {
-  if (!existsSync(hookTargetDir)) {
-    mkdirSync(hookTargetDir, { recursive: true });
+for (const hookName of [
+  'post-reporting-event.mjs',
+  'orgx-work-graph-reconcile.mjs',
+]) {
+  const hookSource = resolve(rootDir, 'templates', 'hooks', 'scripts', hookName);
+  const hookTarget = resolve(hookTargetDir, hookName);
+  if (existsSync(hookSource)) {
+    if (!existsSync(hookTargetDir)) {
+      mkdirSync(hookTargetDir, { recursive: true });
+    }
+    const hookRaw = readFileSync(hookSource, 'utf8');
+    writeFileSync(hookTarget, hookRaw, 'utf8');
   }
-  const hookRaw = readFileSync(hookSource, 'utf8');
-  writeFileSync(hookTarget, hookRaw, 'utf8');
 }
-
