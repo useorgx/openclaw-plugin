@@ -67,6 +67,10 @@ test("work graph reconciler emits summary-only report for OpenClaw hooks", () =>
   assert.equal(report.source_client, "wizard");
   assert.equal(report.raw_transcripts_sent, false);
   assert.equal(report.investigation.raw_transcripts_excluded, true);
+  assert.equal(report.investigation.fingerprint, report.work_graph_fingerprint);
+  assert.equal(report.investigation.generated_at, NOW);
+  assert.equal(typeof report.investigation.why_not_100[0], "object");
+  assert.equal(report.events[0].event_type, "tool_signal");
   assert.equal(report.source_coverage.orgxMcpCalled, true);
   assert.deepEqual(report.missed_orchestration_opportunities, []);
   assert.equal(report.attribution_spine.source_events.length, 1);
