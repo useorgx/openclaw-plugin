@@ -113,7 +113,7 @@ test("buildWorkGraphHookRecord emits redacted reconciliation metadata", () => {
   const payload = buildWorkGraphHookRecord({
     args: { run_id: "run-1", task_id: "task-1" },
     payload: {
-      session_id: "session-1",
+      thread_id: "thread-1",
       prompt: "do the work",
       secret: "do-not-copy",
     },
@@ -125,7 +125,7 @@ test("buildWorkGraphHookRecord emits redacted reconciliation metadata", () => {
 
   assert.equal(payload.source, "orgx_openclaw_plugin_runtime_hook");
   assert.equal(payload.source_client, "codex");
-  assert.equal(payload.session_id, "session-1");
+  assert.equal(payload.session_id, "thread-1");
   assert.equal(payload.summary.prompt_chars, 11);
   assert.equal(payload.summary.task_id, "task-1");
   assert.equal(JSON.stringify(payload).includes("do the work"), false);
