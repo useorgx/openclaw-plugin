@@ -123,10 +123,19 @@ export function normalizeBaseUrl(raw: string | undefined): string {
   }
 }
 
+function normalizeOptionalBaseUrl(raw: string | undefined): string | undefined {
+  if (!raw || !raw.trim()) return undefined;
+  const normalized = normalizeBaseUrl(raw);
+  return normalized === DEFAULT_BASE_URL && raw.trim() !== DEFAULT_BASE_URL
+    ? undefined
+    : normalized;
+}
+
 export function readOpenClawOrgxConfig(): {
   apiKey: string;
   userId: string;
   baseUrl: string;
+  apiFallbackUrl?: string;
   enabled?: boolean;
   dashboardEnabled?: boolean;
   autoInstallAgentSuiteOnConnect?: boolean;
@@ -160,6 +169,12 @@ export function readOpenClawOrgxConfig(): {
     const apiKey = typeof config.apiKey === "string" ? config.apiKey.trim() : "";
     const userId = typeof config.userId === "string" ? config.userId.trim() : "";
     const baseUrl = typeof config.baseUrl === "string" ? config.baseUrl.trim() : "";
+    const apiFallbackUrl =
+      typeof config.apiFallbackUrl === "string"
+        ? config.apiFallbackUrl.trim()
+        : typeof config.fallbackBaseUrl === "string"
+        ? config.fallbackBaseUrl.trim()
+        : "";
     const enabled = typeof orgx.enabled === "boolean" ? orgx.enabled : undefined;
     const dashboardEnabled =
       typeof config.dashboardEnabled === "boolean" ? config.dashboardEnabled : undefined;
@@ -175,6 +190,7 @@ export function readOpenClawOrgxConfig(): {
       apiKey,
       userId,
       baseUrl,
+      apiFallbackUrl: apiFallbackUrl || undefined,
       enabled,
       dashboardEnabled,
       autoInstallAgentSuiteOnConnect,
@@ -257,11 +273,15 @@ export function resolveConfig(
   const baseUrl = normalizeBaseUrl(
     pluginConf.baseUrl || process.env.ORGX_BASE_URL || openclaw.baseUrl || DEFAULT_BASE_URL
   );
+  const apiFallbackUrl = normalizeOptionalBaseUrl(
+    pluginConf.apiFallbackUrl || process.env.ORGX_API_FALLBACK_URL || openclaw.apiFallbackUrl
+  );
 
   return {
     apiKey,
     userId,
     baseUrl,
+    apiFallbackUrl,
     syncIntervalMs: pluginConf.syncIntervalMs ?? 300_000,
     enabled: pluginConf.enabled ?? openclaw.enabled ?? true,
     autoInstallAgentSuiteOnConnect:

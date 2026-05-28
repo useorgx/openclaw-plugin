@@ -421,7 +421,12 @@ export default function register(api: PluginAPI): void {
 
   hydrateCachedSnapshot();
 
-  const client = new OrgXClient(config.apiKey, config.baseUrl, config.userId);
+  const client = new OrgXClient(
+    config.apiKey,
+    config.baseUrl,
+    config.userId,
+    config.apiFallbackUrl
+  );
   let onboardingState: OnboardingState = {
     status: config.apiKey ? "connected" : "idle",
     hasApiKey: Boolean(config.apiKey),
@@ -622,6 +627,7 @@ export default function register(api: PluginAPI): void {
       apiKey: config.apiKey,
       userId: config.userId,
       baseUrl: config.baseUrl,
+      apiFallbackUrl: config.apiFallbackUrl,
     });
     updateOnboardingState({ docsUrl: resolveDocsUrl(config.baseUrl) });
   }
@@ -1732,7 +1738,8 @@ export default function register(api: PluginAPI): void {
     const probeClient = new OrgXClient(
       nextKey,
       config.baseUrl,
-      resolveRuntimeUserId(nextKey, [input.userId, config.userId])
+      resolveRuntimeUserId(nextKey, [input.userId, config.userId]),
+      config.apiFallbackUrl
     );
     const snapshot = await probeClient.getOrgSnapshot();
 

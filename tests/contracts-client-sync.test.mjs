@@ -86,6 +86,71 @@ test("OrgXClient.getOrgSnapshot stays backward-compatible when sync omits agents
   }
 });
 
+test("OrgXClient retries through fallback base URL for Cloudflare origin failures", async () => {
+  const { OrgXClient } = await import("../dist/contracts/client.js");
+  const client = new OrgXClient(
+    "oxk_test",
+    "https://www.useorgx.com",
+    "",
+    "https://orgx-api-fallback.example"
+  );
+
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    if (String(url).startsWith("https://www.useorgx.com")) {
+      return new Response("origin timed out", {
+        status: 522,
+        statusText: "Origin Timeout",
+      });
+    }
+    return new Response(JSON.stringify(makeSyncResponse()), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    const snapshot = await client.getOrgSnapshot();
+    assert.equal(snapshot.initiatives.length, 1);
+    assert.deepEqual(calls, [
+      "https://www.useorgx.com/api/client/sync",
+      "https://orgx-api-fallback.example/api/client/sync",
+    ]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("OrgXClient does not retry auth failures through fallback", async () => {
+  const { OrgXClient } = await import("../dist/contracts/client.js");
+  const client = new OrgXClient(
+    "bad-key",
+    "https://www.useorgx.com",
+    "",
+    "https://orgx-api-fallback.example"
+  );
+
+  const originalFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    calls.push(String(url));
+    return new Response(JSON.stringify({ error: "Authentication required" }), {
+      status: 401,
+      statusText: "Unauthorized",
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  try {
+    await assert.rejects(() => client.getOrgSnapshot(), /401 Unauthorized/);
+    assert.deepEqual(calls, ["https://www.useorgx.com/api/client/sync"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("OrgXClient.syncMemory forwards agents and accepts direct sync response", async () => {
   const { OrgXClient } = await import("../dist/contracts/client.js");
   const client = new OrgXClient("oxk_test", "https://www.useorgx.com");

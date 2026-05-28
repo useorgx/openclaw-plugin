@@ -43,6 +43,8 @@ export interface OrgXConfig {
   userId: string;
   /** OrgX API base URL */
   baseUrl: string;
+  /** Optional fallback OrgX API base URL used when the primary API is unreachable */
+  apiFallbackUrl?: string;
   /** Background sync interval in ms */
   syncIntervalMs: number;
   /** Plugin enabled */
