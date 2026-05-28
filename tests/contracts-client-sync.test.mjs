@@ -86,6 +86,51 @@ test("OrgXClient.getOrgSnapshot stays backward-compatible when sync omits agents
   }
 });
 
+test("OrgXClient.checkSpawnGuard sends explicit model tier override", async () => {
+  const { OrgXClient } = await import("../dist/contracts/client.js");
+  const client = new OrgXClient("oxk_test", "https://www.useorgx.com");
+
+  const originalFetch = globalThis.fetch;
+  let postedBody = null;
+  globalThis.fetch = async (_url, init) => {
+    postedBody = JSON.parse(String(init?.body ?? "{}"));
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        data: {
+          allowed: true,
+          modelTier: "standard",
+          checks: {
+            rateLimit: { passed: true, current: 0, max: 5 },
+            qualityGate: { passed: true, score: 5, threshold: 2.5 },
+            taskAssigned: { passed: true, taskId: "task-1", status: "found" },
+          },
+        },
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }
+    );
+  };
+
+  try {
+    const result = await client.checkSpawnGuard(
+      "engineering",
+      "task-1",
+      "standard"
+    );
+    assert.equal(result.modelTier, "standard");
+    assert.deepEqual(postedBody, {
+      domain: "engineering",
+      taskId: "task-1",
+      model_tier: "standard",
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("OrgXClient retries through fallback base URL for Cloudflare origin failures", async () => {
   const { OrgXClient } = await import("../dist/contracts/client.js");
   const client = new OrgXClient(
