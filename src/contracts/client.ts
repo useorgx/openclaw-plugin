@@ -48,6 +48,7 @@ const DEFAULT_SYNC_TIMEOUT_MS = 45_000;
 const USER_AGENT = "OrgX-Clawdbot-Plugin/1.0";
 const DECISION_MUTATION_CONCURRENCY = 6;
 const DEFAULT_CLIENT_BASE_URL = "https://www.useorgx.com";
+const RETRYABLE_UPSTREAM_STATUSES = new Set([502, 503, 504, 520, 521, 522, 523, 524]);
 
 function normalizeAgentStatus(value: unknown): "active" | "idle" | "throttled" {
   if (value === "active" || value === "idle" || value === "throttled") {
@@ -168,17 +169,33 @@ export interface DecisionMutationInput {
 export class OrgXClient {
   private apiKey: string;
   private baseUrl: string;
+  private fallbackBaseUrl: string | null;
   private userId: string;
 
-  constructor(apiKey: string, baseUrl: string, userId?: string) {
+  constructor(
+    apiKey: string,
+    baseUrl: string,
+    userId?: string,
+    fallbackBaseUrl?: string
+  ) {
     this.apiKey = apiKey;
     this.baseUrl = normalizeClientBaseUrl(baseUrl, DEFAULT_CLIENT_BASE_URL);
+    this.fallbackBaseUrl =
+      typeof fallbackBaseUrl === "string" && fallbackBaseUrl.trim().length > 0
+        ? normalizeClientBaseUrl(fallbackBaseUrl, "")
+        : null;
     // Keep userId available even for oxk_ keys (it can be used as created_by_id for certain writes),
     // but only send it as a header for non-user-scoped keys.
     this.userId = userId || "";
   }
 
-  setCredentials(input: { apiKey?: string; userId?: string; baseUrl?: string }) {
+  setCredentials(input: {
+    apiKey?: string;
+    userId?: string;
+    baseUrl?: string;
+    apiFallbackUrl?: string;
+    fallbackBaseUrl?: string;
+  }) {
     if (typeof input.apiKey === "string") {
       this.apiKey = input.apiKey;
     }
@@ -188,6 +205,13 @@ export class OrgXClient {
     if (typeof input.baseUrl === "string" && input.baseUrl.trim().length > 0) {
       this.baseUrl = normalizeClientBaseUrl(input.baseUrl, this.baseUrl);
     }
+    const fallbackBaseUrl = input.apiFallbackUrl ?? input.fallbackBaseUrl;
+    if (typeof fallbackBaseUrl === "string") {
+      this.fallbackBaseUrl =
+        fallbackBaseUrl.trim().length > 0
+          ? normalizeClientBaseUrl(fallbackBaseUrl, "")
+          : null;
+    }
   }
 
   getBaseUrl(): string {
@@ -196,6 +220,10 @@ export class OrgXClient {
 
   getUserId(): string {
     return this.userId;
+  }
+
+  getFallbackBaseUrl(): string | null {
+    return this.fallbackBaseUrl;
   }
 
   // ===========================================================================
@@ -222,12 +250,21 @@ export class OrgXClient {
     path: string,
     body?: unknown
   ): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const controller = new AbortController();
     const timeoutMs = resolveRequestTimeoutMs(path);
-    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    const baseUrls = [this.baseUrl, this.fallbackBaseUrl].filter(
+      (value, index, values): value is string =>
+        typeof value === "string" &&
+        value.trim().length > 0 &&
+        values.indexOf(value) === index
+    );
+    let lastRetryableError: Error | null = null;
 
-    try {
+    for (let index = 0; index < baseUrls.length; index += 1) {
+      const baseUrl = baseUrls[index];
+      const isLastAttempt = index === baseUrls.length - 1;
+      const url = `${baseUrl}${path}`;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         "User-Agent": USER_AGENT,
@@ -237,46 +274,64 @@ export class OrgXClient {
         headers["X-Orgx-User-Id"] = this.userId;
       }
 
-      const response = await fetch(url, {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
+      try {
+        const response = await fetch(url, {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        const text = await response.text().catch(() => "");
-        let detail = "";
-        if (text) {
-          try {
-            const parsed = JSON.parse(text) as Record<string, unknown>;
-            const msg = parsed.message ?? parsed.error;
-            detail = typeof msg === "string" ? msg : text.slice(0, 200);
-          } catch {
-            detail = text.slice(0, 200);
+        if (!response.ok) {
+          const text = await response.text().catch(() => "");
+          let detail = "";
+          if (text) {
+            try {
+              const parsed = JSON.parse(text) as Record<string, unknown>;
+              const msg = parsed.message ?? parsed.error;
+              detail = typeof msg === "string" ? msg : text.slice(0, 200);
+            } catch {
+              detail = text.slice(0, 200);
+            }
           }
+          const message = `${response.status} ${response.statusText}${
+            detail ? `: ${detail}` : ""
+          }`;
+          if (
+            !isLastAttempt &&
+            RETRYABLE_UPSTREAM_STATUSES.has(response.status)
+          ) {
+            lastRetryableError = new Error(message);
+            continue;
+          }
+          throw new Error(message);
         }
-        throw new Error(
-          `${response.status} ${response.statusText}${detail ? `: ${detail}` : ""}`
-        );
-      }
 
-      const contentType = response.headers.get("content-type") ?? "";
-      if (contentType.includes("application/json")) {
-        return (await response.json()) as T;
-      }
+        const contentType = response.headers.get("content-type") ?? "";
+        if (contentType.includes("application/json")) {
+          return (await response.json()) as T;
+        }
 
-      return (await response.text()) as unknown as T;
-    } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === "AbortError") {
-        throw new Error(
-          `OrgX API ${method} ${path} timed out after ${timeoutMs}ms`
-        );
+        return (await response.text()) as unknown as T;
+      } catch (err: unknown) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          lastRetryableError = new Error(
+            `OrgX API ${method} ${path} timed out after ${timeoutMs}ms`
+          );
+        } else if (err instanceof TypeError) {
+          lastRetryableError = err;
+        } else {
+          throw err;
+        }
+        if (isLastAttempt) {
+          throw lastRetryableError;
+        }
+      } finally {
+        clearTimeout(timeout);
       }
-      throw err;
-    } finally {
-      clearTimeout(timeout);
     }
+
+    throw lastRetryableError ?? new Error(`OrgX API ${method} ${path} failed`);
   }
 
   private get<T>(path: string): Promise<T> {

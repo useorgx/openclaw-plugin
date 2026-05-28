@@ -24,7 +24,12 @@ type RefreshDeps = {
     }
   ) => ResolvedConfig;
   updateOnboardingState: (updates: Partial<OnboardingState>) => unknown;
-  setCredentials: (input: { apiKey: string; userId: string; baseUrl: string }) => void;
+  setCredentials: (input: {
+    apiKey: string;
+    userId: string;
+    baseUrl: string;
+    apiFallbackUrl?: string;
+  }) => void;
   logInfo?: (message: string, meta?: Record<string, unknown>) => void;
 };
 
@@ -35,6 +40,7 @@ export function refreshResolvedConfig(
   const allowApiKeyChanges = input?.allowApiKeyChanges !== false;
   const previousApiKey = deps.config.apiKey;
   const previousBaseUrl = deps.config.baseUrl;
+  const previousApiFallbackUrl = deps.config.apiFallbackUrl;
   const previousUserId = deps.config.userId;
   const previousDocsUrl = deps.config.docsUrl;
   const previousKeySource = deps.config.apiKeySource;
@@ -52,6 +58,7 @@ export function refreshResolvedConfig(
   const changed =
     nextApiKey !== previousApiKey ||
     next.baseUrl !== previousBaseUrl ||
+    next.apiFallbackUrl !== previousApiFallbackUrl ||
     nextUserId !== previousUserId ||
     next.docsUrl !== previousDocsUrl ||
     next.apiKeySource !== previousKeySource;
@@ -69,12 +76,14 @@ export function refreshResolvedConfig(
     deps.config.apiKeySource = next.apiKeySource;
   }
   deps.config.baseUrl = next.baseUrl;
+  deps.config.apiFallbackUrl = next.apiFallbackUrl;
   deps.config.docsUrl = next.docsUrl;
 
   deps.setCredentials({
     apiKey: deps.config.apiKey,
     userId: deps.config.userId,
     baseUrl: deps.config.baseUrl,
+    apiFallbackUrl: deps.config.apiFallbackUrl,
   });
 
   deps.updateOnboardingState({
