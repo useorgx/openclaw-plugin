@@ -83,6 +83,37 @@ test("compatibility tools are registered with strict schemas", () => {
   }
 });
 
+test("orgx_spawn_check forwards explicit standard model tier", async () => {
+  let spawnArgs = null;
+  const { deps } = createDeps({
+    client: {
+      ...createDeps().deps.client,
+      checkSpawnGuard: async (...args) => {
+        spawnArgs = args;
+        return {
+          allowed: true,
+          modelTier: "standard",
+          checks: {
+            rateLimit: { passed: true, current: 0, max: 5 },
+            qualityGate: { passed: true, score: 5, threshold: 2.5 },
+            taskAssigned: { passed: true, taskId: "task-1", status: "found" },
+          },
+        };
+      },
+    },
+  });
+  const tool = registerCoreTools(deps).get("orgx_spawn_check");
+
+  const result = await tool.execute("call-spawn", {
+    domain: "engineering",
+    taskId: "task-1",
+    modelTier: "standard",
+  });
+
+  assert.deepEqual(spawnArgs, ["engineering", "task-1", "standard"]);
+  assert.match(result.content[0].text, /model tier: standard/);
+});
+
 test("orgx_quality_score accepts agentDomain-only requests", async () => {
   const { deps, getRecordedQuality } = createDeps();
   const tool = registerCoreTools(deps).get("orgx_quality_score");

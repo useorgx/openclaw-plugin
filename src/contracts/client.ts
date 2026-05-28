@@ -40,6 +40,7 @@ import type {
   SkillPackResponse,
   ClientRuntimeSettingsResponse,
   ClientRuntimeSettingsUpdateRequest,
+  ModelTier,
 } from "./types.js";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
@@ -581,13 +582,15 @@ export class OrgXClient {
 
   async checkSpawnGuard(
     domain: string,
-    taskId?: string
+    taskId?: string,
+    modelTier?: ModelTier
   ): Promise<SpawnGuardResult> {
     const response = await this.post<
       SpawnGuardResult | { ok?: boolean; data?: SpawnGuardResult }
     >("/api/client/spawn", {
       domain,
       taskId,
+      model_tier: modelTier,
     });
 
     // Newer servers wrap responses in { ok, data } while older clients expect the

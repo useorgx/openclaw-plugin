@@ -3,6 +3,7 @@ import { randomUUID as randomUuidFn } from "node:crypto";
 import type { OrgXClient } from "../api.js";
 import { registerArtifact, type ArtifactEntityType } from "../artifacts/register-artifact.js";
 import { validateOpenClawSkillPackManifest } from "../contracts/skill-pack-schema.js";
+import type { ModelTier } from "../contracts/types.js";
 import type { AutoAssignedAgent } from "../entities/auto-assignment.js";
 import { listBuiltInSentinels } from "../http/helpers/sentinel-catalog.js";
 import type { RegisteredTool } from "../mcp-http-handler.js";
@@ -711,17 +712,26 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             type: "string",
             description: "OrgX task ID to check",
           },
+          modelTier: {
+            type: "string",
+            enum: ["standard", "balanced", "precision", "local", "sonnet", "opus"],
+            description:
+              "Optional explicit model tier. Use standard for cheap functional validation; omit to let OrgX auto-route.",
+          },
         },
         required: ["domain"],
       },
       async execute(
         _callId: string,
-        params: { domain: string; taskId?: string } = { domain: "" }
+        params: { domain: string; taskId?: string; modelTier?: ModelTier } = {
+          domain: "",
+        }
       ) {
         try {
           const result = await client.checkSpawnGuard(
             params.domain,
-            params.taskId
+            params.taskId,
+            params.modelTier
           );
           const status = result.allowed ? "✅ Allowed" : "🚫 Blocked";
           return json(`${status} — model tier: ${result.modelTier}`, result);

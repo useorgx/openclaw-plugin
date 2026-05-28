@@ -583,7 +583,13 @@ export interface DelegationPreflightResult {
 // MODEL ROUTING
 // =============================================================================
 
-export type ModelTier = "opus" | "sonnet" | "local";
+export type ModelTier =
+  | "standard"
+  | "balanced"
+  | "precision"
+  | "opus"
+  | "sonnet"
+  | "local";
 export type TaskComplexity = "planning" | "execution" | "routine";
 
 export interface ModelRouting {
