@@ -64,6 +64,7 @@ import {
   type ResolvedConfig,
 } from "./config/resolution.js";
 import { refreshResolvedConfig } from "./config/refresh.js";
+import { maybeEmitRunExecutionGraph } from "./execution-graph-emit.js";
 import {
   applyRuntimeApiKey,
   buildManualKeyConnectUrl as buildManualKeyConnectUrlForBase,
@@ -1112,6 +1113,19 @@ export default function register(api: PluginAPI): void {
             },
           },
         };
+
+        // WEG keystone: emit the execution graph for the finished run. OPT-IN
+        // (ORGX_EMIT_EXECUTION_GRAPH) and best-effort — never affects the run.
+        await maybeEmitRunExecutionGraph(client, {
+          initiativeId,
+          runId: stopped.runId ?? undefined,
+          success,
+          hadError: summary.hadError,
+          summary: retroSummary ?? undefined,
+          model: stopped.model ?? undefined,
+          provider: stopped.provider ?? undefined,
+          costUsd: summary.costUsd ?? undefined,
+        });
 
         try {
           await client.recordRunOutcome(outcomePayload);
