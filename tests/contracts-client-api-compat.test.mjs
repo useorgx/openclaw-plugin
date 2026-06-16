@@ -155,3 +155,65 @@ test("OrgXClient executes query_org_memory and recommend_next_action through /ap
     globalThis.fetch = originalFetch;
   }
 });
+
+test("OrgXClient.emitExecutionGraph posts to /api/client/live/execution-graph and unwraps data", async () => {
+  const { OrgXClient } = await import("../dist/contracts/client.js");
+  const client = new OrgXClient("oxk_test", "https://www.useorgx.com");
+
+  const originalFetch = globalThis.fetch;
+  let calledUrl = null;
+  let requestBody = null;
+
+  globalThis.fetch = async (url, init) => {
+    calledUrl = String(url);
+    requestBody = JSON.parse(String(init?.body ?? "{}"));
+    return new Response(
+      JSON.stringify({
+        ok: true,
+        run_id: "run-1",
+        event_id: "evt-1",
+        data: {
+          execution_graph_fingerprint: "xgf_abc",
+          emission_id: "em-1",
+          progress_pct: 50,
+          node_counts: { total: 1, completed: 1, verified_completed: 0, failed: 0, blocked: 0 },
+          trust_signals: [
+            {
+              node_id: "a",
+              violation_type: "false_completion",
+              claimed: "completed",
+              actual: "verification failed",
+              declared: false,
+            },
+          ],
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } }
+    );
+  };
+
+  try {
+    const result = await client.emitExecutionGraph({
+      initiative_id: "init-1",
+      run_id: "run-1",
+      nodes: [
+        {
+          id: "a",
+          type: "task",
+          title: "Build",
+          status: "completed",
+          requires_evidence: true,
+          verification: { state: "failed", evidence_ref: "test#9" },
+        },
+      ],
+    });
+
+    assert.ok(calledUrl.endsWith("/api/client/live/execution-graph"));
+    assert.equal(requestBody.initiative_id, "init-1");
+    assert.equal(requestBody.nodes[0].id, "a");
+    assert.equal(result.execution_graph_fingerprint, "xgf_abc");
+    assert.equal(result.trust_signals[0].violation_type, "false_completion");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
