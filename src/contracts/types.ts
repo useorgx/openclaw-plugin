@@ -779,6 +779,105 @@ export interface EmitActivityResponse {
   auth_mode?: 'service' | 'api_key';
 }
 
+// =============================================================================
+// Execution graph + trust ledger (the WEG keystone client surface)
+// =============================================================================
+
+export type ExecutionNodeStatus =
+  | 'pending'
+  | 'running'
+  | 'blocked'
+  | 'completed'
+  | 'failed'
+  | 'skipped';
+
+export type ExecutionTrustViolationType =
+  | 'false_completion'
+  | 'hallucinated_receipt'
+  | 'authority_exceeded'
+  | 'dependency_violation';
+
+export interface ExecutionGraphNode {
+  id: string;
+  type: 'initiative' | 'workstream' | 'milestone' | 'task' | 'step';
+  title: string;
+  status: ExecutionNodeStatus;
+  /** Completing without passing verification is a hallucinated-receipt risk. */
+  requires_evidence?: boolean;
+  verification?: {
+    state: 'unverified' | 'passed' | 'failed';
+    evidence_ref?: string;
+    method?: string;
+    detail?: string;
+  };
+  economy?: {
+    model?: string;
+    cost_usd?: number;
+    tokens?: number;
+    duration_ms?: number;
+  };
+  started_at?: string;
+  completed_at?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ExecutionGraphEdge {
+  from: string;
+  to: string;
+  /** to must not start before from is verified-complete. */
+  kind?: 'depends_on';
+}
+
+export interface ExecutionTrustEvent {
+  id?: string;
+  kind: 'claim' | 'reconcile' | 'violation';
+  node_id?: string;
+  violation_type?: ExecutionTrustViolationType;
+  claimed?: string;
+  actual?: string;
+  evidence_ref?: string;
+  detail?: string;
+}
+
+export interface EmitExecutionGraphRequest {
+  initiative_id: string;
+  run_id?: string;
+  correlation_id?: string;
+  source_client?: ReportingSourceClient;
+  summary?: string;
+  nodes: ExecutionGraphNode[];
+  edges?: ExecutionGraphEdge[];
+  trust_events?: ExecutionTrustEvent[];
+  metadata?: Record<string, unknown>;
+}
+
+export interface ExecutionGraphTrustSignal {
+  node_id: string | null;
+  violation_type: ExecutionTrustViolationType;
+  claimed: string;
+  actual: string;
+  evidence_ref?: string;
+  detail?: string;
+  /** true when the runtime declared it; false when OrgX derived it. */
+  declared: boolean;
+}
+
+/** The unwrapped `data` block returned by POST /api/client/live/execution-graph. */
+export interface EmitExecutionGraphResponse {
+  execution_graph_fingerprint: string;
+  emission_id: string | null;
+  progress_pct: number;
+  node_counts: {
+    total: number;
+    completed: number;
+    verified_completed: number;
+    failed: number;
+    blocked: number;
+  };
+  trust_signals: ExecutionGraphTrustSignal[];
+  auth_mode?: 'service' | 'api_key';
+}
+
 export type ChangesetOperation =
   | {
       op: 'task.create';
