@@ -17,6 +17,8 @@ import type {
   EntityListFilters,
   EmitActivityRequest,
   EmitActivityResponse,
+  EmitExecutionGraphRequest,
+  EmitExecutionGraphResponse,
   ApplyChangesetRequest,
   ApplyChangesetResponse,
   RecordRunOutcomeRequest,
@@ -830,6 +832,27 @@ export class OrgXClient {
       return response.data;
     }
     return response as EmitActivityResponse;
+  }
+
+  // Emit the deterministic execution graph + trust ledger for the active run
+  // (nodes + depends_on edges + trust events). The backend derives
+  // false-completion / hallucinated-receipt / dependency-violation signals and
+  // surfaces them on /live. Structured sibling of emitActivity.
+  async emitExecutionGraph(
+    payload: EmitExecutionGraphRequest
+  ): Promise<EmitExecutionGraphResponse> {
+    const response = await this.post<
+      EmitExecutionGraphResponse | { ok: boolean; data?: EmitExecutionGraphResponse }
+    >("/api/client/live/execution-graph", payload);
+    if (
+      response &&
+      typeof response === "object" &&
+      "data" in response &&
+      response.data
+    ) {
+      return response.data;
+    }
+    return response as EmitExecutionGraphResponse;
   }
 
   async applyChangeset(
