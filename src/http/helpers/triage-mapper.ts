@@ -654,6 +654,34 @@ const FAILURE_MAPPINGS: Record<string, TriageMapping> = {
     ],
   },
 
+  status_updates_buffered: {
+    kind: "review_required",
+    severity: "medium",
+    recommendedAction: "Review buffered status updates and retry persistence",
+    defaultTitle: (ctx) =>
+      `Status updates need review${ctx.workstreamTitle ? `: ${ctx.workstreamTitle}` : ""}`,
+    defaultSummary: (ctx) =>
+      `${ctx.workstreamTitle ?? "A workstream"} completed, but status updates could not be applied automatically. ${ctx.reason ?? "Review the buffered updates and retry persistence."}`,
+    actions: () => [
+      {
+        action: "retry",
+        label: "Retry updates",
+        description: "Retry applying the buffered task and milestone updates",
+        consequences: "Will attempt to persist the buffered status updates again.",
+        requiresNote: false,
+        available: true,
+      },
+      {
+        action: "snooze",
+        label: "Review later",
+        description: "Leave the buffered updates in the review queue",
+        consequences: "The item remains available for manual recovery.",
+        requiresNote: false,
+        available: true,
+      },
+    ],
+  },
+
   budget_exhausted: {
     kind: "blocked_intervention",
     severity: "critical",

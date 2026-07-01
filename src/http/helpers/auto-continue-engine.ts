@@ -4900,6 +4900,11 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     }));
 
     const schemaPath = ensureAutopilotSliceSchemaPath(AUTO_CONTINUE_SLICE_SCHEMA_FILENAME);
+    const progressReportingRequired = !["0", "false", "no", "off"].includes(
+      String(process.env.ORGX_AUTOPILOT_PROGRESS_REQUIRED ?? "true")
+        .trim()
+        .toLowerCase()
+    );
 
     // Try server KickoffContext (includes team context, acceptance criteria, etc.)
     let prompt: string;
@@ -4932,6 +4937,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           runId: sliceRunId,
           schemaPath,
           requiredSkills: executionPolicy.requiredSkills,
+          progressReportingRequired,
         });
         prompt = rendered.message + "\n\n" + sliceInstructions;
         kickoffContextHash = rendered.contextHash;
@@ -4948,6 +4954,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           behaviorConfig,
           runId: sliceRunId,
           schemaPath,
+          progressReportingRequired,
         });
       }
     } else {
@@ -4963,6 +4970,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         behaviorConfig,
         runId: sliceRunId,
         schemaPath,
+        progressReportingRequired,
       });
     }
 

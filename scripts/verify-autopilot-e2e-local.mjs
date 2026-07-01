@@ -202,7 +202,18 @@ function createOrgxClientHarness() {
   function matchesFilters(row, filters) {
     if (!filters || typeof filters !== "object") return true;
     const init = typeof filters.initiative_id === "string" ? filters.initiative_id.trim() : "";
-    if (init && String(row.initiative_id ?? "") !== init) return false;
+    if (init) {
+      const metadata =
+        row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+          ? row.metadata
+          : null;
+      const rowInitiativeId =
+        String(row.initiative_id ?? "").trim() ||
+        String(row.initiativeId ?? "").trim() ||
+        String(metadata?.initiative_id ?? "").trim() ||
+        String(metadata?.initiativeId ?? "").trim();
+      if (rowInitiativeId !== init) return false;
+    }
     const status = typeof filters.status === "string" ? filters.status.trim() : "";
     if (status && String(row.status ?? "") !== status) return false;
     return true;
@@ -221,14 +232,32 @@ function createOrgxClientHarness() {
         throw new Error(`rawRequest not implemented for ${method} ${path}`);
       }
       const scope = body && typeof body === "object" ? body : {};
+      const taskId = typeof scope.task_id === "string" ? scope.task_id : "";
+      const workstreamId = typeof scope.workstream_id === "string" ? scope.workstream_id : "";
+      const initiativeId = typeof scope.initiative_id === "string" ? scope.initiative_id : "";
+      const taskRow = taskId ? store.entities.task.get(taskId) : null;
+      const workstreamRow = workstreamId ? store.entities.workstream.get(workstreamId) : null;
+      const initiativeRow = initiativeId ? store.entities.initiative.get(initiativeId) : null;
       return {
         ok: true,
         data: {
           context_hash: "ctx_local_e2e",
           schema_version: "2026-02-13",
           overview: "Local E2E kickoff context (harness).",
-          acceptance_criteria: ["Slice emits verifiable JSON", "Tasks updated to done"],
+          acceptance_criteria: [
+            "Slice emits verifiable JSON",
+            "Tasks updated to done using the exact target task id",
+          ],
           constraints: ["Return a single JSON object at end"],
+          initiative: initiativeId
+            ? { id: initiativeId, title: String(initiativeRow?.title ?? "Local E2E initiative") }
+            : undefined,
+          workstream: workstreamId
+            ? { id: workstreamId, title: String(workstreamRow?.title ?? "Local E2E workstream") }
+            : undefined,
+          task: taskId
+            ? { id: taskId, title: `${String(taskRow?.title ?? "Local E2E target task")} [${taskId}]` }
+            : undefined,
           tool_scope: { allow: ["orgx_report_progress"], deny: [] },
           scope,
         },

@@ -212,7 +212,18 @@ function createOrgxClientHarness() {
   function matchesFilters(row, filters) {
     if (!filters || typeof filters !== "object") return true;
     const init = typeof filters.initiative_id === "string" ? filters.initiative_id.trim() : "";
-    if (init && String(row.initiative_id ?? "") !== init) return false;
+    if (init) {
+      const metadata =
+        row.metadata && typeof row.metadata === "object" && !Array.isArray(row.metadata)
+          ? row.metadata
+          : null;
+      const rowInitiativeId =
+        String(row.initiative_id ?? "").trim() ||
+        String(row.initiativeId ?? "").trim() ||
+        String(metadata?.initiative_id ?? "").trim() ||
+        String(metadata?.initiativeId ?? "").trim();
+      if (rowInitiativeId !== init) return false;
+    }
     const status = typeof filters.status === "string" ? filters.status.trim() : "";
     if (status && String(row.status ?? "") !== status) return false;
     return true;
