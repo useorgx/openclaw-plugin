@@ -88,6 +88,19 @@ import { computeRetroQualityRubricScore } from "./retro/quality-rubric.js";
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
 export { OrgXClient } from "./api.js";
+export {
+  computeDedupeKey,
+  postDeviation,
+  postDeviationBatch,
+} from "./deviations-sdk.js";
+export type {
+  ApplicationSource,
+  DeviationOutcome,
+  EvidenceKind,
+  PostDeviationInput,
+  PostDeviationOptions,
+  PostDeviationResult,
+} from "./deviations-sdk.js";
 
 const ORGX_CANONICAL_BASE_URL = "https://www.useorgx.com";
 

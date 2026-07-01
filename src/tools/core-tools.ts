@@ -139,6 +139,23 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     mcpToolRegistry.set(tool.name, tool as unknown as RegisteredTool);
     registerTool(tool, options);
   };
+  const registerCompatibilityAlias = (
+    sourceName: string,
+    aliasName: string,
+    description?: string
+  ) => {
+    const source = mcpToolRegistry.get(sourceName);
+    if (!source || mcpToolRegistry.has(aliasName)) return;
+    registerMcpTool(
+      {
+        name: aliasName,
+        description: description ?? source.description,
+        parameters: source.parameters,
+        execute: source.execute,
+      },
+      { optional: true }
+    );
+  };
 
 
   // --- orgx_status ---
@@ -673,6 +690,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           },
         },
         required: ["domain"],
+        additionalProperties: false,
       },
       async execute(
         _callId: string,
@@ -728,6 +746,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           },
         },
         required: ["taskId", "score"],
+        additionalProperties: false,
       },
       async execute(
         _callId: string,
@@ -1095,6 +1114,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             description: "Run ID to get attribution for",
           },
         },
+        additionalProperties: false,
       },
       async execute(
         _callId: string,
@@ -3530,6 +3550,47 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
       },
     },
     { optional: true }
+  );
+
+  registerCompatibilityAlias(
+    "orgx_sync",
+    "sync_client_state",
+    "Compatibility alias for orgx_sync. Push or pull local client state with OrgX."
+  );
+  registerCompatibilityAlias(
+    "orgx_get_morning_brief",
+    "get_morning_brief",
+    "Compatibility alias for orgx_get_morning_brief."
+  );
+  registerCompatibilityAlias(
+    "orgx_query_org_memory",
+    "query_org_memory",
+    "Compatibility alias for orgx_query_org_memory."
+  );
+  registerCompatibilityAlias(
+    "orgx_recommend_next_action",
+    "recommend_next_action",
+    "Compatibility alias for orgx_recommend_next_action."
+  );
+  registerCompatibilityAlias(
+    "orgx_spawn_check",
+    "check_spawn_guard",
+    "Compatibility alias for orgx_spawn_check."
+  );
+  registerCompatibilityAlias(
+    "orgx_quality_score",
+    "record_quality_score",
+    "Compatibility alias for orgx_quality_score."
+  );
+  registerCompatibilityAlias(
+    "orgx_record_outcome",
+    "record_outcome",
+    "Compatibility alias for orgx_record_outcome."
+  );
+  registerCompatibilityAlias(
+    "orgx_get_outcome_attribution",
+    "get_outcome_attribution",
+    "Compatibility alias for orgx_get_outcome_attribution."
   );
 
   return mcpToolRegistry;

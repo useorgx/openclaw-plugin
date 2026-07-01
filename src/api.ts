@@ -6,3 +6,4 @@
  */
 
 export * from "./contracts/client.js";
+export * from "./deviations-sdk.js";

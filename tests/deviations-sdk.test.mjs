@@ -4,8 +4,7 @@ import { describe, test } from "node:test";
 import {
   computeDedupeKey,
   postDeviation,
-  type PostDeviationInput,
-} from "./deviations-sdk.js";
+} from "../dist/deviations-sdk.js";
 
 describe("computeDedupeKey", () => {
   test("stable within a 10-minute bucket", () => {
@@ -58,10 +57,10 @@ describe("computeDedupeKey", () => {
     assert.notEqual(k0, k1);
   });
 
-  test("different ref → different key", () => {
+  test("different ref produces different key", () => {
     const common = {
       skillId: "s",
-      evidenceKind: "file_edit" as const,
+      evidenceKind: "file_edit",
       capturedAt: new Date("2026-04-17T10:00:00Z"),
     };
     assert.notEqual(
@@ -72,7 +71,7 @@ describe("computeDedupeKey", () => {
 });
 
 describe("postDeviation", () => {
-  const input: PostDeviationInput = {
+  const input = {
     skillId: "skill-1",
     evidenceKind: "file_edit",
     evidenceRef: "/src/foo.py:42",
@@ -81,9 +80,9 @@ describe("postDeviation", () => {
     confidence: 0.91,
   };
 
-  test("sends POST with bearer + expected body shape", async () => {
-    const captured: { url: string; init: RequestInit | undefined }[] = [];
-    const fetchMock: typeof fetch = async (url, init) => {
+  test("sends POST with bearer auth and expected body shape", async () => {
+    const captured = [];
+    const fetchMock = async (url, init) => {
       captured.push({ url: String(url), init });
       return new Response(
         JSON.stringify({ id: "dev-123", deduplicated: false }),
@@ -105,17 +104,17 @@ describe("postDeviation", () => {
       captured[0]?.url,
       "https://useorgx.com/api/v1/skills/skill-1/deviations",
     );
-    const headers = captured[0]?.init?.headers as Record<string, string>;
+    const headers = captured[0]?.init?.headers;
     assert.equal(headers?.Authorization, "Bearer oxk_test");
     const body = JSON.parse(String(captured[0]?.init?.body));
     assert.equal(body.evidence_kind, "file_edit");
     assert.equal(body.application_source, "plugin_openclaw");
     assert.equal(typeof body.dedupe_key, "string");
-    assert.equal(body.dedupe_key.length, 40); // sha1 hex
+    assert.equal(body.dedupe_key.length, 40);
   });
 
   test("reports deduplicated on server echo", async () => {
-    const fetchMock: typeof fetch = async () =>
+    const fetchMock = async () =>
       new Response(JSON.stringify({ id: "dev-prior", deduplicated: true }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -133,7 +132,7 @@ describe("postDeviation", () => {
   });
 
   test("handles 4xx errors without throwing", async () => {
-    const fetchMock: typeof fetch = async () =>
+    const fetchMock = async () =>
       new Response(JSON.stringify({ error: "Invalid body" }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
@@ -151,7 +150,7 @@ describe("postDeviation", () => {
   });
 
   test("network failure produces structured error", async () => {
-    const fetchMock: typeof fetch = async () => {
+    const fetchMock = async () => {
       throw new Error("ECONNREFUSED");
     };
 

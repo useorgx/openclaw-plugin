@@ -3230,8 +3230,8 @@ function DashboardShell({
           </div>
         </div>
 
-        <div className="mt-2 flex items-center justify-center gap-2 lg:hidden">
-          <div className="min-w-0 flex-1">
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-center lg:hidden">
+          <div className="min-w-0 sm:flex-1">
             <label htmlFor="workspace-switcher-mobile" className="sr-only">
               Workspace scope
             </label>
@@ -3267,7 +3267,7 @@ function DashboardShell({
             </div>
           </div>
           <div
-            className="flex w-full max-w-[248px] rounded-full border border-white/[0.1] bg-white/[0.03] p-0.5"
+            className="flex w-full rounded-full border border-white/[0.1] bg-white/[0.03] p-0.5 sm:max-w-[248px]"
             role="group"
             aria-label="Dashboard view"
           >

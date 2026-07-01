@@ -65,6 +65,14 @@ test("compatibility tools are registered with strict schemas", () => {
     "orgx_get_morning_brief",
     "orgx_query_org_memory",
     "orgx_recommend_next_action",
+    "get_morning_brief",
+    "query_org_memory",
+    "recommend_next_action",
+    "sync_client_state",
+    "record_quality_score",
+    "record_outcome",
+    "get_outcome_attribution",
+    "check_spawn_guard",
   ];
 
   for (const name of toolNames) {
@@ -73,6 +81,28 @@ test("compatibility tools are registered with strict schemas", () => {
     assert.equal(tool.parameters?.type, "object");
     assert.equal(tool.parameters?.additionalProperties, false);
   }
+});
+
+test("canonical OrgX MCP aliases delegate to existing plugin tools", async () => {
+  const { deps, getRecordedQuality } = createDeps();
+  const tools = registerCoreTools(deps);
+
+  const memoryResult = await tools.get("query_org_memory").execute("call-memory", {
+    query: "artifact evidence",
+  });
+  assert.match(memoryResult.content[0].text, /Found 1 relevant item/);
+
+  const qualityResult = await tools.get("record_quality_score").execute("call-quality-alias", {
+    taskId: "task-1",
+    agentDomain: "engineering",
+    score: 4,
+  });
+  assert.match(qualityResult.content[0].text, /Quality score recorded: 4\/5/);
+  assert.deepEqual(getRecordedQuality(), {
+    taskId: "task-1",
+    agentDomain: "engineering",
+    score: 4,
+  });
 });
 
 test("orgx_quality_score accepts agentDomain-only requests", async () => {
@@ -100,6 +130,14 @@ test("compatibility tools appear in all scoped MCP domains", async () => {
     "orgx_get_morning_brief",
     "orgx_query_org_memory",
     "orgx_recommend_next_action",
+    "get_morning_brief",
+    "query_org_memory",
+    "recommend_next_action",
+    "sync_client_state",
+    "record_quality_score",
+    "record_outcome",
+    "get_outcome_attribution",
+    "check_spawn_guard",
   ];
 
   const tools = new Map();

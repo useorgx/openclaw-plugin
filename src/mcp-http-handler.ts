@@ -76,9 +76,13 @@ type ToolScope = {
 export const ORGX_BASE_TOOLS = [
   "orgx_status",
   "orgx_sync",
+  "sync_client_state",
   "orgx_get_morning_brief",
+  "get_morning_brief",
   "orgx_query_org_memory",
+  "query_org_memory",
   "orgx_recommend_next_action",
+  "recommend_next_action",
   "list_agent_configs",
   "get_agent_config",
   "orgx_emit_activity",
@@ -89,10 +93,14 @@ export const ORGX_BASE_TOOLS = [
   "orgx_spawn_check",
   // Proof ladder tools (all domains)
   "orgx_quality_score",
+  "record_quality_score",
   "orgx_proof_status",
   "orgx_record_outcome",
+  "record_outcome",
   "orgx_get_outcome_attribution",
+  "get_outcome_attribution",
   "orgx_verify_completion",
+  "check_spawn_guard",
 ] as const;
 
 export const ORGX_MCP_ALLOWED_TOOLS_BY_SCOPE: Record<OrgxMcpScopeKey, string[]> = {
