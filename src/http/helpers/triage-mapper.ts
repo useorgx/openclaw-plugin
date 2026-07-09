@@ -654,6 +654,34 @@ const FAILURE_MAPPINGS: Record<string, TriageMapping> = {
     ],
   },
 
+  status_updates_buffered: {
+    kind: "review_required",
+    severity: "medium",
+    recommendedAction: "Retry applying the buffered status updates",
+    defaultTitle: (ctx) =>
+      `Status updates need review${ctx.workstreamTitle ? `: ${ctx.workstreamTitle}` : ""}`,
+    defaultSummary: (ctx) =>
+      `${ctx.workstreamTitle ?? "This workstream"} completed its execution, but OrgX could not apply every reported status update. ${ctx.reason ?? "Review the buffered updates and retry the write."}`,
+    actions: () => [
+      {
+        action: "retry",
+        label: "Retry updates",
+        description: "Apply the buffered task and milestone updates again",
+        consequences: "OrgX will retry the saved updates without rerunning the completed work.",
+        requiresNote: false,
+        available: true,
+      },
+      {
+        action: "dismiss",
+        label: "Dismiss",
+        description: "Keep the current statuses unchanged",
+        consequences: "The buffered updates will remain unapplied.",
+        requiresNote: true,
+        available: true,
+      },
+    ],
+  },
+
   budget_exhausted: {
     kind: "blocked_intervention",
     severity: "critical",

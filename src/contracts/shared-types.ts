@@ -34,6 +34,7 @@ export interface OnboardingState {
   status: OnboardingStatus;
   hasApiKey: boolean;
   connectionVerified: boolean;
+  workspaceId?: string | null;
   workspaceName: string | null;
   lastError: string | null;
   nextAction: OnboardingNextAction;

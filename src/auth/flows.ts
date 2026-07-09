@@ -21,6 +21,7 @@ type RuntimeConfigState = Pick<
   | "apiKey"
   | "apiKeySource"
   | "userId"
+  | "workspaceId"
   | "baseUrl"
   | "installationId"
   | "autoConfigureMcpClientsOnConnect"
@@ -30,6 +31,7 @@ export function applyRuntimeApiKey(input: {
   config: RuntimeConfigState;
   apiKey: string;
   source: "manual" | "browser_pairing";
+  workspaceId?: string | null;
   workspaceName?: string | null;
   keyPrefix?: string | null;
   userId?: string | null;
@@ -42,6 +44,7 @@ export function applyRuntimeApiKey(input: {
   input.config.apiKey = nextApiKey;
   input.config.apiKeySource = "persisted";
   input.config.userId = resolveRuntimeUserId(nextApiKey, [input.userId, input.config.userId]);
+  input.config.workspaceId = input.workspaceId ?? input.config.workspaceId;
 
   input.setCredentials({
     apiKey: input.config.apiKey,
@@ -53,6 +56,7 @@ export function applyRuntimeApiKey(input: {
     installationId: input.config.installationId,
     apiKey: nextApiKey,
     userId: input.config.userId || null,
+    workspaceId: input.config.workspaceId ?? null,
     workspaceName: input.workspaceName ?? null,
     keyPrefix: input.keyPrefix ?? null,
     source: input.source,
@@ -62,6 +66,7 @@ export function applyRuntimeApiKey(input: {
     hasApiKey: true,
     keySource: "persisted",
     installationId: input.config.installationId,
+    workspaceId: input.config.workspaceId ?? null,
     workspaceName: input.workspaceName ?? input.currentWorkspaceName,
   });
 

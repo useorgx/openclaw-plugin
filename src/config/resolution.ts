@@ -134,6 +134,7 @@ function normalizeOptionalBaseUrl(raw: string | undefined): string | undefined {
 export function readOpenClawOrgxConfig(): {
   apiKey: string;
   userId: string;
+  workspaceId?: string;
   baseUrl: string;
   apiFallbackUrl?: string;
   enabled?: boolean;
@@ -168,6 +169,8 @@ export function readOpenClawOrgxConfig(): {
         : {};
     const apiKey = typeof config.apiKey === "string" ? config.apiKey.trim() : "";
     const userId = typeof config.userId === "string" ? config.userId.trim() : "";
+    const workspaceId =
+      typeof config.workspaceId === "string" ? config.workspaceId.trim() : "";
     const baseUrl = typeof config.baseUrl === "string" ? config.baseUrl.trim() : "";
     const apiFallbackUrl =
       typeof config.apiFallbackUrl === "string"
@@ -189,6 +192,7 @@ export function readOpenClawOrgxConfig(): {
     return {
       apiKey,
       userId,
+      workspaceId: workspaceId || undefined,
       baseUrl,
       apiFallbackUrl: apiFallbackUrl || undefined,
       enabled,
@@ -252,7 +256,12 @@ export function resolveDocsUrl(baseUrl: string): string {
 
 export function resolveConfig(
   api: PluginApiLike,
-  input: { installationId: string; persistedApiKey: string | null; persistedUserId: string | null }
+  input: {
+    installationId: string;
+    persistedApiKey: string | null;
+    persistedUserId: string | null;
+    persistedWorkspaceId?: string | null;
+  }
 ): ResolvedConfig {
   const pluginConf =
     api.config?.plugins?.entries?.orgx?.config ??
@@ -269,6 +278,12 @@ export function resolveConfig(
     input.persistedUserId,
     openclaw.userId,
   ]);
+  const workspaceId =
+    pluginConf.workspaceId?.trim() ||
+    process.env.ORGX_WORKSPACE_ID?.trim() ||
+    input.persistedWorkspaceId?.trim() ||
+    openclaw.workspaceId?.trim() ||
+    undefined;
 
   const baseUrl = normalizeBaseUrl(
     pluginConf.baseUrl || process.env.ORGX_BASE_URL || openclaw.baseUrl || DEFAULT_BASE_URL
@@ -280,6 +295,7 @@ export function resolveConfig(
   return {
     apiKey,
     userId,
+    workspaceId,
     baseUrl,
     apiFallbackUrl,
     syncIntervalMs: pluginConf.syncIntervalMs ?? 300_000,
