@@ -41,6 +41,8 @@ export interface OrgXConfig {
   apiKey: string;
   /** Optional legacy user ID for service-key mode (unused for oxk_ keys) */
   userId: string;
+  /** Canonical workspace used for sync, routing, and runner heartbeats. */
+  workspaceId?: string;
   /** OrgX API base URL */
   baseUrl: string;
   /** Optional fallback OrgX API base URL used when the primary API is unreachable */
@@ -72,6 +74,10 @@ export interface OrgXConfig {
 // =============================================================================
 
 export interface OrgSnapshot {
+  /** Canonical workspace selected for this API key. */
+  workspaceId: string | null;
+  /** Human-readable name for the selected workspace. */
+  workspaceName: string | null;
   /** Active initiatives */
   initiatives: Initiative[];
   /** Agent states */
@@ -371,6 +377,10 @@ export interface SyncPayload {
 }
 
 export interface SyncResponse {
+  /** Canonical workspace selected for this API key. */
+  workspaceId?: string | null;
+  /** Human-readable name for the selected workspace. */
+  workspaceName?: string | null;
   /** Active initiatives summary */
   initiatives: Array<{
     id: string;

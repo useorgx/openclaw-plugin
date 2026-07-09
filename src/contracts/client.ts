@@ -44,6 +44,7 @@ import type {
   ClientRuntimeSettingsUpdateRequest,
   ModelTier,
 } from "./types.js";
+import type { CapacityRuntimeRecommendation } from "../runtime-capacity-routing.js";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
 const DEFAULT_LIVE_TIMEOUT_MS = 30_000;
@@ -407,6 +408,14 @@ export class OrgXClient {
     // Transform SyncResponse to OrgSnapshot format
     const syncAgents = Array.isArray(data.agents) ? data.agents : [];
     return {
+      workspaceId:
+        typeof data.workspaceId === "string" && data.workspaceId.trim()
+          ? data.workspaceId
+          : null,
+      workspaceName:
+        typeof data.workspaceName === "string" && data.workspaceName.trim()
+          ? data.workspaceName
+          : null,
       initiatives: data.initiatives.map(i => ({
         id: i.id,
         title: i.title,
@@ -452,6 +461,35 @@ export class OrgXClient {
       payload
     );
     return this.unwrapSyncResponse(response);
+  }
+
+  async sendGatewayHeartbeat(payload: {
+    workspace_id: string;
+    plugin_id: "orgx-codex-plugin" | "orgx-claude-code-plugin";
+    installation_id: string;
+    host_platform: string;
+    drivers_installed: Array<"codex" | "claude_code">;
+    gateway_version: string;
+    plan_tier?: string | null;
+    subscription_type?: string | null;
+    subscription_active: boolean;
+    capacity_windows?: Array<{
+      kind: string;
+      used_pct: number;
+      resets_at?: string | null;
+    }>;
+    metadata?: Record<string, unknown>;
+  }): Promise<{
+    ok: boolean;
+    peer_id: string;
+    status: string;
+    last_heartbeat_at: string;
+    routing_policy?: {
+      recommended_runtime?: CapacityRuntimeRecommendation | null;
+      fallback_runtime?: CapacityRuntimeRecommendation | null;
+    };
+  }> {
+    return this.post("/api/v1/gateway/heartbeat", payload);
   }
 
   // ===========================================================================
@@ -1013,12 +1051,35 @@ export class OrgXClient {
     initiative_id: string;
     workstream_id: string;
     task_id?: string | null;
+    domain?: string | null;
     launch_mode: "autopilot" | "manual";
   }): Promise<{
     dispatch_status: string;
     block_reasons: Array<{ code: string; message: string; severity: string; overrideable: boolean }>;
     recommended_execution_target: string;
     eligible_workers: Array<{ workerId: string; workerName: string }>;
+    routing_policy_state?: "live" | "partial" | "unconfigured";
+    recommended_runtime?: {
+      channelId: string;
+      workerKind: "codex" | "claude-code" | "server";
+      provider: "openai" | "anthropic";
+      score: number;
+      reason: string;
+    } | null;
+    fallback_runtime?: {
+      channelId: string;
+      workerKind: "codex" | "claude-code" | "server";
+      provider: "openai" | "anthropic";
+      score: number;
+      reason: string;
+    } | null;
+    next_goal?: {
+      id: string;
+      title: string;
+      priority: "critical" | "high" | "normal" | "low";
+      monthlyBudgetCents: number | null;
+    } | null;
+    routing_blocked_reason?: string | null;
   }> {
     const response = await this.post<
       | {
@@ -1026,6 +1087,28 @@ export class OrgXClient {
           block_reasons: Array<{ code: string; message: string; severity: string; overrideable: boolean }>;
           recommended_execution_target: string;
           eligible_workers: Array<{ workerId: string; workerName: string }>;
+          routing_policy_state?: "live" | "partial" | "unconfigured";
+          recommended_runtime?: {
+            channelId: string;
+            workerKind: "codex" | "claude-code" | "server";
+            provider: "openai" | "anthropic";
+            score: number;
+            reason: string;
+          } | null;
+          fallback_runtime?: {
+            channelId: string;
+            workerKind: "codex" | "claude-code" | "server";
+            provider: "openai" | "anthropic";
+            score: number;
+            reason: string;
+          } | null;
+          next_goal?: {
+            id: string;
+            title: string;
+            priority: "critical" | "high" | "normal" | "low";
+            monthlyBudgetCents: number | null;
+          } | null;
+          routing_blocked_reason?: string | null;
         }
       | { ok: boolean; data?: unknown }
     >("/api/client/dispatch/preflight", payload);

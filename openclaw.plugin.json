@@ -67,6 +67,10 @@
         "type": "string",
         "description": "OrgX API key for authentication"
       },
+      "workspaceId": {
+        "type": "string",
+        "description": "Canonical OrgX workspace UUID for sync and execution"
+      },
       "baseUrl": {
         "type": "string",
         "default": "https://www.useorgx.com",
@@ -105,6 +109,10 @@
       "label": "OrgX API Key",
       "sensitive": true,
       "placeholder": "Enter API key"
+    },
+    "workspaceId": {
+      "label": "OrgX Workspace ID",
+      "placeholder": "00000000-0000-0000-0000-000000000000"
     },
     "baseUrl": {
       "label": "OrgX API Base URL",

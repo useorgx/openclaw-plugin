@@ -26,6 +26,7 @@ export interface PersistedAuthRecord {
   source: 'manual' | 'browser_pairing';
   installationId: string;
   userId?: string | null;
+  workspaceId?: string | null;
   workspaceName?: string | null;
   keyPrefix?: string | null;
   createdAt: string;
@@ -93,6 +94,7 @@ export function writePersistedAuth(
     source: input.source,
     installationId: input.installationId,
     userId: normalizedUserId,
+    workspaceId: input.workspaceId ?? null,
     workspaceName: input.workspaceName ?? null,
     keyPrefix: input.keyPrefix ?? null,
     createdAt: existing?.createdAt ?? now,

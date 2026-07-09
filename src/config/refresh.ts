@@ -4,6 +4,7 @@ import type { PluginApiLike, ResolvedConfig } from "./resolution.js";
 type AuthStoreState = {
   apiKey?: string | null;
   userId?: string | null;
+  workspaceId?: string | null;
 } | null;
 
 type RefreshInput = {
@@ -21,6 +22,7 @@ type RefreshDeps = {
       installationId: string;
       persistedApiKey: string | null;
       persistedUserId: string | null;
+      persistedWorkspaceId?: string | null;
     }
   ) => ResolvedConfig;
   updateOnboardingState: (updates: Partial<OnboardingState>) => unknown;
@@ -42,6 +44,7 @@ export function refreshResolvedConfig(
   const previousBaseUrl = deps.config.baseUrl;
   const previousApiFallbackUrl = deps.config.apiFallbackUrl;
   const previousUserId = deps.config.userId;
+  const previousWorkspaceId = deps.config.workspaceId;
   const previousDocsUrl = deps.config.docsUrl;
   const previousKeySource = deps.config.apiKeySource;
 
@@ -50,6 +53,7 @@ export function refreshResolvedConfig(
     installationId: deps.config.installationId,
     persistedApiKey: latestPersisted?.apiKey ?? null,
     persistedUserId: latestPersisted?.userId ?? null,
+    persistedWorkspaceId: latestPersisted?.workspaceId ?? null,
   });
 
   const nextApiKey = allowApiKeyChanges ? next.apiKey : previousApiKey;
@@ -60,6 +64,7 @@ export function refreshResolvedConfig(
     next.baseUrl !== previousBaseUrl ||
     next.apiFallbackUrl !== previousApiFallbackUrl ||
     nextUserId !== previousUserId ||
+    next.workspaceId !== previousWorkspaceId ||
     next.docsUrl !== previousDocsUrl ||
     next.apiKeySource !== previousKeySource;
 
@@ -74,6 +79,7 @@ export function refreshResolvedConfig(
     deps.config.apiKey = nextApiKey;
     deps.config.userId = nextUserId;
     deps.config.apiKeySource = next.apiKeySource;
+    deps.config.workspaceId = next.workspaceId;
   }
   deps.config.baseUrl = next.baseUrl;
   deps.config.apiFallbackUrl = next.apiFallbackUrl;
