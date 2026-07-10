@@ -30,16 +30,14 @@ type GuardState = {
   completionVerified: boolean;
 };
 
-const DISCOVERY_TOOLS = new Set([
-  "orgx_status",
-  "orgx_recommend_next_action",
-]);
-
 const LIMIT_REACHED_REASON =
   "Managed heartbeat execution limit reached: the total tool-call budget is exhausted. Stop execution, report the bounded result, call heartbeat_respond with notify=false, and end this heartbeat.";
 
 const DISCOVERY_REQUIRED_REASON =
   "Managed heartbeat discovery is incomplete. Call orgx_recommend_next_action with canonical_only=true before executing task tools.";
+
+const CANONICAL_DISCOVERY_REQUIRED_REASON =
+  "Managed heartbeat discovery tools require canonical_only=true. Retry the status or recommendation call with canonical_only=true.";
 
 const STATUS_REQUIRED_REASON =
   "Managed OrgX agents must begin each turn with orgx_status using canonical_only=true. Do not act from prior chat context.";
@@ -200,7 +198,12 @@ export function createManagedHeartbeatExecutionGuard(options?: {
       return;
     }
 
-    if (DISCOVERY_TOOLS.has(event.toolName)) return;
+    if (
+      event.toolName === "orgx_status" ||
+      event.toolName === "orgx_recommend_next_action"
+    ) {
+      return { block: true, blockReason: CANONICAL_DISCOVERY_REQUIRED_REASON };
+    }
     if (event.toolName === "heartbeat_respond") {
       if (isCompletionSignal(event) && !state.completionVerified) {
         return { block: true, blockReason: COMPLETION_PROOF_REQUIRED_REASON };

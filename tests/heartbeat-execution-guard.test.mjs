@@ -234,6 +234,24 @@ test("execution is blocked until canonical recommendation discovery", () => {
   assert.match(blocked?.blockReason ?? "", /discovery is incomplete/i);
 });
 
+test("noncanonical recommendation discovery is blocked", () => {
+  const guard = createManagedHeartbeatExecutionGuard();
+  guard.beforeToolCall(
+    { toolName: "orgx_status", params: { canonical_only: true } },
+    context
+  );
+
+  const blocked = guard.beforeToolCall(
+    {
+      toolName: "orgx_recommend_next_action",
+      params: { canonical_only: false },
+    },
+    context
+  );
+  assert.equal(blocked?.block, true);
+  assert.match(blocked?.blockReason ?? "", /require canonical_only=true/i);
+});
+
 test("broad filesystem discovery is blocked and consumes execution budget", () => {
   const guard = createManagedHeartbeatExecutionGuard({ maxExecutionCalls: 1 });
   canonicalDiscovery(guard);
