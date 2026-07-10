@@ -40,6 +40,18 @@ function autopilotSliceSchema(): Record<string, unknown> {
     milestone_id: { type: ["string", "null"] },
     task_ids: { type: ["array", "null"], items: { type: "string" } },
   } as const;
+  const decisionOptionProperties = {
+    id: { type: ["string", "null"] },
+    label: { type: "string", minLength: 1 },
+    description: { type: ["string", "null"] },
+    consequences: { type: ["string", "null"] },
+    implied_status: {
+      type: ["string", "null"],
+      enum: ["approved", "declined", "cancelled", "rejected", null],
+    },
+    action_type: { type: ["string", "null"] },
+    requires_note: { type: ["boolean", "null"] },
+  } as const;
   const decisionProperties = {
     question: { type: "string", minLength: 1 },
     summary: { type: ["string", "null"] },
@@ -49,19 +61,8 @@ function autopilotSliceSchema(): Record<string, unknown> {
         type: ["string", "object"],
         minLength: 1,
         additionalProperties: false,
-        required: ["label"],
-        properties: {
-          id: { type: ["string", "null"] },
-          label: { type: "string", minLength: 1 },
-          description: { type: ["string", "null"] },
-          consequences: { type: ["string", "null"] },
-          implied_status: {
-            type: ["string", "null"],
-            enum: ["approved", "declined", "cancelled", "rejected", null],
-          },
-          action_type: { type: ["string", "null"] },
-          requires_note: { type: ["boolean", "null"] },
-        },
+        required: Object.keys(decisionOptionProperties),
+        properties: decisionOptionProperties,
       },
     },
     urgency: {
