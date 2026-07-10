@@ -27,6 +27,7 @@ export interface MissionControlNode {
   dueDate: string | null;
   etaEndAt: string | null;
   expectedDurationHours: number;
+  expectedTokens: number | null;
   expectedBudgetUsd: number;
   assignedAgents: MissionControlAssignedAgent[];
   behaviorConfigId?: string | null;
@@ -84,7 +85,7 @@ export interface MissionControlExecutionPolicy {
 }
 
 export const SLICE_SCOPE_MAX_TASKS: Record<SliceScope, number> = {
-  task: 6,
+  task: 1,
   milestone: 15,
   workstream: 30,
 };
@@ -668,6 +669,13 @@ function toMissionControlNode(
         ? tokenModeledBudget
         : extractedBudget
       : DEFAULT_BUDGET_USD[type]);
+  const expectedTokensRaw =
+    pickNumber(record, ["expected_tokens", "expectedTokens"]) ??
+    pickNumber(metadata, ["expected_tokens", "expectedTokens"]);
+  const expectedTokens =
+    typeof expectedTokensRaw === "number" && expectedTokensRaw > 0
+      ? Math.round(expectedTokensRaw)
+      : null;
 
   const priority = normalizePriorityForEntity(record);
   const behaviorConfigId =
@@ -802,6 +810,7 @@ function toMissionControlNode(
     etaEndAt,
     expectedDurationHours:
       expectedDuration > 0 ? expectedDuration : DEFAULT_DURATION_HOURS[type],
+    expectedTokens,
     expectedBudgetUsd:
       expectedBudget >= 0 ? expectedBudget : DEFAULT_BUDGET_USD[type],
     assignedAgents: normalizeAssignedAgents(record),
@@ -1055,6 +1064,7 @@ export async function buildMissionControlGraph(
         dueDate: null,
         etaEndAt: null,
         expectedDurationHours: DEFAULT_DURATION_HOURS.initiative,
+        expectedTokens: null,
         expectedBudgetUsd: DEFAULT_BUDGET_USD.initiative,
         assignedAgents: [],
         updatedAt: null,

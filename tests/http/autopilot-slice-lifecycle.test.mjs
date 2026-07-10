@@ -1688,6 +1688,7 @@ test("autopilot slice lifecycle: supervised automation level stops after one dis
       state.tasks.set("task-1", {
         ...existing,
         automation_level: "supervised",
+        expected_tokens: 19_500,
       });
       state.tasks.set("task-2", {
         id: "task-2",
@@ -1733,6 +1734,7 @@ test("autopilot slice lifecycle: supervised automation level stops after one dis
       assert.ok(statusBody?.run, "expected status payload");
       assert.equal(statusBody.run.status, "stopped");
       assert.equal(statusBody.run.stopReason, "completed");
+      assert.equal(statusBody.run.tokensUsed, 19_500);
       assert.equal(state.tasks.get("task-2")?.status, "todo");
       const dispatchedCount = calls.emitActivity.filter(
         (payload) => payload?.metadata?.event === "autopilot_slice_dispatched"

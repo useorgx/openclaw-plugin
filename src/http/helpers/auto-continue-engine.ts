@@ -2462,6 +2462,21 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     return Math.max(0, Math.round(raw));
   }
 
+  function estimateTokensForTask(task: MissionControlNode): number {
+    if (
+      typeof task.expectedTokens === "number" &&
+      Number.isFinite(task.expectedTokens) &&
+      task.expectedTokens > 0
+    ) {
+      return Math.round(task.expectedTokens);
+    }
+    return estimateTokensForDurationHours(task.expectedDurationHours);
+  }
+
+  function estimateTokensForTasks(tasks: MissionControlNode[]): number {
+    return tasks.reduce((total, task) => total + estimateTokensForTask(task), 0);
+  }
+
   // Helpers used by previous task-level auto-continue implementation were removed in v2.
 
   // readOpenClawSessionSummary was used by the previous task-level auto-continue implementation.
@@ -4301,15 +4316,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     }
 
     let cappedSliceTaskNodes = sliceTaskNodes;
-    let expectedDurationHours = cappedSliceTaskNodes.reduce(
-      (acc, t) =>
-        acc +
-        (typeof t.expectedDurationHours === "number" && Number.isFinite(t.expectedDurationHours)
-          ? Math.max(0, t.expectedDurationHours)
-          : 0),
-      0
-    );
-    let tokenEstimate = estimateTokensForDurationHours(expectedDurationHours);
+    let tokenEstimate = estimateTokensForTasks(cappedSliceTaskNodes);
     const remainingTokens =
       tokenBudgetValue !== null ? tokenBudgetValue - run.tokensUsed : null;
     if (remainingTokens !== null && remainingTokens <= 0) {
@@ -4321,29 +4328,20 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     // stopping immediately (Play should still dispatch at least the primary task when possible).
     if (remainingTokens !== null && tokenEstimate > 0 && tokenEstimate > remainingTokens) {
       const nextSlice: MissionControlNode[] = [];
-      let hours = 0;
 
       for (const task of sliceTaskNodes) {
-        const taskHours =
-          typeof task.expectedDurationHours === "number" && Number.isFinite(task.expectedDurationHours)
-            ? Math.max(0, task.expectedDurationHours)
-            : 0;
-
         if (nextSlice.length === 0) {
           nextSlice.push(task);
-          hours += taskHours;
           continue;
         }
 
-        const nextEstimate = estimateTokensForDurationHours(hours + taskHours);
+        const nextEstimate = estimateTokensForTasks([...nextSlice, task]);
         if (nextEstimate > remainingTokens) continue;
         nextSlice.push(task);
-        hours += taskHours;
       }
 
       cappedSliceTaskNodes = nextSlice;
-      expectedDurationHours = hours;
-      tokenEstimate = estimateTokensForDurationHours(expectedDurationHours);
+      tokenEstimate = estimateTokensForTasks(cappedSliceTaskNodes);
     }
 
     if (remainingTokens !== null && tokenEstimate > 0 && tokenEstimate > remainingTokens) {
