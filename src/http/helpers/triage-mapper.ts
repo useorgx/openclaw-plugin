@@ -657,26 +657,26 @@ const FAILURE_MAPPINGS: Record<string, TriageMapping> = {
   status_updates_buffered: {
     kind: "review_required",
     severity: "medium",
-    recommendedAction: "Review buffered status updates and retry persistence",
+    recommendedAction: "Retry applying the buffered status updates",
     defaultTitle: (ctx) =>
       `Status updates need review${ctx.workstreamTitle ? `: ${ctx.workstreamTitle}` : ""}`,
     defaultSummary: (ctx) =>
-      `${ctx.workstreamTitle ?? "A workstream"} completed, but status updates could not be applied automatically. ${ctx.reason ?? "Review the buffered updates and retry persistence."}`,
+      `${ctx.workstreamTitle ?? "This workstream"} completed its execution, but OrgX could not apply every reported status update. ${ctx.reason ?? "Review the buffered updates and retry the write."}`,
     actions: () => [
       {
         action: "retry",
         label: "Retry updates",
-        description: "Retry applying the buffered task and milestone updates",
-        consequences: "Will attempt to persist the buffered status updates again.",
+        description: "Apply the buffered task and milestone updates again",
+        consequences: "OrgX will retry the saved updates without rerunning the completed work.",
         requiresNote: false,
         available: true,
       },
       {
-        action: "snooze",
-        label: "Review later",
-        description: "Leave the buffered updates in the review queue",
-        consequences: "The item remains available for manual recovery.",
-        requiresNote: false,
+        action: "dismiss",
+        label: "Dismiss",
+        description: "Keep the current statuses unchanged",
+        consequences: "The buffered updates will remain unapplied.",
+        requiresNote: true,
         available: true,
       },
     ],
