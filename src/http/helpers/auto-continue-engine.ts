@@ -64,6 +64,7 @@ import {
   readSliceOutputFile,
   type CodexBinInfo,
 } from "./autopilot-slice-utils.js";
+import { blockTaskIfActive } from "./task-status-guard.js";
 import { pickString } from "./value-utils.js";
 import {
   LaneState,
@@ -4827,7 +4828,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	        } else {
           // Maintain existing behavior: mark the primary task blocked when a quality gate denies dispatch.
           try {
-            await client.updateEntity("task", primaryTask.id, { status: "blocked" });
+            await blockTaskIfActive(client, {
+              taskId: primaryTask.id,
+              initiativeId: run.initiativeId,
+            });
           } catch {
             // best effort
           }

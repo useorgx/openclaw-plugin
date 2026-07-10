@@ -535,17 +535,22 @@ function buildManagedFileContent(input: {
     }
 
     if (input.file === "HEARTBEAT.md") {
+      const canonicalAgentId =
+        input.agent.domain === "orchestration"
+          ? "orchestrator-agent"
+          : `${input.agent.domain}-agent`;
       return [
         "# Heartbeat",
         "",
         "On every wake:",
-        "1. Call `orgx_status`, then `orgx_recommend_next_action` for your domain.",
-        "2. Select exactly one active, goal-linked task explicitly assigned to this agent or domain.",
-        "3. If no runnable task exists, use `heartbeat_respond` with `notify=false` and stop. Do not invent work from memory or old chats.",
-        "4. If a task is runnable, complete one bounded step that changes its state or produces durable proof.",
-        "5. Emit OrgX activity at intent, execution, review, and completed checkpoints. Include the goal, initiative, workstream, and task IDs when available.",
-        "6. Register durable output with `orgx_register_artifact`. A status message alone is not progress.",
-        "7. When blocked, request one decision with options, tradeoffs, and a recommendation. Report provider or credential failures against Agent Operational Health, not by downgrading completed work.",
+        `1. Call \`orgx_status\` with \`agent_id=${canonicalAgentId}\`, \`domain=${input.agent.domain}\`, and \`canonical_only=true\`.`,
+        `2. Call \`orgx_recommend_next_action\` with \`entity_type=workspace\`, \`agent_id=${canonicalAgentId}\`, and \`domain=${input.agent.domain}\`.`,
+        "3. Select exactly one active, goal-linked task explicitly assigned to this agent or domain.",
+        "4. If no runnable task exists, use `heartbeat_respond` with `notify=false` and stop. Do not invent work from memory or old chats.",
+        "5. If a task is runnable, complete one bounded step that changes its state or produces durable proof.",
+        "6. Emit OrgX activity at intent, execution, review, and completed checkpoints. Include the goal, initiative, workstream, and task IDs when available.",
+        "7. Register durable output with `orgx_register_artifact`. A status message alone is not progress.",
+        "8. When blocked, request one decision with options, tradeoffs, and a recommendation. Report provider or credential failures against Agent Operational Health, not by downgrading completed work.",
         "",
         "Safety:",
         "- Never reopen or downgrade a done/completed task because a runtime, provider, or heartbeat is unavailable.",

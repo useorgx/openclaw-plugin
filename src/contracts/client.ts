@@ -441,6 +441,19 @@ export class OrgXClient {
         status: t.status,
         domain: t.domain,
         modelTier: t.modelTier,
+        priority: t.priority,
+        dueDate: t.dueDate,
+        initiativeId: t.initiativeId,
+        workstreamId: t.workstreamId,
+        milestoneId: t.milestoneId,
+        goalIds: t.goalIds,
+        canonicalGoalId: t.canonicalGoalId,
+        assignedAgentIds: t.assignedAgentIds,
+        assignedAgentNames: t.assignedAgentNames,
+        canonicalAssignedAgentId: t.canonicalAssignedAgentId,
+        canonicalNextTask: t.canonicalNextTask,
+        dispatchReady: t.dispatchReady,
+        updatedAt: t.updatedAt,
       })),
       pendingDecisions: data.pendingDecisions.map(d => ({
         id: d.id,
@@ -701,6 +714,8 @@ export class OrgXClient {
     entity_id?: string;
     workspace_id?: string;
     command_center_id?: string;
+    agent_id?: string;
+    domain?: string;
     limit?: number;
     cascade?: boolean;
   }): Promise<Record<string, unknown>> {

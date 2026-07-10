@@ -17,6 +17,7 @@ import {
   spawnGuardIsRateLimited,
   summarizeSpawnGuardBlockReason,
 } from "./mission-control.js";
+import { blockTaskIfActive } from "./task-status-guard.js";
 
 type ActivityBucket = "message" | "artifact" | "decision";
 
@@ -940,7 +941,10 @@ export function createDispatchLifecycle(deps: DispatchLifecycleDeps) {
 
     if (!retryable && input.initiativeId && taskId) {
       try {
-        await deps.client.updateEntity("task", taskId, { status: "blocked" });
+        await blockTaskIfActive(deps.client, {
+          taskId,
+          initiativeId: input.initiativeId,
+        });
       } catch {
         // best effort
       }

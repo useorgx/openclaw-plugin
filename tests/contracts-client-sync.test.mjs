@@ -13,6 +13,14 @@ function makeSyncResponse(overrides = {}) {
           status: "in_progress",
           domain: "engineering",
           modelTier: "sonnet",
+          initiativeId: "init-1",
+          workstreamId: "ws-1",
+          goalIds: ["goal-1"],
+          canonicalGoalId: "goal-1",
+          assignedAgentIds: ["engineering-agent"],
+          canonicalAssignedAgentId: "engineering-agent",
+          canonicalNextTask: true,
+          dispatchReady: true,
         },
       ],
       pendingDecisions: [{ id: "dec-1", title: "Decision One", urgency: "high" }],
@@ -81,6 +89,44 @@ test("OrgXClient.getOrgSnapshot stays backward-compatible when sync omits agents
   try {
     const snapshot = await client.getOrgSnapshot();
     assert.deepEqual(snapshot.agents, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("OrgXClient.getOrgSnapshot preserves task execution spine fields", async () => {
+  const { OrgXClient } = await import("../dist/contracts/client.js");
+  const client = new OrgXClient("oxk_test", "https://www.useorgx.com");
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () =>
+    new Response(JSON.stringify(makeSyncResponse()), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+
+  try {
+    const snapshot = await client.getOrgSnapshot();
+    assert.deepEqual(snapshot.activeTasks[0], {
+      id: "task-1",
+      title: "Task One",
+      status: "in_progress",
+      domain: "engineering",
+      modelTier: "sonnet",
+      priority: undefined,
+      dueDate: undefined,
+      initiativeId: "init-1",
+      workstreamId: "ws-1",
+      milestoneId: undefined,
+      goalIds: ["goal-1"],
+      canonicalGoalId: "goal-1",
+      assignedAgentIds: ["engineering-agent"],
+      assignedAgentNames: undefined,
+      canonicalAssignedAgentId: "engineering-agent",
+      canonicalNextTask: true,
+      dispatchReady: true,
+      updatedAt: undefined,
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
