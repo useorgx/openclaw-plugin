@@ -217,6 +217,7 @@ test("HEARTBEAT.md advances one canonical task without regressing completed work
     const content = readFileSync(join(agent.workspace, "HEARTBEAT.md"), "utf8");
     assert.match(content, /Select exactly one active, goal-linked task/);
     assert.match(content, /canonical_only=true/);
+    assert.match(content, /orgx_recommend_next_action.*canonical_only=true/);
     assert.match(content, /agent_id=/);
     assert.match(content, /A status message alone is not progress/);
     assert.match(content, /blocker_code=missing_execution_context/);

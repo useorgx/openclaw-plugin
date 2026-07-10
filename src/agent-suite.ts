@@ -544,7 +544,7 @@ function buildManagedFileContent(input: {
         "",
         "On every wake:",
         `1. Call \`orgx_status\` with \`agent_id=${canonicalAgentId}\`, \`domain=${input.agent.domain}\`, and \`canonical_only=true\`.`,
-        `2. Call \`orgx_recommend_next_action\` with \`entity_type=workspace\`, \`agent_id=${canonicalAgentId}\`, and \`domain=${input.agent.domain}\`.`,
+        `2. Call \`orgx_recommend_next_action\` with \`entity_type=workspace\`, \`agent_id=${canonicalAgentId}\`, \`domain=${input.agent.domain}\`, and \`canonical_only=true\`.`,
         "3. Select exactly one active, goal-linked task explicitly assigned to this agent or domain.",
         "4. If no runnable task exists, use `heartbeat_respond` with `notify=false` and stop. Do not invent work from memory or old chats.",
         "5. Before acting, require explicit execution context in the task: a repository and working directory, a durable source URL, or an `orgx_only` execution mode. Do not infer it from old chats.",

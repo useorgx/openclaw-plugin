@@ -491,6 +491,10 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             ],
             description: "Optional agent domain used to filter recommendations",
           },
+          canonical_only: {
+            type: "boolean",
+            description: "Return only the canonical next task on the active goal spine",
+          },
           limit: {
             type: "number",
             description: "Max recommendations to return",
@@ -511,6 +515,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           command_center_id?: string;
           agent_id?: string;
           domain?: string;
+          canonical_only?: boolean;
           limit?: number;
           cascade?: boolean;
         } = {}
