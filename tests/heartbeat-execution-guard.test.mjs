@@ -63,6 +63,27 @@ test("terminal reporting remains available after the execution cap", () => {
   }
 });
 
+test("heartbeat response closes the turn to additional tools", () => {
+  const guard = createManagedHeartbeatExecutionGuard();
+  canonicalDiscovery(guard);
+  guard.beforeToolCall(
+    { toolName: "heartbeat_respond", params: { outcome: "progress" } },
+    context
+  );
+
+  for (const toolName of ["read", "orgx_status", "orgx_emit_activity"]) {
+    const blocked = guard.beforeToolCall(
+      {
+        toolName,
+        params: toolName === "orgx_status" ? { canonical_only: true } : {},
+      },
+      context
+    );
+    assert.equal(blocked?.block, true);
+    assert.match(blocked?.blockReason ?? "", /terminal status is already recorded/i);
+  }
+});
+
 test("repeated status discovery cannot reset the execution budget", () => {
   const guard = createManagedHeartbeatExecutionGuard({ maxExecutionCalls: 1 });
   canonicalDiscovery(guard);
@@ -175,12 +196,18 @@ test("managed session keys activate the guard when agentId is omitted", () => {
   assert.match(blocked?.blockReason ?? "", /execution limit reached/i);
 });
 
-test("broad discovery detection covers find, recursive grep, and home paths", () => {
+test("broad discovery detection blocks home roots but allows assigned repositories", () => {
   assert.equal(isBroadHeartbeatDiscoveryCommand("find . -type f"), true);
   assert.equal(isBroadHeartbeatDiscoveryCommand("grep -R TODO ."), true);
   assert.equal(
-    isBroadHeartbeatDiscoveryCommand("rg TODO /Users/hope/repo"),
+    isBroadHeartbeatDiscoveryCommand("rg TODO /Users/hope"),
     true
+  );
+  assert.equal(
+    isBroadHeartbeatDiscoveryCommand(
+      "cd /Users/hope/Code/orgx/orgx && npx vitest run tests/telemetry.spec.ts"
+    ),
+    false
   );
   assert.equal(
     isBroadHeartbeatDiscoveryCommand("rg TODO src/file.ts"),

@@ -20,6 +20,7 @@ type GuardState = {
   canonicalStatusSeen: boolean;
   canonicalRecommendationSeen: boolean;
   executionCalls: number;
+  terminalReported: boolean;
 };
 
 const DISCOVERY_TOOLS = new Set([
@@ -48,6 +49,9 @@ const DISCOVERY_REQUIRED_REASON =
 
 const STATUS_REQUIRED_REASON =
   "Managed OrgX agents must begin each turn with orgx_status using canonical_only=true. Do not act from prior chat context.";
+
+const TERMINAL_REPORTED_REASON =
+  "Managed heartbeat terminal status is already recorded. End this turn without calling additional tools.";
 
 const BROAD_DISCOVERY_REASON =
   "Broad filesystem discovery is not allowed during a managed heartbeat. Use the task execution context and targeted file reads only.";
@@ -93,7 +97,7 @@ export function isBroadHeartbeatDiscoveryCommand(command: string): boolean {
   if (/\bgrep\s+(?:-[^\s]*[rR][^\s]*\s+|--recursive\b)/i.test(command)) {
     return true;
   }
-  return /(?:^|\s)(?:~|\/Users\/[^/]+)(?:\/|\s|$)/.test(command);
+  return /(?:^|\s)(?:~|\/Users\/[^/\s]+)(?=\s|$)/.test(command);
 }
 
 export function createManagedHeartbeatExecutionGuard(options?: {
@@ -111,12 +115,16 @@ export function createManagedHeartbeatExecutionGuard(options?: {
     if (!key) return;
 
     if (event.toolName === "orgx_status" && isCanonicalCall(event)) {
-      if (!states.has(key)) {
+      const existing = states.get(key);
+      if (!existing) {
         states.set(key, {
           canonicalStatusSeen: true,
           canonicalRecommendationSeen: false,
           executionCalls: 0,
+          terminalReported: false,
         });
+      } else if (existing.terminalReported) {
+        return { block: true, blockReason: TERMINAL_REPORTED_REASON };
       }
       return;
     }
@@ -124,6 +132,9 @@ export function createManagedHeartbeatExecutionGuard(options?: {
     const state = states.get(key);
     if (!state?.canonicalStatusSeen) {
       return { block: true, blockReason: STATUS_REQUIRED_REASON };
+    }
+    if (state.terminalReported) {
+      return { block: true, blockReason: TERMINAL_REPORTED_REASON };
     }
 
     if (
@@ -135,7 +146,12 @@ export function createManagedHeartbeatExecutionGuard(options?: {
     }
 
     if (DISCOVERY_TOOLS.has(event.toolName)) return;
-    if (TERMINAL_TOOLS.has(event.toolName)) return;
+    if (TERMINAL_TOOLS.has(event.toolName)) {
+      if (event.toolName === "heartbeat_respond") {
+        state.terminalReported = true;
+      }
+      return;
+    }
 
     if (!state.canonicalRecommendationSeen) {
       return { block: true, blockReason: DISCOVERY_REQUIRED_REASON };
