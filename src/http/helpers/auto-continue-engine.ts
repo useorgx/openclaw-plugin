@@ -202,6 +202,8 @@ function resolveAutopilotDefaultCwd(filename: string): string {
 
 function captureAutopilotWorkerEnv(): Record<string, string | undefined> {
   return {
+    ORGX_OPENCLAW_PLUGIN_CONFIG_DIR:
+      (process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR ?? "").trim() || undefined,
     ORGX_AUTOPILOT_CWD: (process.env.ORGX_AUTOPILOT_CWD ?? "").trim() || undefined,
     ORGX_AUTOPILOT_EXECUTOR: (process.env.ORGX_AUTOPILOT_EXECUTOR ?? "").trim() || undefined,
     ORGX_AUTOPILOT_WORKER_KIND:
@@ -4902,7 +4904,15 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       milestoneId: t.milestoneId ?? null,
     }));
 
-    const schemaPath = ensureAutopilotSliceSchemaPath(AUTO_CONTINUE_SLICE_SCHEMA_FILENAME);
+    const workerEnvOverrides = run.workerEnvOverrides ?? defaultWorkerEnvOverrides;
+    const capturedPluginConfigDir = (
+      workerEnvOverrides?.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR ?? ""
+    ).trim();
+    const pluginConfigDir = capturedPluginConfigDir || getOrgxPluginConfigDir();
+    const schemaPath = ensureAutopilotSliceSchemaPath(
+      AUTO_CONTINUE_SLICE_SCHEMA_FILENAME,
+      pluginConfigDir
+    );
 
     // Try server KickoffContext (includes team context, acceptance criteria, etc.)
     let prompt: string;
@@ -4989,11 +4999,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       }
     }
 
-    const logsDir = join(getOrgxPluginConfigDir(), AUTO_CONTINUE_SLICE_LOG_DIRNAME);
+    const logsDir = join(pluginConfigDir, AUTO_CONTINUE_SLICE_LOG_DIRNAME);
     const logPath = join(logsDir, `${sliceRunId}.log`);
     const outputPath = join(logsDir, `${sliceRunId}.output.json`);
 
-    const workerEnvOverrides = run.workerEnvOverrides ?? defaultWorkerEnvOverrides;
     const configuredWorkerCwd = (
       workerEnvOverrides?.ORGX_AUTOPILOT_CWD ??
       process.env.ORGX_AUTOPILOT_CWD ??

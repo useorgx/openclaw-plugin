@@ -157,8 +157,11 @@ function autopilotSliceSchema(): Record<string, unknown> {
   };
 }
 
-export function ensureAutopilotSliceSchemaPath(schemaFilename: string): string {
-  const file = join(getOrgxPluginConfigDir(), schemaFilename);
+export function ensureAutopilotSliceSchemaPath(
+  schemaFilename: string,
+  pluginConfigDir = getOrgxPluginConfigDir()
+): string {
+  const file = join(pluginConfigDir, schemaFilename);
   const nextSchemaRaw = JSON.stringify(autopilotSliceSchema(), null, 2);
   try {
     if (existsSync(file)) {

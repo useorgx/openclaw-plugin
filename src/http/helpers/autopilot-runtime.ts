@@ -258,13 +258,17 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     ensurePrivateDirForFile(input.logPath);
     ensurePrivateDirForFile(input.outputPath);
 
-    const workerKind = (
+    const requestedWorkerKind = (
       input.env.ORGX_AUTOPILOT_WORKER_KIND ??
       process.env.ORGX_AUTOPILOT_WORKER_KIND ??
       ""
     )
       .trim()
       .toLowerCase();
+    const workerKind = resolveSafeAutopilotWorkerKind(
+      requestedWorkerKind,
+      { ...process.env, ...input.env }
+    );
     if (workerKind === "mock") {
       const scriptPath = resolve(
         dirname(deps.filename),
@@ -756,4 +760,18 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
     spawnCodexSliceWorker,
     writeRuntimeEvent,
   };
+}
+
+export function resolveSafeAutopilotWorkerKind(
+  requestedWorkerKind: string,
+  env: NodeJS.ProcessEnv
+): string {
+  const requested = requestedWorkerKind.trim().toLowerCase();
+  const allowRealTestWorker = /^(1|true|yes|on)$/i.test(
+    (env.ORGX_AUTOPILOT_ALLOW_REAL_TEST_WORKER ?? "").trim()
+  );
+  if (env.NODE_TEST_CONTEXT && requested !== "mock" && !allowRealTestWorker) {
+    return "mock";
+  }
+  return requested;
 }

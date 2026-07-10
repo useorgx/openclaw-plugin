@@ -96,6 +96,7 @@ test("autopilot codex worker isolates broken global config via CODEX_HOME", asyn
         logPath,
         outputPath,
         env: {
+          ORGX_AUTOPILOT_ALLOW_REAL_TEST_WORKER: "1",
           ORGX_WORKSTREAM_ID: "ws-test",
           ORGX_WORKSTREAM_TITLE: "WS Test",
         },
@@ -187,6 +188,7 @@ test("autopilot codex worker forces safe CODEX_HOME even when isolation flag is 
         logPath,
         outputPath,
         env: {
+          ORGX_AUTOPILOT_ALLOW_REAL_TEST_WORKER: "1",
           ORGX_WORKSTREAM_ID: "ws-test",
           ORGX_WORKSTREAM_TITLE: "WS Test",
         },
@@ -282,6 +284,7 @@ test("autopilot isolation falls back to temp CODEX_HOME when configured path is 
         logPath,
         outputPath,
         env: {
+          ORGX_AUTOPILOT_ALLOW_REAL_TEST_WORKER: "1",
           ORGX_WORKSTREAM_ID: "ws-test",
           ORGX_WORKSTREAM_TITLE: "WS Test",
         },
@@ -373,6 +376,7 @@ test("autopilot isolation extracts orgx-openclaw MCP URL from single-quoted sour
         logPath,
         outputPath,
         env: {
+          ORGX_AUTOPILOT_ALLOW_REAL_TEST_WORKER: "1",
           ORGX_WORKSTREAM_ID: "ws-test",
           ORGX_WORKSTREAM_TITLE: "WS Test",
         },
@@ -514,6 +518,7 @@ test("autopilot claude worker injects print/json/schema defaults for structured 
         outputPath,
         outputSchemaPath: schemaPath,
         env: {
+          ORGX_AUTOPILOT_ALLOW_REAL_TEST_WORKER: "1",
           ORGX_WORKSTREAM_ID: "ws-test",
           ORGX_WORKSTREAM_TITLE: "WS Test",
           ORGX_RUN_ID: "slice-claude-test",

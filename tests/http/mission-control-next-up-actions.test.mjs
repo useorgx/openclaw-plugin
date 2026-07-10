@@ -82,17 +82,40 @@ async function sleep(ms) {
 
 function cleanupAutopilotChildren() {
   try {
-    const listing = execFileSync("ps", ["-Ao", "pid=,command="], {
+    const listing = execFileSync("ps", ["-Ao", "pid=,ppid=,command="], {
       encoding: "utf8",
     });
+    const processes = [];
     for (const line of listing.split(/\r?\n/)) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      const match = trimmed.match(/^(\d+)\s+(.*)$/);
+      const match = trimmed.match(/^(\d+)\s+(\d+)\s+(.*)$/);
       if (!match) continue;
-      const pid = Number(match[1]);
-      const command = match[2] ?? "";
-      if (!Number.isFinite(pid) || pid <= 0) continue;
+      processes.push({
+        pid: Number(match[1]),
+        ppid: Number(match[2]),
+        command: match[3] ?? "",
+      });
+    }
+
+    const descendantPids = new Set([process.pid]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const processInfo of processes) {
+        if (
+          descendantPids.has(processInfo.ppid) &&
+          !descendantPids.has(processInfo.pid)
+        ) {
+          descendantPids.add(processInfo.pid);
+          changed = true;
+        }
+      }
+    }
+
+    for (const { pid, command } of processes) {
+      if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) continue;
+      if (!descendantPids.has(pid)) continue;
       if (
         !command.includes("autopilot-logs/") &&
         !command.includes("mock-autopilot-slice-worker")
@@ -1933,6 +1956,16 @@ test("mission-control triage stop validates required ids and can reset tasks", a
 
       assert.equal(tasks.get("task-ws1-running")?.status, "todo");
       assert.equal(tasks.get("task-ws1-blocked")?.status, "todo");
+
+      const resAutoStop = await call(handler, {
+        method: "POST",
+        url: "/orgx/api/mission-control/auto-continue/stop",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ initiativeId: "init-1" }),
+      });
+      assert.equal(resAutoStop.status, 200);
+      await sleep(50);
+      cleanupAutopilotChildren();
     }
   );
 });
