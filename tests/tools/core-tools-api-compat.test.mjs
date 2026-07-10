@@ -83,6 +83,32 @@ test("compatibility tools are registered with strict schemas", () => {
   }
 });
 
+test("orgx_status forwards the agent task filter", async () => {
+  let receivedFilter = null;
+  const { deps } = createDeps({
+    getCachedSnapshot: () => ({ activeTasks: [], syncedAt: "now" }),
+    getLastSnapshotAt: () => Date.now(),
+    formatSnapshot: (_snapshot, filter) => {
+      receivedFilter = filter;
+      return "filtered snapshot";
+    },
+  });
+  const tool = registerCoreTools(deps).get("orgx_status");
+
+  const result = await tool.execute("call-status", {
+    agent_id: "operations-agent",
+    domain: "operations",
+    canonical_only: true,
+  });
+
+  assert.equal(result.content[0].text, "filtered snapshot");
+  assert.deepEqual(receivedFilter, {
+    agentId: "operations-agent",
+    domain: "operations",
+    canonicalOnly: true,
+  });
+});
+
 test("orgx_spawn_check forwards explicit standard model tier", async () => {
   let spawnArgs = null;
   const { deps } = createDeps({

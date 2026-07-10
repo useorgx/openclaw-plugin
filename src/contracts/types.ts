@@ -341,6 +341,19 @@ export interface TaskSummary {
   domain?: string;
   modelTier?: ModelTier;
   assignee?: string;
+  priority?: string;
+  dueDate?: string;
+  initiativeId?: string;
+  workstreamId?: string;
+  milestoneId?: string;
+  goalIds?: string[];
+  canonicalGoalId?: string;
+  assignedAgentIds?: string[];
+  assignedAgentNames?: string[];
+  canonicalAssignedAgentId?: string;
+  canonicalNextTask?: boolean;
+  dispatchReady?: boolean;
+  updatedAt?: string;
 }
 
 export interface Decision {
@@ -396,6 +409,19 @@ export interface SyncResponse {
     status: string;
     domain?: string;
     modelTier: ModelTier;
+    priority?: string;
+    dueDate?: string;
+    initiativeId?: string;
+    workstreamId?: string;
+    milestoneId?: string;
+    goalIds?: string[];
+    canonicalGoalId?: string;
+    assignedAgentIds?: string[];
+    assignedAgentNames?: string[];
+    canonicalAssignedAgentId?: string;
+    canonicalNextTask?: boolean;
+    dispatchReady?: boolean;
+    updatedAt?: string;
   }>;
   /** Pending decisions needing attention */
   pendingDecisions: Array<{

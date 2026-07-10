@@ -15,6 +15,7 @@ import type {
   ReportingPhase,
   ReportingSourceClient,
 } from "../types.js";
+import type { SnapshotTaskFilter } from "../snapshot-format.js";
 
 export interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
@@ -42,7 +43,7 @@ export interface RegisterCoreToolsDeps {
   doSync: () => Promise<void>;
   text: (value: string) => ToolResult;
   json: (label: string, data: unknown) => ToolResult;
-  formatSnapshot: (snapshot: OrgSnapshot) => string;
+  formatSnapshot: (snapshot: OrgSnapshot, filter?: SnapshotTaskFilter) => string;
   autoAssignEntityForCreate: (input: {
     entityType: string;
     entityId: string;
@@ -187,13 +188,42 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     {
       name: "orgx_status",
       description:
-        "Get current OrgX org status: active initiatives, agent states, pending decisions, active tasks.",
+        "Get current OrgX org status. Agents should pass their canonical agent_id or domain to receive only runnable assigned tasks.",
       parameters: {
         type: "object",
-        properties: {},
+        properties: {
+          agent_id: {
+            type: "string",
+            description: "Optional canonical agent ID, for example operations-agent",
+          },
+          domain: {
+            type: "string",
+            enum: [
+              "engineering",
+              "product",
+              "design",
+              "marketing",
+              "sales",
+              "operations",
+              "orchestration",
+            ],
+            description: "Optional domain filter",
+          },
+          canonical_only: {
+            type: "boolean",
+            description: "When true, return only canonical next tasks",
+          },
+        },
         additionalProperties: false,
       },
-      async execute(_callId: string) {
+      async execute(
+        _callId: string,
+        params: {
+          agent_id?: string;
+          domain?: string;
+          canonical_only?: boolean;
+        } = {}
+      ) {
         let snapshot = getCachedSnapshot();
         if (!snapshot || Date.now() - getLastSnapshotAt() > config.syncIntervalMs) {
           await doSync();
@@ -204,7 +234,13 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             "❌ Failed to fetch OrgX status. Check API key and connectivity."
           );
         }
-        return text(formatSnapshot(snapshot));
+        return text(
+          formatSnapshot(snapshot, {
+            agentId: params.agent_id,
+            domain: params.domain,
+            canonicalOnly: params.canonical_only === true,
+          })
+        );
       },
     },
     { optional: true }
@@ -438,6 +474,23 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             type: "string",
             description: "Deprecated alias for workspace_id",
           },
+          agent_id: {
+            type: "string",
+            description: "Optional canonical agent ID used to filter recommendations",
+          },
+          domain: {
+            type: "string",
+            enum: [
+              "engineering",
+              "product",
+              "design",
+              "marketing",
+              "sales",
+              "operations",
+              "orchestration",
+            ],
+            description: "Optional agent domain used to filter recommendations",
+          },
           limit: {
             type: "number",
             description: "Max recommendations to return",
@@ -456,6 +509,8 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
           entity_id?: string;
           workspace_id?: string;
           command_center_id?: string;
+          agent_id?: string;
+          domain?: string;
           limit?: number;
           cascade?: boolean;
         } = {}

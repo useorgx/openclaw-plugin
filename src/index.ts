@@ -78,6 +78,7 @@ import { registerSyncService } from "./services/background.js";
 import { registerGatewayHeartbeatService } from "./services/gateway-heartbeat.js";
 import { stopDetachedProcess } from "./http/helpers/openclaw-cli.js";
 import { createOutboxReplayer } from "./sync/outbox-replay.js";
+import { formatSnapshot } from "./snapshot-format.js";
 import {
   buildLocalAgentMirrorsFromSnapshot,
   buildLocalSyncAgentsFromRuns,
@@ -161,48 +162,6 @@ function text(s: string): ToolResult {
 
 function json(label: string, data: unknown): ToolResult {
   return text(`${label}\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\``);
-}
-
-function formatSnapshot(snap: OrgSnapshot): string {
-  const lines: string[] = ["# OrgX Status\n"];
-
-  if (snap.initiatives?.length) {
-    lines.push("## Initiatives");
-    for (const init of snap.initiatives) {
-      const pct = init.progress != null ? ` (${init.progress}%)` : "";
-      lines.push(`- **${init.title}** — ${init.status}${pct}`);
-    }
-    lines.push("");
-  }
-
-  if (snap.agents?.length) {
-    lines.push("## Agents");
-    for (const a of snap.agents) {
-      const task = a.currentTask ? ` → ${a.currentTask}` : "";
-      lines.push(`- **${a.name}** [${a.domain}]: ${a.status}${task}`);
-    }
-    lines.push("");
-  }
-
-  if (snap.activeTasks?.length) {
-    lines.push("## Active Tasks");
-    for (const t of snap.activeTasks) {
-      const tier = t.modelTier ? ` (${t.modelTier})` : "";
-      lines.push(`- ${t.title} — ${t.status}${tier}`);
-    }
-    lines.push("");
-  }
-
-  if (snap.pendingDecisions?.length) {
-    lines.push("## Pending Decisions");
-    for (const d of snap.pendingDecisions) {
-      lines.push(`- [${d.urgency.toUpperCase()}] ${d.title}`);
-    }
-    lines.push("");
-  }
-
-  if (snap.syncedAt) lines.push(`_Last synced: ${snap.syncedAt}_`);
-  return lines.join("\n");
 }
 
 type DoctorCheckStatus = "pass" | "warn" | "fail";

@@ -81,7 +81,12 @@ test("Agent launch blocks on spawn-guard denial and raises decision", async () =
 
   const client = {
     getBaseUrl: () => config.baseUrl,
-    listEntities: async () => ({ data: [] }),
+    listEntities: async (type, filters) => ({
+      data:
+        type === "task" && filters?.id === "task-1"
+          ? [{ id: "task-1", status: "todo" }]
+          : [],
+    }),
     updateEntity: async (type, id, updates) => {
       calls.updateEntity.push({ type, id, updates });
       return { ok: true, id };
