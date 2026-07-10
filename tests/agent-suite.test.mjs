@@ -180,3 +180,58 @@ test("HEARTBEAT.md advances one canonical task without regressing completed work
     assert.match(content, /heartbeat_respond.*notify=false/);
   }
 });
+
+test("managed suite files upgrade when their header hash still matches", async () => {
+  const mod = await importFreshModule();
+
+  const openclawDir = mkdtempSync(join(tmpdir(), "orgx-openclaw-suite-upgrade-"));
+  const workspacesDir = join(openclawDir, "workspaces");
+  mkdirSync(workspacesDir, { recursive: true });
+  writeJson(join(openclawDir, "openclaw.json"), {
+    agents: {
+      list: [{ id: "orgx", name: "OrgX", workspace: join(workspacesDir, "orgx") }],
+    },
+  });
+
+  const initialPlan = mod.computeOrgxAgentSuitePlan({ packVersion: "1.0.0", openclawDir });
+  mod.applyOrgxAgentSuitePlan({ plan: initialPlan, dryRun: false, openclawDir });
+
+  const upgradePlan = mod.computeOrgxAgentSuitePlan({ packVersion: "1.1.0", openclawDir });
+  assert.ok(upgradePlan.workspaceFiles.every((entry) => entry.action === "update"));
+  mod.applyOrgxAgentSuitePlan({ plan: upgradePlan, dryRun: false, openclawDir });
+
+  const heartbeatPath = join(
+    upgradePlan.suiteWorkspaceRoot,
+    "orgx-engineering",
+    "HEARTBEAT.md"
+  );
+  assert.match(readFileSync(heartbeatPath, "utf8"), /orgx-agent-suite@1\.1\.0/);
+});
+
+test("managed suite files still protect out-of-band edits", async () => {
+  const mod = await importFreshModule();
+
+  const openclawDir = mkdtempSync(join(tmpdir(), "orgx-openclaw-suite-conflict-"));
+  const workspacesDir = join(openclawDir, "workspaces");
+  mkdirSync(workspacesDir, { recursive: true });
+  writeJson(join(openclawDir, "openclaw.json"), {
+    agents: {
+      list: [{ id: "orgx", name: "OrgX", workspace: join(workspacesDir, "orgx") }],
+    },
+  });
+
+  const initialPlan = mod.computeOrgxAgentSuitePlan({ packVersion: "1.0.0", openclawDir });
+  mod.applyOrgxAgentSuitePlan({ plan: initialPlan, dryRun: false, openclawDir });
+  const heartbeatPath = join(
+    initialPlan.suiteWorkspaceRoot,
+    "orgx-engineering",
+    "HEARTBEAT.md"
+  );
+  writeFileSync(heartbeatPath, `${readFileSync(heartbeatPath, "utf8")}Manual edit.\n`, "utf8");
+
+  const upgradePlan = mod.computeOrgxAgentSuitePlan({ packVersion: "1.1.0", openclawDir });
+  const heartbeat = upgradePlan.workspaceFiles.find(
+    (entry) => entry.agentId === "orgx-engineering" && entry.file === "HEARTBEAT.md"
+  );
+  assert.equal(heartbeat?.action, "conflict");
+});

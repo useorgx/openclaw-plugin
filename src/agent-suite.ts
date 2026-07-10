@@ -234,6 +234,8 @@ function localHeader(): string {
 }
 
 const LOCAL_OVERRIDE_MARKER = "# === ORGX LOCAL OVERRIDES";
+const MANAGED_HEADER_PATTERN =
+  /^# === ORGX MANAGED \(pack: [^,\n]+, file: ([^,\n]+), sha256: ([a-f0-9]{64})\) ===\n/;
 
 function buildCompositeFile(input: { managed: string; localOverride: string | null }): string {
   if (!input.localOverride) return input.managed;
@@ -248,6 +250,14 @@ function extractLocalOverridesFromComposite(composite: string): string | null {
   const start = markerEnd >= 0 ? idx + markerEnd + 2 : idx;
   const candidate = composite.slice(start).trim();
   return candidate ? `${candidate}\n` : null;
+}
+
+function isPristineManagedComposite(composite: string, expectedFile: string): boolean {
+  const normalized = normalizeNewlines(composite);
+  const match = normalized.match(MANAGED_HEADER_PATTERN);
+  if (!match || match[1] !== expectedFile) return false;
+  const managedBody = normalized.slice(match[0].length);
+  return sha256(managedBody) === match[2];
 }
 
 function loadTextFile(path: string): string | null {
@@ -824,12 +834,15 @@ export function computeOrgxAgentSuitePlan(input: {
       const embeddedOverride = existingComposite ? extractLocalOverridesFromComposite(existingComposite) : null;
       const localOverride = loadTextFile(localPath) ?? embeddedOverride;
       const compositeContent = buildCompositeFile({ managed: managedContent, localOverride });
+      const pristineManagedComposite = existingComposite
+        ? isPristineManagedComposite(existingComposite, file)
+        : false;
 
       const action =
         !existsSync(compositePath)
           ? "create"
           : normalizeNewlines(existingComposite ?? "") !== normalizeNewlines(compositeContent)
-            ? localOverride
+            ? localOverride || pristineManagedComposite
               ? "update"
               : "conflict"
             : "noop";
