@@ -45,22 +45,49 @@ test("managed heartbeat allows five execution calls and blocks the sixth", () =>
   assert.match(blocked?.blockReason ?? "", /execution limit reached/i);
 });
 
-test("terminal reporting remains available after the execution cap", () => {
+test("only the terminal heartbeat response remains available after the call cap", () => {
   const guard = createManagedHeartbeatExecutionGuard({ maxExecutionCalls: 1 });
   canonicalDiscovery(guard);
   guard.beforeToolCall({ toolName: "read", params: {} }, context);
 
-  for (const toolName of [
-    "orgx_emit_activity",
-    "orgx_register_artifact",
-    "orgx_verify_completion",
-    "heartbeat_respond",
-  ]) {
-    assert.equal(
-      guard.beforeToolCall({ toolName, params: {} }, context),
-      undefined
-    );
-  }
+  const reportingBlocked = guard.beforeToolCall(
+    { toolName: "orgx_emit_activity", params: { phase: "execution" } },
+    context
+  );
+  assert.equal(reportingBlocked?.block, true);
+  assert.match(reportingBlocked?.blockReason ?? "", /total tool-call budget/i);
+  assert.equal(
+    guard.beforeToolCall(
+      { toolName: "heartbeat_respond", params: { outcome: "progress" } },
+      context
+    ),
+    undefined
+  );
+});
+
+test("proof and reporting tools consume the shared call budget", () => {
+  const guard = createManagedHeartbeatExecutionGuard({ maxExecutionCalls: 2 });
+  canonicalDiscovery(guard);
+  assert.equal(
+    guard.beforeToolCall(
+      { toolName: "orgx_verify_completion", params: {} },
+      context
+    ),
+    undefined
+  );
+  assert.equal(
+    guard.beforeToolCall(
+      { toolName: "orgx_register_artifact", params: {} },
+      context
+    ),
+    undefined
+  );
+  const blocked = guard.beforeToolCall(
+    { toolName: "orgx_quality_score", params: {} },
+    context
+  );
+  assert.equal(blocked?.block, true);
+  assert.match(blocked?.blockReason ?? "", /total tool-call budget/i);
 });
 
 test("heartbeat response closes the turn to additional tools", () => {
