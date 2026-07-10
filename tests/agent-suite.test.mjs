@@ -156,3 +156,27 @@ test("SKILL.md includes Team Awareness section for all suite agents", async () =
     );
   }
 });
+
+test("HEARTBEAT.md advances one canonical task without regressing completed work", async () => {
+  const mod = await importFreshModule();
+
+  const openclawDir = mkdtempSync(join(tmpdir(), "orgx-openclaw-suite-"));
+  const workspacesDir = join(openclawDir, "workspaces");
+  mkdirSync(workspacesDir, { recursive: true });
+  writeJson(join(openclawDir, "openclaw.json"), {
+    agents: {
+      list: [{ id: "orgx", name: "OrgX", workspace: join(workspacesDir, "orgx") }],
+    },
+  });
+
+  const plan = mod.computeOrgxAgentSuitePlan({ packVersion: "3.0.0", openclawDir });
+  mod.applyOrgxAgentSuitePlan({ plan, dryRun: false, openclawDir });
+
+  for (const agent of plan.agents) {
+    const content = readFileSync(join(agent.workspace, "HEARTBEAT.md"), "utf8");
+    assert.match(content, /Select exactly one active, goal-linked task/);
+    assert.match(content, /A status message alone is not progress/);
+    assert.match(content, /Never reopen or downgrade a done\/completed task/);
+    assert.match(content, /heartbeat_respond.*notify=false/);
+  }
+});

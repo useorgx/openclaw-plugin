@@ -35,6 +35,7 @@ test("execution policy preserves entity domain when assigned agents only have id
         status: "todo",
         metadata: {
           agent_domain: "sales",
+          expected_tokens: 19_500,
           assigned_agent_ids: ["sales-agent"],
           assigned_agent_names: ["Sage"],
         },
@@ -53,6 +54,7 @@ test("execution policy preserves entity domain when assigned agents only have id
   assert.deepEqual(task.assignedAgents, [
     { id: "sales-agent", name: "Sage", domain: "sales" },
   ]);
+  assert.equal(task.expectedTokens, 19_500);
   assert.deepEqual(deriveExecutionPolicy(task, workstream), {
     domain: "sales",
     requiredSkills: ["orgx-sales-agent"],

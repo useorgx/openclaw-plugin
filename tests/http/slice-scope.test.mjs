@@ -30,6 +30,7 @@ function makeNode(overrides) {
     dueDate: null,
     etaEndAt: null,
     expectedDurationHours: 2,
+    expectedTokens: overrides.expectedTokens ?? null,
     expectedBudgetUsd: 10,
     assignedAgents: [],
     updatedAt: null,
@@ -50,7 +51,7 @@ function buildGraph(nodes) {
 // ---------------------------------------------------------------------------
 
 test("SLICE_SCOPE_MAX_TASKS has correct caps", () => {
-  assert.equal(SLICE_SCOPE_MAX_TASKS.task, 6);
+  assert.equal(SLICE_SCOPE_MAX_TASKS.task, 1);
   assert.equal(SLICE_SCOPE_MAX_TASKS.milestone, 15);
   assert.equal(SLICE_SCOPE_MAX_TASKS.workstream, 30);
 });
@@ -65,7 +66,7 @@ test("SLICE_SCOPE_TIMEOUT_MULTIPLIER has correct values", () => {
 // selectSliceTasksByScope — task scope
 // ---------------------------------------------------------------------------
 
-test("task scope selects up to 6 ready tasks from the workstream", () => {
+test("task scope selects exactly one ready task from the workstream", () => {
   const tasks = Array.from({ length: 10 }, (_, i) =>
     makeNode({ id: `t-${i}`, workstreamId: "ws-1", milestoneId: "ms-1" })
   );
@@ -77,7 +78,7 @@ test("task scope selects up to 6 ready tasks from the workstream", () => {
     nodeById,
     includeVerification: true,
   });
-  assert.equal(result.tasks.length, 6);
+  assert.equal(result.tasks.length, 1);
   assert.ok(result.milestoneIds.length > 0);
 });
 
@@ -110,11 +111,10 @@ test("task scope excludes blocked tasks", () => {
     nodeById,
     includeVerification: true,
   });
-  // dep-1 and t-ready are both ready; t-blocked is excluded because dep-1 is not done
-  assert.equal(result.tasks.length, 2);
+  // dep-1 is the first ready task; t-blocked is excluded because dep-1 is not done.
+  assert.equal(result.tasks.length, 1);
   const ids = result.tasks.map((t) => t.id);
   assert.ok(ids.includes("dep-1"));
-  assert.ok(ids.includes("t-ready"));
   assert.ok(!ids.includes("t-blocked"));
 });
 
