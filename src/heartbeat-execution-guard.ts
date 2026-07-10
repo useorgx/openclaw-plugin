@@ -10,6 +10,22 @@ export type HeartbeatAfterToolCallEvent = HeartbeatBeforeToolCallEvent & {
   durationMs?: number;
 };
 
+export type HeartbeatBeforeAgentFinalizeEvent = {
+  runId?: string;
+  sessionId: string;
+  sessionKey?: string;
+};
+
+export type HeartbeatBeforeAgentFinalizeResult = {
+  action: "revise";
+  reason: string;
+  retry: {
+    instruction: string;
+    idempotencyKey: string;
+    maxAttempts: number;
+  };
+};
+
 export type HeartbeatToolContext = {
   agentId?: string;
   sessionKey?: string;
@@ -50,6 +66,22 @@ const COMPLETION_PROOF_REQUIRED_REASON =
 
 const BROAD_DISCOVERY_REASON =
   "Broad filesystem discovery is not allowed during a managed heartbeat. Use the task execution context and targeted file reads only.";
+
+function revision(
+  key: string,
+  phase: "status" | "recommendation" | "terminal",
+  instruction: string
+): HeartbeatBeforeAgentFinalizeResult {
+  return {
+    action: "revise",
+    reason: instruction,
+    retry: {
+      instruction,
+      idempotencyKey: `orgx-managed-heartbeat:${key}:${phase}`,
+      maxAttempts: 1,
+    },
+  };
+}
 
 function isManagedContext(context: HeartbeatToolContext): boolean {
   if (
@@ -249,10 +281,46 @@ export function createManagedHeartbeatExecutionGuard(options?: {
     );
   }
 
+  function beforeAgentFinalize(
+    event: HeartbeatBeforeAgentFinalizeEvent,
+    context: HeartbeatToolContext
+  ): HeartbeatBeforeAgentFinalizeResult | void {
+    const mergedContext = {
+      ...context,
+      sessionId: event.sessionId,
+      sessionKey: event.sessionKey ?? context.sessionKey,
+    };
+    if (!isManagedContext(mergedContext)) return;
+    const key = stateKey(event, mergedContext);
+    if (!key) return;
+    const state = states.get(key);
+    if (!state?.canonicalStatusSeen) {
+      return revision(
+        key,
+        "status",
+        "This managed heartbeat is incomplete. Call orgx_status with canonical_only=true for your canonical agent and domain before finalizing."
+      );
+    }
+    if (!state.canonicalRecommendationSeen) {
+      return revision(
+        key,
+        "recommendation",
+        "This managed heartbeat is incomplete. Call orgx_recommend_next_action with canonical_only=true for your canonical agent and domain, then handle only that result."
+      );
+    }
+    if (!state.terminalReported) {
+      return revision(
+        key,
+        "terminal",
+        "This managed heartbeat has no terminal receipt. Call heartbeat_respond exactly once with notify=false and an honest outcome, then stop without additional tools."
+      );
+    }
+  }
+
   function endRun(context: HeartbeatToolContext): void {
     const key = stateKey({}, context);
     if (key) states.delete(key);
   }
 
-  return { beforeToolCall, afterToolCall, endRun };
+  return { beforeToolCall, afterToolCall, beforeAgentFinalize, endRun };
 }

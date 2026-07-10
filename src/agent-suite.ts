@@ -669,6 +669,20 @@ function upsertSuiteAgentsIntoConfig(input: {
 }): { updated: boolean; next: OpenClawConfig; addedAgentIds: string[] } {
   const openclaw: OpenClawConfig = input.openclaw && typeof input.openclaw === "object" ? input.openclaw : {};
 
+  const pluginsObj = isRecord(openclaw.plugins)
+    ? (openclaw.plugins as Record<string, unknown>)
+    : {};
+  const entriesObj = isRecord(pluginsObj.entries)
+    ? (pluginsObj.entries as Record<string, unknown>)
+    : {};
+  const orgxEntry = isRecord(entriesObj.orgx)
+    ? (entriesObj.orgx as Record<string, unknown>)
+    : {};
+  const hooksObj = isRecord(orgxEntry.hooks)
+    ? (orgxEntry.hooks as Record<string, unknown>)
+    : {};
+  const conversationHookUpdated = hooksObj.allowConversationAccess !== true;
+
   const agentsObj = isRecord(openclaw.agents) ? (openclaw.agents as Record<string, unknown>) : {};
   const currentListRaw = Array.isArray(agentsObj.list) ? agentsObj.list : [];
   const currentList: OpenClawAgentEntry[] = currentListRaw
@@ -721,12 +735,28 @@ function upsertSuiteAgentsIntoConfig(input: {
     added.push(agent.id);
   }
 
-  if (added.length === 0 && !updatedExisting) {
+  if (added.length === 0 && !updatedExisting && !conversationHookUpdated) {
     return { updated: false, next: openclaw, addedAgentIds: [] };
   }
 
   const nextAgents = { ...(agentsObj as any), list: nextList };
-  const next = { ...openclaw, agents: nextAgents };
+  const next = {
+    ...openclaw,
+    agents: nextAgents,
+    plugins: {
+      ...pluginsObj,
+      entries: {
+        ...entriesObj,
+        orgx: {
+          ...orgxEntry,
+          hooks: {
+            ...hooksObj,
+            allowConversationAccess: true,
+          },
+        },
+      },
+    },
+  };
   return { updated: true, next, addedAgentIds: added };
 }
 

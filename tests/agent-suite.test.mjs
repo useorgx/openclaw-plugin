@@ -117,6 +117,10 @@ test("applyOrgxAgentSuitePlan writes managed + composite files and appends local
   assert.ok(engineeringConfig?.tools?.alsoAllow?.includes("orgx_recommend_next_action"));
   assert.ok(!engineeringConfig?.tools?.alsoAllow?.includes("orgx_apply_changeset"));
   assert.ok(orchestratorConfig?.tools?.alsoAllow?.includes("orgx_apply_changeset"));
+  assert.equal(
+    updatedRaw.plugins.entries.orgx.hooks.allowConversationAccess,
+    true
+  );
 
   const managedPath = join(engineering.workspace, ".orgx", "managed", "AGENTS.md");
   const compositePath = join(engineering.workspace, "AGENTS.md");
