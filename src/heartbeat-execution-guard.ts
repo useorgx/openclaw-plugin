@@ -4,6 +4,12 @@ export type HeartbeatBeforeToolCallEvent = {
   runId?: string;
 };
 
+export type HeartbeatAfterToolCallEvent = HeartbeatBeforeToolCallEvent & {
+  result?: unknown;
+  error?: string;
+  durationMs?: number;
+};
+
 export type HeartbeatToolContext = {
   agentId?: string;
   sessionKey?: string;
@@ -21,6 +27,7 @@ type GuardState = {
   canonicalRecommendationSeen: boolean;
   executionCalls: number;
   terminalReported: boolean;
+  completionVerified: boolean;
 };
 
 const DISCOVERY_TOOLS = new Set([
@@ -52,6 +59,9 @@ const STATUS_REQUIRED_REASON =
 
 const TERMINAL_REPORTED_REASON =
   "Managed heartbeat terminal status is already recorded. End this turn without calling additional tools.";
+
+const COMPLETION_PROOF_REQUIRED_REASON =
+  "Managed heartbeat completion is not verified. Call orgx_verify_completion for the selected task and report done only when it returns ready=true and verified=true; otherwise report progress or blocked.";
 
 const BROAD_DISCOVERY_REASON =
   "Broad filesystem discovery is not allowed during a managed heartbeat. Use the task execution context and targeted file reads only.";
@@ -91,6 +101,56 @@ function commandFrom(event: HeartbeatBeforeToolCallEvent): string {
   return typeof command === "string" ? command : "";
 }
 
+function isCompletionSignal(event: HeartbeatBeforeToolCallEvent): boolean {
+  const outcome = event.params?.outcome;
+  if (
+    event.toolName === "heartbeat_respond" &&
+    typeof outcome === "string" &&
+    ["done", "completed", "success"].includes(outcome.trim().toLowerCase())
+  ) {
+    return true;
+  }
+
+  const phase = event.params?.phase;
+  if (
+    event.toolName === "orgx_emit_activity" &&
+    typeof phase === "string" &&
+    phase.trim().toLowerCase() === "completed"
+  ) {
+    return true;
+  }
+
+  const status = event.params?.status;
+  return (
+    event.toolName === "orgx_update_entity" &&
+    typeof status === "string" &&
+    ["done", "completed"].includes(status.trim().toLowerCase())
+  );
+}
+
+function completionVerificationPassed(result: unknown, error?: string): boolean {
+  if (error || result === undefined || result === null) return false;
+  const seen = new WeakSet<object>();
+  const collect = (value: unknown, depth = 0): string => {
+    if (depth > 6 || value === undefined || value === null) return "";
+    if (typeof value === "string") return value;
+    if (typeof value !== "object") return String(value);
+    if (seen.has(value)) return "";
+    seen.add(value);
+    if (Array.isArray(value)) {
+      return value.map((entry) => collect(entry, depth + 1)).join(" ");
+    }
+    return Object.values(value)
+      .map((entry) => collect(entry, depth + 1))
+      .join(" ");
+  };
+  const serialized = collect(result);
+  return (
+    /["']ready["']\s*:\s*true/i.test(serialized) &&
+    /["']verified["']\s*:\s*true/i.test(serialized)
+  );
+}
+
 export function isBroadHeartbeatDiscoveryCommand(command: string): boolean {
   if (!command.trim()) return false;
   if (/(^|[;&|]\s*)find\s+/i.test(command)) return true;
@@ -122,6 +182,7 @@ export function createManagedHeartbeatExecutionGuard(options?: {
           canonicalRecommendationSeen: false,
           executionCalls: 0,
           terminalReported: false,
+          completionVerified: false,
         });
       } else if (existing.terminalReported) {
         return { block: true, blockReason: TERMINAL_REPORTED_REASON };
@@ -147,6 +208,9 @@ export function createManagedHeartbeatExecutionGuard(options?: {
 
     if (DISCOVERY_TOOLS.has(event.toolName)) return;
     if (TERMINAL_TOOLS.has(event.toolName)) {
+      if (isCompletionSignal(event) && !state.completionVerified) {
+        return { block: true, blockReason: COMPLETION_PROOF_REQUIRED_REASON };
+      }
       if (event.toolName === "heartbeat_respond") {
         state.terminalReported = true;
       }
@@ -170,10 +234,27 @@ export function createManagedHeartbeatExecutionGuard(options?: {
     }
   }
 
+  function afterToolCall(
+    event: HeartbeatAfterToolCallEvent,
+    context: HeartbeatToolContext
+  ): void {
+    if (!isManagedContext(context) || event.toolName !== "orgx_verify_completion") {
+      return;
+    }
+    const key = stateKey(event, context);
+    if (!key) return;
+    const state = states.get(key);
+    if (!state) return;
+    state.completionVerified = completionVerificationPassed(
+      event.result,
+      event.error
+    );
+  }
+
   function endRun(context: HeartbeatToolContext): void {
     const key = stateKey({}, context);
     if (key) states.delete(key);
   }
 
-  return { beforeToolCall, endRun };
+  return { beforeToolCall, afterToolCall, endRun };
 }

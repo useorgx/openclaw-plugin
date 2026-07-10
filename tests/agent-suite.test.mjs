@@ -220,6 +220,10 @@ test("HEARTBEAT.md advances one canonical task without regressing completed work
     assert.match(content, /orgx_recommend_next_action.*canonical_only=true/);
     assert.match(content, /agent_id=/);
     assert.match(content, /A status message alone is not progress/);
+    assert.match(content, /entity_type=task/);
+    assert.match(content, /successful tool output was observed/);
+    assert.match(content, /orgx_verify_completion/);
+    assert.match(content, /ready=true.*verified=true/);
     assert.match(content, /blocker_code=missing_execution_context/);
     assert.match(content, /at most 5 execution tool calls/);
     assert.match(content, /Never use `find`/);
