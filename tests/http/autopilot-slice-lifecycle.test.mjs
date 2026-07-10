@@ -1391,6 +1391,36 @@ test("autopilot slice lifecycle: disabled timeout auto-answer leaves queued deci
   }
 });
 
+test("autopilot slice lifecycle: timeout auto-answer defaults to disabled", async () => {
+  const result = await runPlayTickStatus({
+    scenario: "completed_optional_decision",
+    waitMs: 120,
+    extraEnv: {
+      ORGX_QUESTION_AUTO_ANSWER_ENABLED: null,
+      ORGX_QUESTION_AUTO_ANSWER_DELAY_SECONDS: "1",
+      ORGX_QUESTION_AUTO_ANSWER_ACTION: "approve",
+    },
+    after: async ({ calls, state }) => {
+      await sleep(1_300);
+      return {
+        decisions: Array.from(state.decisions.values()),
+        timeout: latestActivityByEvent(calls, "question_timeout_started"),
+        applied: latestActivityByEvent(calls, "question_answer_applied"),
+        reviewItem: latestActivityByEvent(calls, "review_item_created"),
+      };
+    },
+  });
+
+  const after = result.afterResult;
+  assert.ok(after?.reviewItem, "expected unanswered question to remain in review");
+  assert.equal(String(after.reviewItem?.metadata?.reason ?? ""), "policy_disabled");
+  assert.equal(after.timeout, null);
+  assert.equal(after.applied, null);
+  assert.ok(after.decisions.length > 0, "expected a pending decision");
+  assert.ok(after.decisions.every((decision) => decision.status === "pending"));
+  assert.equal(result.calls.decideDecision.length, 0);
+});
+
 test("autopilot slice lifecycle: behavior config approval gate blocks before dispatch", async () => {
   const dir = mkdtempSync(join(tmpdir(), "orgx-openclaw-autopilot-approval-gate-"));
   await withEnv(

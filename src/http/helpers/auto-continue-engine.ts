@@ -296,7 +296,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     { min: 1, max: 3600 }
   );
   const QUESTION_AUTO_ANSWER_DEFAULT_ENABLED =
-    String(process.env.ORGX_QUESTION_AUTO_ANSWER_ENABLED ?? "true")
+    String(process.env.ORGX_QUESTION_AUTO_ANSWER_ENABLED ?? "false")
       .trim()
       .toLowerCase() !== "false";
   const QUESTION_AUTO_ANSWER_DEFAULT_MODE: QuestionAutoAnswerPolicyMode =
