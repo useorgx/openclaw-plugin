@@ -516,6 +516,9 @@ function normalizeAssignedAgents(
   record: Record<string, unknown>
 ): MissionControlAssignedAgent[] {
   const metadata = getRecordMetadata(record);
+  const fallbackDomain =
+    pickString(record, ["domain", "persona", "agent_domain", "agentDomain"]) ??
+    pickString(metadata, ["domain", "persona", "agent_domain", "agentDomain"]);
   const ids = dedupeStrings([
     ...pickStringArray(record, ["assigned_agent_ids", "assignedAgentIds"]),
     ...pickStringArray(metadata, ["assigned_agent_ids", "assignedAgentIds"]),
@@ -543,7 +546,7 @@ function normalizeAssignedAgents(
       fromObjects.push({
         id: id || `name:${name}`,
         name,
-        domain: pickString(item, ["domain", "role"]),
+        domain: pickString(item, ["domain", "role"]) ?? fallbackDomain,
       });
     }
   }
@@ -554,7 +557,7 @@ function normalizeAssignedAgents(
     for (let i = 0; i < maxLen; i += 1) {
       const id = ids[i] ?? `name:${names[i] ?? `agent-${i + 1}`}`;
       const name = names[i] ?? ids[i] ?? `Agent ${i + 1}`;
-      merged.push({ id, name, domain: null });
+      merged.push({ id, name, domain: fallbackDomain });
     }
   }
 

@@ -70,6 +70,13 @@ test("autopilot slice schema is strict-format compatible for codex output-schema
         "boolean",
         "decisions_needed[].blocking should require explicit boolean"
       );
+      const decisionOptionItem = decisionItem?.properties?.options?.items;
+      const decisionOptionKeys = Object.keys(decisionOptionItem?.properties ?? {});
+      assert.deepEqual(
+        [...(decisionOptionItem?.required ?? [])].sort(),
+        decisionOptionKeys.sort(),
+        "structured decision options should require every nullable property for strict output schemas"
+      );
 
       const skillEvidenceItem = schema.properties?.skill_evidence?.items;
       const skillEvidenceKeys = Object.keys(skillEvidenceItem?.properties ?? {});
