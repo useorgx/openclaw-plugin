@@ -225,7 +225,8 @@ test("HEARTBEAT.md advances one canonical task without regressing completed work
     assert.match(content, /orgx_verify_completion/);
     assert.match(content, /ready=true.*verified=true/);
     assert.match(content, /blocker_code=missing_execution_context/);
-    assert.match(content, /at most 5 execution tool calls/);
+    assert.match(content, /at most 5 total tool calls/);
+    assert.match(content, /including proof and reporting calls/);
     assert.match(content, /Never use `find`/);
     assert.match(content, /Never reopen or downgrade a done\/completed task/);
     assert.match(content, /heartbeat_respond.*notify=false/);

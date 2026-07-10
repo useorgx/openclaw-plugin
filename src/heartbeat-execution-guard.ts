@@ -35,21 +35,8 @@ const DISCOVERY_TOOLS = new Set([
   "orgx_recommend_next_action",
 ]);
 
-const TERMINAL_TOOLS = new Set([
-  "heartbeat_respond",
-  "orgx_emit_activity",
-  "orgx_report_progress",
-  "update_stream_progress",
-  "orgx_register_artifact",
-  "orgx_request_decision",
-  "orgx_verify_completion",
-  "orgx_update_entity",
-  "orgx_record_outcome",
-  "orgx_quality_score",
-]);
-
 const LIMIT_REACHED_REASON =
-  "Managed heartbeat execution limit reached. Stop execution, report the bounded result, call heartbeat_respond with notify=false, and end this heartbeat.";
+  "Managed heartbeat execution limit reached: the total tool-call budget is exhausted. Stop execution, report the bounded result, call heartbeat_respond with notify=false, and end this heartbeat.";
 
 const DISCOVERY_REQUIRED_REASON =
   "Managed heartbeat discovery is incomplete. Call orgx_recommend_next_action with canonical_only=true before executing task tools.";
@@ -207,13 +194,11 @@ export function createManagedHeartbeatExecutionGuard(options?: {
     }
 
     if (DISCOVERY_TOOLS.has(event.toolName)) return;
-    if (TERMINAL_TOOLS.has(event.toolName)) {
+    if (event.toolName === "heartbeat_respond") {
       if (isCompletionSignal(event) && !state.completionVerified) {
         return { block: true, blockReason: COMPLETION_PROOF_REQUIRED_REASON };
       }
-      if (event.toolName === "heartbeat_respond") {
-        state.terminalReported = true;
-      }
+      state.terminalReported = true;
       return;
     }
 
@@ -226,6 +211,9 @@ export function createManagedHeartbeatExecutionGuard(options?: {
     }
 
     state.executionCalls += 1;
+    if (isCompletionSignal(event) && !state.completionVerified) {
+      return { block: true, blockReason: COMPLETION_PROOF_REQUIRED_REASON };
+    }
     if (
       event.toolName === "exec" &&
       isBroadHeartbeatDiscoveryCommand(commandFrom(event))

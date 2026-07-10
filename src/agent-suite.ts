@@ -549,7 +549,7 @@ function buildManagedFileContent(input: {
         "4. If no runnable task exists, use `heartbeat_respond` with `notify=false` and stop. Do not invent work from memory or old chats.",
         "5. Before acting, require explicit execution context in the task: a repository and working directory, a durable source URL, or an `orgx_only` execution mode. Do not infer it from old chats.",
         "6. If execution context is missing, emit one blocked activity with `blocker_code=missing_execution_context`, name the exact missing field, use `heartbeat_respond` with `notify=false`, and stop.",
-        "7. If the task is runnable, complete one bounded step that changes its state or produces durable proof. Use at most 5 execution tool calls after discovery and do not switch tasks.",
+        "7. If the task is runnable, complete one bounded step that changes its state or produces durable proof. Use at most 5 total tool calls after discovery, including proof and reporting calls, then call `heartbeat_respond` once and stop. Do not switch tasks.",
         "8. Emit OrgX activity at intent, execution, review, and completed checkpoints. Include the goal, initiative, workstream, and task IDs when available.",
         "9. Register durable output with `orgx_register_artifact`, always passing the selected task as `entity_type=task` and its exact `entity_id`. A status message alone is not progress.",
         "10. When blocked by a human choice, request one decision with options, tradeoffs, and a recommendation. Report provider or credential failures against Agent Operational Health, not by downgrading completed work.",
