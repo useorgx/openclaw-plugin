@@ -133,6 +133,36 @@ test("guard ignores non-managed agents and clears completed runs", () => {
   );
 });
 
+test("managed session keys activate the guard when agentId is omitted", () => {
+  const guard = createManagedHeartbeatExecutionGuard({ maxExecutionCalls: 1 });
+  const sessionOnlyContext = {
+    runId: "run-session-only",
+    sessionKey: "agent:orgx-engineering:main",
+  };
+  guard.beforeToolCall(
+    { toolName: "orgx_status", params: { canonical_only: true } },
+    sessionOnlyContext
+  );
+  guard.beforeToolCall(
+    {
+      toolName: "orgx_recommend_next_action",
+      params: { canonical_only: true },
+    },
+    sessionOnlyContext
+  );
+  guard.beforeToolCall(
+    { toolName: "bash", params: { command: "pwd" } },
+    sessionOnlyContext
+  );
+
+  const blocked = guard.beforeToolCall(
+    { toolName: "bash", params: { command: "git status -sb" } },
+    sessionOnlyContext
+  );
+  assert.equal(blocked?.block, true);
+  assert.match(blocked?.blockReason ?? "", /execution limit reached/i);
+});
+
 test("broad discovery detection covers find, recursive grep, and home paths", () => {
   assert.equal(isBroadHeartbeatDiscoveryCommand("find . -type f"), true);
   assert.equal(isBroadHeartbeatDiscoveryCommand("grep -R TODO ."), true);

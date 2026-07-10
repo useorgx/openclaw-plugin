@@ -49,8 +49,17 @@ const DISCOVERY_REQUIRED_REASON =
 const BROAD_DISCOVERY_REASON =
   "Broad filesystem discovery is not allowed during a managed heartbeat. Use the task execution context and targeted file reads only.";
 
-function isManagedAgent(agentId: string | undefined): boolean {
-  return typeof agentId === "string" && agentId.startsWith("orgx-");
+function isManagedContext(context: HeartbeatToolContext): boolean {
+  if (
+    typeof context.agentId === "string" &&
+    context.agentId.startsWith("orgx-")
+  ) {
+    return true;
+  }
+  return (
+    typeof context.sessionKey === "string" &&
+    context.sessionKey.startsWith("agent:orgx-")
+  );
 }
 
 function isCanonicalCall(event: HeartbeatBeforeToolCallEvent): boolean {
@@ -94,7 +103,7 @@ export function createManagedHeartbeatExecutionGuard(options?: {
     event: HeartbeatBeforeToolCallEvent,
     context: HeartbeatToolContext
   ): HeartbeatToolCallResult | void {
-    if (!isManagedAgent(context.agentId)) return;
+    if (!isManagedContext(context)) return;
     const key = stateKey(event, context);
     if (!key) return;
 
