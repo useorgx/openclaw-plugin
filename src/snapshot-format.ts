@@ -54,6 +54,36 @@ function taskMetadata(task: TaskSummary): string {
   return details.length > 0 ? ` | ${details.join(" | ")}` : "";
 }
 
+function compact(value: string, limit = 500): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length <= limit
+    ? normalized
+    : `${normalized.slice(0, limit - 1)}…`;
+}
+
+function taskContextLines(task: TaskSummary): string[] {
+  const lines: string[] = [];
+  if (task.description) lines.push(`  Context: ${compact(task.description)}`);
+  if (task.acceptanceCriteria?.length) {
+    lines.push(
+      `  Acceptance: ${task.acceptanceCriteria.map((item) => compact(item, 220)).join("; ")}`,
+    );
+  }
+  const execution = task.executionContext;
+  if (execution) {
+    const details = [
+      execution.mode && `mode=${execution.mode}`,
+      execution.repository && `repository=${execution.repository}`,
+      execution.workingDirectory && `cwd=${execution.workingDirectory}`,
+      execution.branch && `branch=${execution.branch}`,
+      execution.sourceUrl && `source=${execution.sourceUrl}`,
+      execution.notes && `notes=${compact(execution.notes, 220)}`,
+    ].filter((value): value is string => Boolean(value));
+    if (details.length > 0) lines.push(`  Execution: ${details.join(" | ")}`);
+  }
+  return lines;
+}
+
 export function formatSnapshot(
   snap: OrgSnapshot,
   filter: SnapshotTaskFilter = {},
@@ -96,6 +126,7 @@ export function formatSnapshot(
       lines.push(
         `- [${task.id}] ${task.title} — ${task.status}${tier}${taskMetadata(task)}`,
       );
+      lines.push(...taskContextLines(task));
     }
   }
   lines.push("");

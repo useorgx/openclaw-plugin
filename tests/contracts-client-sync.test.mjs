@@ -10,6 +10,7 @@ function makeSyncResponse(overrides = {}) {
         {
           id: "task-1",
           title: "Task One",
+          description: "Implement the scoped task in the linked repository.",
           status: "in_progress",
           domain: "engineering",
           modelTier: "sonnet",
@@ -21,6 +22,13 @@ function makeSyncResponse(overrides = {}) {
           canonicalAssignedAgentId: "engineering-agent",
           canonicalNextTask: true,
           dispatchReady: true,
+          acceptanceCriteria: ["Focused tests pass"],
+          executionContext: {
+            mode: "repository",
+            repository: "https://github.com/useorgx/example",
+            workingDirectory: "/workspace/example",
+            branch: "main",
+          },
         },
       ],
       pendingDecisions: [{ id: "dec-1", title: "Decision One", urgency: "high" }],
@@ -110,6 +118,7 @@ test("OrgXClient.getOrgSnapshot preserves task execution spine fields", async ()
     assert.deepEqual(snapshot.activeTasks[0], {
       id: "task-1",
       title: "Task One",
+      description: "Implement the scoped task in the linked repository.",
       status: "in_progress",
       domain: "engineering",
       modelTier: "sonnet",
@@ -125,6 +134,13 @@ test("OrgXClient.getOrgSnapshot preserves task execution spine fields", async ()
       canonicalAssignedAgentId: "engineering-agent",
       canonicalNextTask: true,
       dispatchReady: true,
+      acceptanceCriteria: ["Focused tests pass"],
+      executionContext: {
+        mode: "repository",
+        repository: "https://github.com/useorgx/example",
+        workingDirectory: "/workspace/example",
+        branch: "main",
+      },
       updatedAt: undefined,
     });
   } finally {

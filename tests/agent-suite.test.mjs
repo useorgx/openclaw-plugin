@@ -219,6 +219,9 @@ test("HEARTBEAT.md advances one canonical task without regressing completed work
     assert.match(content, /canonical_only=true/);
     assert.match(content, /agent_id=/);
     assert.match(content, /A status message alone is not progress/);
+    assert.match(content, /blocker_code=missing_execution_context/);
+    assert.match(content, /at most 5 execution tool calls/);
+    assert.match(content, /Never use `find`/);
     assert.match(content, /Never reopen or downgrade a done\/completed task/);
     assert.match(content, /heartbeat_respond.*notify=false/);
   }

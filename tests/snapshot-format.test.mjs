@@ -12,6 +12,7 @@ const snapshot = {
     {
       id: "task-ops",
       title: "Run heartbeat proof",
+      description: "Run one scoped cycle and preserve the receipt.",
       status: "todo",
       domain: "operations",
       modelTier: "standard",
@@ -21,6 +22,13 @@ const snapshot = {
       assignedAgentIds: ["operations-agent"],
       canonicalNextTask: true,
       dispatchReady: true,
+      acceptanceCriteria: ["All seven agents report a terminal outcome"],
+      executionContext: {
+        mode: "repository",
+        repository: "https://github.com/useorgx/openclaw-plugin",
+        workingDirectory: "/workspace/openclaw-plugin",
+        branch: "main",
+      },
     },
     {
       id: "task-sales",
@@ -46,5 +54,9 @@ test("formatSnapshot exposes IDs and filters canonical work by agent", () => {
   assert.match(output, /\[task-ops\] Run heartbeat proof/);
   assert.match(output, /goal=goal-health/);
   assert.match(output, /initiative=initiative-health/);
+  assert.match(output, /Context: Run one scoped cycle/);
+  assert.match(output, /Acceptance: All seven agents report/);
+  assert.match(output, /repository=https:\/\/github.com\/useorgx\/openclaw-plugin/);
+  assert.match(output, /cwd=\/workspace\/openclaw-plugin/);
   assert.doesNotMatch(output, /task-sales/);
 });

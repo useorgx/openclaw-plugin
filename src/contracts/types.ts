@@ -337,6 +337,7 @@ export interface AgentState {
 export interface TaskSummary {
   id: string;
   title: string;
+  description?: string;
   status: string;
   domain?: string;
   modelTier?: ModelTier;
@@ -353,6 +354,15 @@ export interface TaskSummary {
   canonicalAssignedAgentId?: string;
   canonicalNextTask?: boolean;
   dispatchReady?: boolean;
+  acceptanceCriteria?: string[];
+  executionContext?: {
+    mode?: string;
+    repository?: string;
+    workingDirectory?: string;
+    branch?: string;
+    sourceUrl?: string;
+    notes?: string;
+  };
   updatedAt?: string;
 }
 
@@ -406,6 +416,7 @@ export interface SyncResponse {
   activeTasks: Array<{
     id: string;
     title: string;
+    description?: string;
     status: string;
     domain?: string;
     modelTier: ModelTier;
@@ -421,6 +432,8 @@ export interface SyncResponse {
     canonicalAssignedAgentId?: string;
     canonicalNextTask?: boolean;
     dispatchReady?: boolean;
+    acceptanceCriteria?: string[];
+    executionContext?: TaskSummary["executionContext"];
     updatedAt?: string;
   }>;
   /** Pending decisions needing attention */
