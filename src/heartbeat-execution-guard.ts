@@ -108,10 +108,17 @@ function isCompletionSignal(event: HeartbeatBeforeToolCallEvent): boolean {
   }
 
   const status = event.params?.status;
-  return (
+  if (
     event.toolName === "orgx_update_entity" &&
     typeof status === "string" &&
     ["done", "completed"].includes(status.trim().toLowerCase())
+  ) {
+    return true;
+  }
+
+  return (
+    event.toolName === "orgx_record_outcome" &&
+    event.params?.success === true
   );
 }
 

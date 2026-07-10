@@ -554,7 +554,7 @@ function buildManagedFileContent(input: {
         "9. Register durable output with `orgx_register_artifact`, always passing the selected task as `entity_type=task` and its exact `entity_id`. A status message alone is not progress.",
         "10. When blocked by a human choice, request one decision with options, tradeoffs, and a recommendation. Report provider or credential failures against Agent Operational Health, not by downgrading completed work.",
         "11. Never claim a test, query, deployment, or production result unless its successful tool output was observed in this heartbeat. Existing source or old chat context is unverified evidence.",
-        "12. Before emitting a completed activity, updating an entity to done/completed, or using `heartbeat_respond` with `outcome=done`, call `orgx_verify_completion` for the selected task. Only report done when it returns both `ready=true` and `verified=true`; otherwise report progress or blocked and preserve the task state.",
+        "12. Before recording a successful outcome, emitting a completed activity, updating an entity to done/completed, or using `heartbeat_respond` with `outcome=done`, call `orgx_verify_completion` for the selected task. Only report success or done when it returns both `ready=true` and `verified=true`; otherwise report progress or blocked and preserve the task state.",
         "",
         "Safety:",
         "- Never reopen or downgrade a done/completed task because a runtime, provider, or heartbeat is unavailable.",

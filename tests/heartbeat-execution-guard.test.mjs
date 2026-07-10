@@ -150,6 +150,12 @@ test("done outcomes require a passing completion verification result", () => {
   );
   assert.equal(failed?.block, true);
   assert.match(failed?.blockReason ?? "", /completion is not verified/i);
+  const outcomeBlocked = guard.beforeToolCall(
+    { toolName: "orgx_record_outcome", params: { success: true } },
+    context
+  );
+  assert.equal(outcomeBlocked?.block, true);
+  assert.match(outcomeBlocked?.blockReason ?? "", /completion is not verified/i);
 
   guard.afterToolCall(
     {
@@ -176,6 +182,13 @@ test("done outcomes require a passing completion verification result", () => {
   assert.equal(
     guard.beforeToolCall(
       { toolName: "orgx_update_entity", params: { status: "done" } },
+      context
+    ),
+    undefined
+  );
+  assert.equal(
+    guard.beforeToolCall(
+      { toolName: "orgx_record_outcome", params: { success: true } },
       context
     ),
     undefined
