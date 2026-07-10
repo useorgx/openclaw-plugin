@@ -508,6 +508,7 @@ async function main() {
         name: "Mock deliverable",
         artifact_type: "document",
         confidence_score: 0.9,
+        quality_score: 4.5,
         description: "A simulated artifact emitted by the worker.",
         url: "file://mock/artifact.txt",
         verification_steps: ["Open the artifact file", "Verify contents match expected output"],

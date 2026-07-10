@@ -46,6 +46,10 @@ test("buildSliceOutputInstructions includes reporting and output requirements", 
     "expected confidence_score mention",
   );
   assert.ok(
+    output.includes("quality_score"),
+    "expected quality_score mention",
+  );
+  assert.ok(
     output.includes("skill_evidence is mandatory"),
     "expected skill_evidence mandate",
   );
