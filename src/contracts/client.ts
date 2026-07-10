@@ -719,6 +719,7 @@ export class OrgXClient {
     command_center_id?: string;
     agent_id?: string;
     domain?: string;
+    canonical_only?: boolean;
     limit?: number;
     cascade?: boolean;
   }): Promise<Record<string, unknown>> {

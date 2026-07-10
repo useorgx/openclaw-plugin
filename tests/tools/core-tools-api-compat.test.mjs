@@ -109,6 +109,35 @@ test("orgx_status forwards the agent task filter", async () => {
   });
 });
 
+test("orgx_recommend_next_action forwards canonical agent scope", async () => {
+  let receivedParams = null;
+  const baseClient = createDeps().deps.client;
+  const { deps } = createDeps({
+    client: {
+      ...baseClient,
+      recommendNextAction: async (params) => {
+        receivedParams = params;
+        return { recommendations: [] };
+      },
+    },
+  });
+  const tool = registerCoreTools(deps).get("orgx_recommend_next_action");
+
+  await tool.execute("call-recommend", {
+    entity_type: "workspace",
+    agent_id: "engineering-agent",
+    domain: "engineering",
+    canonical_only: true,
+  });
+
+  assert.deepEqual(receivedParams, {
+    entity_type: "workspace",
+    agent_id: "engineering-agent",
+    domain: "engineering",
+    canonical_only: true,
+  });
+});
+
 test("orgx_spawn_check forwards explicit standard model tier", async () => {
   let spawnArgs = null;
   const { deps } = createDeps({
