@@ -31,15 +31,23 @@ function buildPrompt(requiredSkills = ["$orgx-sales-agent"]) {
   });
 }
 
-test("buildWorkstreamSlicePrompt requires confidence when saving artifacts", () => {
+test("buildWorkstreamSlicePrompt separates artifact confidence from quality", () => {
   const prompt = buildPrompt();
   assert.match(
     prompt,
-    /Self-assess confidence when saving artifacts and include `confidence_score` in \[0,1\]\./
+    /Self-assess confidence in the artifact identity\/source with `confidence_score` in \[0,1\]\./
   );
   assert.match(
     prompt,
     /Include `confidence_score` for each artifact \(`0` to `1`; use `null` when unknown\)\./
+  );
+  assert.match(
+    prompt,
+    /Separately score correctness and acceptance-criteria coverage with `quality_score` in \[0,5\]\./
+  );
+  assert.match(
+    prompt,
+    /Include `quality_score` for each artifact \(`0` to `5`; use `null` when not evaluated\)\./
   );
   assert.match(
     prompt,
