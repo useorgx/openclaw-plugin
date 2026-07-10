@@ -438,6 +438,7 @@ export class OrgXClient {
       activeTasks: data.activeTasks.map(t => ({
         id: t.id,
         title: t.title,
+        description: t.description,
         status: t.status,
         domain: t.domain,
         modelTier: t.modelTier,
@@ -453,6 +454,8 @@ export class OrgXClient {
         canonicalAssignedAgentId: t.canonicalAssignedAgentId,
         canonicalNextTask: t.canonicalNextTask,
         dispatchReady: t.dispatchReady,
+        acceptanceCriteria: t.acceptanceCriteria,
+        executionContext: t.executionContext,
         updatedAt: t.updatedAt,
       })),
       pendingDecisions: data.pendingDecisions.map(d => ({
