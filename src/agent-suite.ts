@@ -12,6 +12,7 @@ type OpenClawAgentEntry = {
   name?: string;
   default?: boolean;
   workspace?: string;
+  tools?: Record<string, unknown>;
 };
 
 type OpenClawConfig = {
@@ -66,6 +67,42 @@ export const ORGX_AGENT_SUITE_AGENTS: OrgxSuiteAgentSpec[] = [
   { id: "orgx-operations", name: "OrgX Operations", domain: "operations" },
   { id: "orgx-orchestrator", name: "OrgX Orchestrator", domain: "orchestration" },
 ];
+
+const ORGX_AGENT_BASE_TOOLS = [
+  "orgx_status",
+  "orgx_sync",
+  "orgx_get_morning_brief",
+  "orgx_query_org_memory",
+  "orgx_recommend_next_action",
+  "orgx_emit_activity",
+  "orgx_report_progress",
+  "orgx_register_artifact",
+  "orgx_request_decision",
+  "orgx_spawn_check",
+  "orgx_quality_score",
+  "orgx_proof_status",
+  "orgx_record_outcome",
+  "orgx_get_outcome_attribution",
+  "orgx_verify_completion",
+];
+
+export const ORGX_AGENT_SCOPED_TOOLS: Record<OrgxSuiteDomain, string[]> = {
+  engineering: [...ORGX_AGENT_BASE_TOOLS],
+  product: [...ORGX_AGENT_BASE_TOOLS],
+  design: [...ORGX_AGENT_BASE_TOOLS],
+  marketing: [...ORGX_AGENT_BASE_TOOLS],
+  sales: [...ORGX_AGENT_BASE_TOOLS],
+  operations: [
+    ...ORGX_AGENT_BASE_TOOLS,
+    "orgx_apply_changeset",
+    "orgx_reassign_stream",
+  ],
+  orchestration: [
+    ...ORGX_AGENT_BASE_TOOLS,
+    "orgx_apply_changeset",
+    "orgx_reassign_stream",
+  ],
+};
 
 export const ORGX_MANAGED_RUNTIME_CONTRACT: OrgxManagedRuntimeContract = {
   executionLayer: "orgx-managed-agents",
@@ -433,131 +470,6 @@ function buildManagedFileContent(input: {
     }
 
     if (input.file === "TOOLS.md") {
-      const scopedTools: Record<OrgxSuiteDomain, string[]> = {
-        engineering: [
-          "orgx_status",
-          "orgx_sync",
-          "orgx_get_morning_brief",
-          "orgx_query_org_memory",
-          "orgx_recommend_next_action",
-          "orgx_emit_activity",
-          "orgx_report_progress",
-          "orgx_register_artifact",
-          "orgx_request_decision",
-          "orgx_spawn_check",
-          "orgx_quality_score",
-          "orgx_proof_status",
-          "orgx_record_outcome",
-          "orgx_get_outcome_attribution",
-          "orgx_verify_completion",
-        ],
-        product: [
-          "orgx_status",
-          "orgx_sync",
-          "orgx_get_morning_brief",
-          "orgx_query_org_memory",
-          "orgx_recommend_next_action",
-          "orgx_emit_activity",
-          "orgx_report_progress",
-          "orgx_register_artifact",
-          "orgx_request_decision",
-          "orgx_spawn_check",
-          "orgx_quality_score",
-          "orgx_proof_status",
-          "orgx_record_outcome",
-          "orgx_get_outcome_attribution",
-          "orgx_verify_completion",
-        ],
-        design: [
-          "orgx_status",
-          "orgx_sync",
-          "orgx_get_morning_brief",
-          "orgx_query_org_memory",
-          "orgx_recommend_next_action",
-          "orgx_emit_activity",
-          "orgx_report_progress",
-          "orgx_register_artifact",
-          "orgx_request_decision",
-          "orgx_spawn_check",
-          "orgx_quality_score",
-          "orgx_proof_status",
-          "orgx_record_outcome",
-          "orgx_get_outcome_attribution",
-          "orgx_verify_completion",
-        ],
-        marketing: [
-          "orgx_status",
-          "orgx_sync",
-          "orgx_get_morning_brief",
-          "orgx_query_org_memory",
-          "orgx_recommend_next_action",
-          "orgx_emit_activity",
-          "orgx_report_progress",
-          "orgx_register_artifact",
-          "orgx_request_decision",
-          "orgx_spawn_check",
-          "orgx_quality_score",
-          "orgx_proof_status",
-          "orgx_record_outcome",
-          "orgx_get_outcome_attribution",
-          "orgx_verify_completion",
-        ],
-        sales: [
-          "orgx_status",
-          "orgx_sync",
-          "orgx_get_morning_brief",
-          "orgx_query_org_memory",
-          "orgx_recommend_next_action",
-          "orgx_emit_activity",
-          "orgx_report_progress",
-          "orgx_register_artifact",
-          "orgx_request_decision",
-          "orgx_spawn_check",
-          "orgx_quality_score",
-          "orgx_proof_status",
-          "orgx_record_outcome",
-          "orgx_get_outcome_attribution",
-          "orgx_verify_completion",
-        ],
-        operations: [
-          "orgx_status",
-          "orgx_sync",
-          "orgx_get_morning_brief",
-          "orgx_query_org_memory",
-          "orgx_recommend_next_action",
-          "orgx_emit_activity",
-          "orgx_report_progress",
-          "orgx_register_artifact",
-          "orgx_request_decision",
-          "orgx_spawn_check",
-          "orgx_quality_score",
-          "orgx_proof_status",
-          "orgx_record_outcome",
-          "orgx_get_outcome_attribution",
-          "orgx_verify_completion",
-          "orgx_apply_changeset",
-          "orgx_reassign_stream",
-        ],
-        orchestration: [
-          "orgx_status",
-          "orgx_sync",
-          "orgx_get_morning_brief",
-          "orgx_query_org_memory",
-          "orgx_recommend_next_action",
-          "orgx_emit_activity",
-          "orgx_report_progress",
-          "orgx_register_artifact",
-          "orgx_request_decision",
-          "orgx_spawn_check",
-          "orgx_quality_score",
-          "orgx_proof_status",
-          "orgx_record_outcome",
-          "orgx_get_outcome_attribution",
-          "orgx_verify_completion",
-          "orgx_apply_changeset",
-          "orgx_reassign_stream",
-        ],
-      };
       const scopeKey = `orgx-openclaw-${input.agent.domain}`;
       return [
         "# Tools",
@@ -585,7 +497,7 @@ function buildManagedFileContent(input: {
         "This enforces a default-safe allowlist for your domain (high-risk tools are hidden/blocked).",
         "",
         "Scoped allowlist:",
-        ...scopedTools[input.agent.domain].map((tool) => `- ${tool}`),
+        ...ORGX_AGENT_SCOPED_TOOLS[input.agent.domain].map((tool) => `- ${tool}`),
         "",
         "Rules:",
         "- Return structured JSON for tool outputs when applicable.",
@@ -753,30 +665,53 @@ function upsertSuiteAgentsIntoConfig(input: {
     .map((entry) => (entry && typeof entry === "object" ? (entry as OpenClawAgentEntry) : null))
     .filter((entry): entry is OpenClawAgentEntry => Boolean(entry));
 
-  const byId = new Map<string, OpenClawAgentEntry>();
-  for (const entry of currentList) {
-    const id = typeof entry.id === "string" ? entry.id.trim() : "";
-    if (!id) continue;
-    byId.set(id, entry);
-  }
-
   const nextList: OpenClawAgentEntry[] = [...currentList];
   const added: string[] = [];
+  let updatedExisting = false;
 
   for (const agent of ORGX_AGENT_SUITE_AGENTS) {
     if (!isSafeAgentId(agent.id)) continue;
-    if (byId.has(agent.id)) continue;
+    const existingIndex = nextList.findIndex(
+      (entry) => String(entry?.id ?? "").trim() === agent.id
+    );
+    const requiredTools = ORGX_AGENT_SCOPED_TOOLS[agent.domain];
+    if (existingIndex >= 0) {
+      const existing = nextList[existingIndex];
+      const existingTools = isRecord(existing.tools) ? existing.tools : {};
+      const currentAlsoAllow = Array.isArray(existingTools.alsoAllow)
+        ? existingTools.alsoAllow.filter(
+            (tool): tool is string => typeof tool === "string" && tool.trim().length > 0
+          )
+        : [];
+      const nextAlsoAllow = Array.from(
+        new Set([...currentAlsoAllow, ...requiredTools])
+      );
+      if (nextAlsoAllow.length !== currentAlsoAllow.length) {
+        nextList[existingIndex] = {
+          ...existing,
+          tools: {
+            ...existingTools,
+            alsoAllow: nextAlsoAllow,
+          },
+        };
+        updatedExisting = true;
+      }
+      continue;
+    }
 
     const workspace = join(input.suiteWorkspaceRoot, agent.id);
     nextList.push({
       id: agent.id,
       name: agent.name,
       workspace,
+      tools: {
+        alsoAllow: [...requiredTools],
+      },
     });
     added.push(agent.id);
   }
 
-  if (added.length === 0) {
+  if (added.length === 0 && !updatedExisting) {
     return { updated: false, next: openclaw, addedAgentIds: [] };
   }
 

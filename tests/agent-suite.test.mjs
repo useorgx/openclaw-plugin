@@ -111,6 +111,12 @@ test("applyOrgxAgentSuitePlan writes managed + composite files and appends local
   assert.ok(ids.has("custom"), "should preserve existing agent");
   assert.ok(ids.has("orgx-engineering"), "should add suite agent");
   assert.ok(ids.has("orgx-orchestrator"), "should add suite agent");
+  const engineeringConfig = list.find((entry) => entry.id === "orgx-engineering");
+  const orchestratorConfig = list.find((entry) => entry.id === "orgx-orchestrator");
+  assert.ok(engineeringConfig?.tools?.alsoAllow?.includes("orgx_status"));
+  assert.ok(engineeringConfig?.tools?.alsoAllow?.includes("orgx_recommend_next_action"));
+  assert.ok(!engineeringConfig?.tools?.alsoAllow?.includes("orgx_apply_changeset"));
+  assert.ok(orchestratorConfig?.tools?.alsoAllow?.includes("orgx_apply_changeset"));
 
   const managedPath = join(engineering.workspace, ".orgx", "managed", "AGENTS.md");
   const compositePath = join(engineering.workspace, "AGENTS.md");
@@ -121,6 +127,41 @@ test("applyOrgxAgentSuitePlan writes managed + composite files and appends local
   assert.ok(composite.includes("# === ORGX MANAGED"), "expected managed header in composite");
   assert.ok(composite.includes("# === ORGX LOCAL OVERRIDES"), "expected local overrides header in composite");
   assert.ok(composite.includes("Local note: keep commits small."), "expected local override appended to composite");
+});
+
+test("applyOrgxAgentSuitePlan adds scoped OrgX tools to existing agents without replacing user policy", async () => {
+  const mod = await importFreshModule();
+
+  const openclawDir = mkdtempSync(join(tmpdir(), "orgx-openclaw-suite-tools-"));
+  const workspacesDir = join(openclawDir, "workspaces");
+  mkdirSync(workspacesDir, { recursive: true });
+  const engineeringWorkspace = join(workspacesDir, "orgx", "agents", "orgx-engineering");
+  writeJson(join(openclawDir, "openclaw.json"), {
+    agents: {
+      list: [
+        { id: "orgx", name: "OrgX", workspace: join(workspacesDir, "orgx") },
+        {
+          id: "orgx-engineering",
+          name: "OrgX Engineering",
+          workspace: engineeringWorkspace,
+          tools: { profile: "coding", alsoAllow: ["custom_tool"], deny: ["message"] },
+        },
+      ],
+    },
+  });
+
+  const plan = mod.computeOrgxAgentSuitePlan({ packVersion: "3.0.0", openclawDir });
+  assert.equal(plan.openclawConfigWouldUpdate, true);
+  mod.applyOrgxAgentSuitePlan({ plan, dryRun: false, openclawDir });
+
+  const updated = JSON.parse(readFileSync(join(openclawDir, "openclaw.json"), "utf8"));
+  const engineering = updated.agents.list.find((entry) => entry.id === "orgx-engineering");
+  assert.equal(engineering.tools.profile, "coding");
+  assert.deepEqual(engineering.tools.deny, ["message"]);
+  assert.ok(engineering.tools.alsoAllow.includes("custom_tool"));
+  assert.ok(engineering.tools.alsoAllow.includes("orgx_status"));
+  assert.ok(engineering.tools.alsoAllow.includes("orgx_register_artifact"));
+  assert.ok(!engineering.tools.alsoAllow.includes("orgx_apply_changeset"));
 });
 
 test("SKILL.md includes Team Awareness section for all suite agents", async () => {
