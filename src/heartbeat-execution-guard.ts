@@ -46,6 +46,9 @@ const LIMIT_REACHED_REASON =
 const DISCOVERY_REQUIRED_REASON =
   "Managed heartbeat discovery is incomplete. Call orgx_recommend_next_action with canonical_only=true before executing task tools.";
 
+const STATUS_REQUIRED_REASON =
+  "Managed OrgX agents must begin each turn with orgx_status using canonical_only=true. Do not act from prior chat context.";
+
 const BROAD_DISCOVERY_REASON =
   "Broad filesystem discovery is not allowed during a managed heartbeat. Use the task execution context and targeted file reads only.";
 
@@ -119,7 +122,9 @@ export function createManagedHeartbeatExecutionGuard(options?: {
     }
 
     const state = states.get(key);
-    if (!state?.canonicalStatusSeen) return;
+    if (!state?.canonicalStatusSeen) {
+      return { block: true, blockReason: STATUS_REQUIRED_REASON };
+    }
 
     if (
       event.toolName === "orgx_recommend_next_action" &&

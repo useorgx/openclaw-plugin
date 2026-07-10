@@ -127,10 +127,22 @@ test("guard ignores non-managed agents and clears completed runs", () => {
   canonicalDiscovery(guard);
   guard.beforeToolCall({ toolName: "read", params: {} }, context);
   guard.endRun(context);
-  assert.equal(
-    guard.beforeToolCall({ toolName: "read", params: {} }, context),
-    undefined
+  const afterEnd = guard.beforeToolCall(
+    { toolName: "read", params: {} },
+    context
   );
+  assert.equal(afterEnd?.block, true);
+  assert.match(afterEnd?.blockReason ?? "", /must begin each turn/i);
+});
+
+test("managed turns cannot execute from stale context before status", () => {
+  const guard = createManagedHeartbeatExecutionGuard();
+  const blocked = guard.beforeToolCall(
+    { toolName: "read", params: {} },
+    context
+  );
+  assert.equal(blocked?.block, true);
+  assert.match(blocked?.blockReason ?? "", /must begin each turn/i);
 });
 
 test("managed session keys activate the guard when agentId is omitted", () => {
