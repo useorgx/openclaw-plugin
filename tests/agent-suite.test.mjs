@@ -223,6 +223,7 @@ test("HEARTBEAT.md advances one canonical task without regressing completed work
     assert.match(content, /entity_type=task/);
     assert.match(content, /successful tool output was observed/);
     assert.match(content, /orgx_verify_completion/);
+    assert.match(content, /recording a successful outcome/);
     assert.match(content, /ready=true.*verified=true/);
     assert.match(content, /blocker_code=missing_execution_context/);
     assert.match(content, /at most 5 total tool calls/);
