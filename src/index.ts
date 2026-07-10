@@ -88,6 +88,12 @@ import { stableHash } from "./hash-utils.js";
 import { RETRO_ARTIFACT_SCHEMA_VERSION } from "./contracts/retro-schema.js";
 import { buildRetroWithLlm } from "./retro/domain-templates.js";
 import { computeRetroQualityRubricScore } from "./retro/quality-rubric.js";
+import {
+  createManagedHeartbeatExecutionGuard,
+  type HeartbeatBeforeToolCallEvent,
+  type HeartbeatToolCallResult,
+  type HeartbeatToolContext,
+} from "./heartbeat-execution-guard.js";
 
 // Re-export types for consumers
 export type { OrgXConfig, OrgSnapshot } from "./types.js";
@@ -146,6 +152,21 @@ export interface PluginAPI {
     replaceExisting?: boolean;
   }) => void;
   registerHttpHandler?: (handler: unknown) => void;
+  on?: {
+    (
+      hookName: "before_tool_call",
+      handler: (
+        event: HeartbeatBeforeToolCallEvent,
+        context: HeartbeatToolContext
+      ) => HeartbeatToolCallResult | void,
+      options?: { priority?: number; timeoutMs?: number }
+    ): void;
+    (
+      hookName: "agent_end",
+      handler: (event: unknown, context: HeartbeatToolContext) => void,
+      options?: { priority?: number; timeoutMs?: number }
+    ): void;
+  };
 }
 
 export interface ToolResult {
@@ -538,6 +559,18 @@ export default function register(api: PluginAPI): void {
     pluginVersion: config.pluginVersion,
     toErrorMessage,
   });
+
+  if (api.on) {
+    const heartbeatExecutionGuard = createManagedHeartbeatExecutionGuard();
+    api.on(
+      "before_tool_call",
+      heartbeatExecutionGuard.beforeToolCall,
+      { priority: 100, timeoutMs: 1_000 }
+    );
+    api.on("agent_end", (_event, context) => {
+      heartbeatExecutionGuard.endRun(context);
+    });
+  }
 
   function clearPairingState() {
     activePairing = null;
