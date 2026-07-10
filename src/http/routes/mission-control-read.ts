@@ -388,6 +388,9 @@ const NEXT_UP_DEFAULT_PAGE_SIZE = 24;
 const SLICES_DEFAULT_PAGE_SIZE = 24;
 const CANONICAL_NEXT_UP_TIMEOUT_MS = 20_000;
 const CANONICAL_SLICES_TIMEOUT_MS = 20_000;
+const CANONICAL_NEXT_UP_BLOCKING_SUMMARY_MAX_TOTAL = 200;
+const CANONICAL_NEXT_UP_LARGE_PAGE_BYPASS_LIMIT = 80;
+const CANONICAL_NEXT_UP_LARGE_PAGE_FETCH_LIMIT = 10;
 const CANONICAL_READ_CACHE_TTL_MS = 30_000;
 const CANONICAL_READ_STALE_TTL_MS = 180_000;
 const CANONICAL_AUTH_BYPASS_MS = 8_000;
@@ -1272,6 +1275,10 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
     const honorCanonicalBypass = Boolean(
       canonicalBypass && (staleCanonicalForBypass || bypassAllScopeUnsupported)
     );
+    const largePageCanonicalBypassReason =
+      pageSize > CANONICAL_NEXT_UP_LARGE_PAGE_BYPASS_LIMIT
+        ? `canonical next-up fetch limit clamped for large page size (${pageSize})`
+        : null;
     let canonicalFallbackReason: string | null = honorCanonicalBypass
       ? `canonical next-up bypassed (${canonicalBypass?.reason ?? "unavailable"})`
       : null;
@@ -1290,6 +1297,9 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
 
     if (deps.rawRequest && !honorCanonicalBypass) {
       try {
+        const canonicalFetchLimit = largePageCanonicalBypassReason
+          ? CANONICAL_NEXT_UP_LARGE_PAGE_FETCH_LIMIT
+          : pageSize;
         const params = new URLSearchParams();
         if (initiativeId) params.set("initiative_id", initiativeId);
         if (projectId) {
@@ -1300,7 +1310,7 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
           params.set("command_center_id", "all");
         }
         params.set("offset", String(offset));
-        params.set("limit", String(pageSize));
+        params.set("limit", String(canonicalFetchLimit));
         params.set("include_completed", includeCompleted ? "1" : "0");
         params.set("noise_threshold", noiseThreshold);
         params.set("dedup_window", String(dedupWindowMs));
@@ -1327,15 +1337,15 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
           throw new Error("canonical next-up all-workspaces scope mismatch");
         }
 
-        const canonicalItems = await enrichWithMilestoneBreakdown(
-          applyQueueNoiseControls(
-            normalizeQueueItems(canonicalRecord.items).filter((item) =>
-              includeCompleted ? true : item.queueState !== "completed"
-            ),
-            { noiseThreshold, dedupWindowMs }
+        const canonicalItemsRaw = applyQueueNoiseControls(
+          normalizeQueueItems(canonicalRecord.items).filter((item) =>
+            includeCompleted ? true : item.queueState !== "completed"
           ),
-          deps
+          { noiseThreshold, dedupWindowMs }
         );
+        const canonicalItems = largePageCanonicalBypassReason
+          ? canonicalItemsRaw.filter((item) => item.queueState !== "running")
+          : canonicalItemsRaw;
         const canonicalTotal =
           Math.max(
             canonicalItems.length,
@@ -1346,9 +1356,16 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
           limit: pageSize,
           total: canonicalTotal,
         });
+        const degraded = dedupeStrings([
+          ...asStringArray(canonicalRecord.degraded),
+          ...(largePageCanonicalBypassReason ? [largePageCanonicalBypassReason] : []),
+        ]);
         let canonicalSummaryItems = canonicalItems;
         const summaryPageSize = Math.max(pageSize, Math.min(canonicalTotal, 200));
-        if (canonicalTotal > canonicalItems.length) {
+        if (
+          canonicalTotal > canonicalItems.length &&
+          canonicalTotal <= CANONICAL_NEXT_UP_BLOCKING_SUMMARY_MAX_TOTAL
+        ) {
           const summaryItems: NextUpQueueItem[] = [];
           for (
             let summaryOffset = 0;
@@ -1383,6 +1400,8 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
             summaryItems.length > 0
               ? dedupeQueueItemsByLineage(summaryItems)
               : canonicalItems;
+        } else if (canonicalTotal > canonicalItems.length) {
+          degraded.push("Full next-up summary deferred for large canonical queue.");
         }
         const shouldRepaginateCanonically =
           canonicalItems.length > pageSize ||
@@ -1396,16 +1415,17 @@ export function registerMissionControlReadRoutes<TReq, TRes>(
               limit: pageSize,
             })
           : null;
-        const degraded = dedupeStrings(
-          asStringArray(canonicalRecord.degraded)
-        );
         const canonicalSummary = summarizeQueueItems(canonicalSummaryItems);
+        const responseItems = await enrichWithMilestoneBreakdown(
+          paged ? paged.paged : canonicalItems,
+          deps
+        );
         const responsePayload: Record<string, unknown> = {
           ok: true,
           generatedAt:
             asString(canonicalRecord.generatedAt) ?? new Date().toISOString(),
           total: paged ? paged.filtered.length : canonicalPagination.total,
-          items: paged ? paged.paged : canonicalItems,
+          items: responseItems,
           summary: canonicalSummary,
           pagination: paged ? paged.pagination : canonicalPagination,
           source: "canonical",

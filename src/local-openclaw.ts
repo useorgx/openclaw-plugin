@@ -937,22 +937,22 @@ export async function toLocalLiveActivity(
         }
       }
 
-      // Build activity items from turns (most recent first)
+      // Build activity items from turns (most recent first). This path runs while
+      // serving live dashboard snapshots, so it must not depend on external LLM
+      // latency. Use existing digests when available, otherwise fall back to the
+      // deterministic local summary and cache it for later.
       const newCacheEntries: DigestEntry[] = [];
       for (let i = turns.length - 1; i >= 0 && allActivities.length < totalCap; i--) {
         const turn = turns[i];
         const cached = cachedMap.get(turn.id) ?? null;
         const agentLabel = session.agentName ?? session.agentId ?? "OpenClaw";
-        const computedSummary = await summarizeTurnWithLlm(turn, agentLabel);
-        const fallbackSummary = isDigestSummaryStale(cached, computedSummary)
-          ? computedSummary
-          : (cached as string);
+        const computedSummary = cached ?? heuristicSummarizeTurn(turn, agentLabel);
 
-        allActivities.push(await turnToActivity(turn, session, fallbackSummary, i));
+        allActivities.push(await turnToActivity(turn, session, computedSummary, i));
 
         // Track for cache
-        if (isDigestSummaryStale(cached, computedSummary)) {
-          newCacheEntries.push({ turnId: turn.id, summary: fallbackSummary });
+        if (!cached || isDigestSummaryStale(cached, computedSummary)) {
+          newCacheEntries.push({ turnId: turn.id, summary: computedSummary });
         }
       }
 
