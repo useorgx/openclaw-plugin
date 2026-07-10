@@ -90,6 +90,8 @@ import { buildRetroWithLlm } from "./retro/domain-templates.js";
 import { computeRetroQualityRubricScore } from "./retro/quality-rubric.js";
 import {
   type HeartbeatAfterToolCallEvent,
+  type HeartbeatBeforeAgentFinalizeEvent,
+  type HeartbeatBeforeAgentFinalizeResult,
   createManagedHeartbeatExecutionGuard,
   type HeartbeatBeforeToolCallEvent,
   type HeartbeatToolCallResult,
@@ -154,6 +156,14 @@ export interface PluginAPI {
   }) => void;
   registerHttpHandler?: (handler: unknown) => void;
   on?: {
+    (
+      hookName: "before_agent_finalize",
+      handler: (
+        event: HeartbeatBeforeAgentFinalizeEvent,
+        context: HeartbeatToolContext
+      ) => HeartbeatBeforeAgentFinalizeResult | void,
+      options?: { priority?: number; timeoutMs?: number }
+    ): void;
     (
       hookName: "before_tool_call",
       handler: (
@@ -579,6 +589,11 @@ export default function register(api: PluginAPI): void {
     api.on(
       "after_tool_call",
       heartbeatExecutionGuard.afterToolCall,
+      { priority: 100, timeoutMs: 1_000 }
+    );
+    api.on(
+      "before_agent_finalize",
+      heartbeatExecutionGuard.beforeAgentFinalize,
       { priority: 100, timeoutMs: 1_000 }
     );
     api.on("agent_end", (_event, context) => {

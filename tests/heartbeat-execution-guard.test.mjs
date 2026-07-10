@@ -252,6 +252,48 @@ test("noncanonical recommendation discovery is blocked", () => {
   assert.match(blocked?.blockReason ?? "", /require canonical_only=true/i);
 });
 
+test("finalization requests bounded recovery for incomplete managed turns", () => {
+  const guard = createManagedHeartbeatExecutionGuard();
+  const finalEvent = {
+    runId: "run-1",
+    sessionId: "session-1",
+    sessionKey: "agent:orgx-engineering:main",
+  };
+
+  const missingStatus = guard.beforeAgentFinalize(finalEvent, context);
+  assert.equal(missingStatus?.action, "revise");
+  assert.match(missingStatus?.retry.instruction ?? "", /orgx_status/i);
+  assert.equal(missingStatus?.retry.maxAttempts, 1);
+
+  guard.beforeToolCall(
+    { toolName: "orgx_status", params: { canonical_only: true } },
+    context
+  );
+  const missingRecommendation = guard.beforeAgentFinalize(finalEvent, context);
+  assert.equal(missingRecommendation?.action, "revise");
+  assert.match(
+    missingRecommendation?.retry.instruction ?? "",
+    /orgx_recommend_next_action/i
+  );
+
+  guard.beforeToolCall(
+    {
+      toolName: "orgx_recommend_next_action",
+      params: { canonical_only: true },
+    },
+    context
+  );
+  const missingTerminal = guard.beforeAgentFinalize(finalEvent, context);
+  assert.equal(missingTerminal?.action, "revise");
+  assert.match(missingTerminal?.retry.instruction ?? "", /heartbeat_respond/i);
+
+  guard.beforeToolCall(
+    { toolName: "heartbeat_respond", params: { outcome: "no_change" } },
+    context
+  );
+  assert.equal(guard.beforeAgentFinalize(finalEvent, context), undefined);
+});
+
 test("broad filesystem discovery is blocked and consumes execution budget", () => {
   const guard = createManagedHeartbeatExecutionGuard({ maxExecutionCalls: 1 });
   canonicalDiscovery(guard);
