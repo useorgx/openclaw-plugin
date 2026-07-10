@@ -616,10 +616,19 @@ function buildManagedFileContent(input: {
       return [
         "# Heartbeat",
         "",
-        "Cadence:",
-        "- Emit OrgX activity at natural checkpoints: intent, execution, review, completed.",
-        "- When blocked: request a decision with options, tradeoffs, and a recommendation.",
-        "- When you change direction: explain why in one sentence before switching.",
+        "On every wake:",
+        "1. Call `orgx_status`, then `orgx_recommend_next_action` for your domain.",
+        "2. Select exactly one active, goal-linked task explicitly assigned to this agent or domain.",
+        "3. If no runnable task exists, use `heartbeat_respond` with `notify=false` and stop. Do not invent work from memory or old chats.",
+        "4. If a task is runnable, complete one bounded step that changes its state or produces durable proof.",
+        "5. Emit OrgX activity at intent, execution, review, and completed checkpoints. Include the goal, initiative, workstream, and task IDs when available.",
+        "6. Register durable output with `orgx_register_artifact`. A status message alone is not progress.",
+        "7. When blocked, request one decision with options, tradeoffs, and a recommendation. Report provider or credential failures against Agent Operational Health, not by downgrading completed work.",
+        "",
+        "Safety:",
+        "- Never reopen or downgrade a done/completed task because a runtime, provider, or heartbeat is unavailable.",
+        "- Do not send outbound messages, spend money, deploy, or publish unless the task policy or a human decision explicitly allows it.",
+        "- When you change direction, explain why in one sentence before switching.",
         "",
       ].join("\n");
     }
