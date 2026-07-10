@@ -4219,7 +4219,9 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             (dep): dep is MissionControlNode => Boolean(dep && !isDoneStatus(dep.status))
           )
           .map((dep) => (dep.workstreamId ?? "").trim())
-          .filter(Boolean);
+          .filter((dependencyWorkstreamId) =>
+            Boolean(dependencyWorkstreamId && dependencyWorkstreamId !== workstreamId)
+          );
         if (blockedParents || unresolvedDepWorkstreamIds.length > 0) {
           const existing = waitingByWorkstream.get(workstreamId) ?? [];
           waitingByWorkstream.set(

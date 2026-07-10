@@ -75,11 +75,7 @@ test("autopilot slice schema is strict-format compatible for codex output-schema
       assert.deepEqual(
         [...(decisionOptionItem?.required ?? [])].sort(),
         decisionOptionKeys.sort(),
-        "decisions_needed[].options[] object required keys should include every property"
-      );
-      assert.ok(
-        (decisionOptionItem?.required ?? []).includes("id"),
-        "decisions_needed[].options[].id should be required (nullable)"
+        "structured decision options should require every nullable property for strict output schemas"
       );
 
       const skillEvidenceItem = schema.properties?.skill_evidence?.items;

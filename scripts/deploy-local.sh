@@ -11,6 +11,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ORGX_EXTENSION_DIR="${HOME}/.openclaw/extensions/orgx"
 LEGACY_EXTENSIONS_DIR="${HOME}/.openclaw/extensions/openclaw-plugin"
 NPM_PLUGIN_DIR="${HOME}/.openclaw/npm/node_modules/@useorgx/openclaw-plugin"
 CONFIG_FILE="${HOME}/.openclaw/openclaw.json"
@@ -64,8 +65,12 @@ fi
 INSTALL_DIRS=()
 if [ -d "$NPM_PLUGIN_DIR" ]; then
   INSTALL_DIRS+=("$NPM_PLUGIN_DIR")
-else
+elif [ -d "$ORGX_EXTENSION_DIR" ]; then
+  INSTALL_DIRS+=("$ORGX_EXTENSION_DIR")
+elif [ -d "$LEGACY_EXTENSIONS_DIR" ]; then
   INSTALL_DIRS+=("$LEGACY_EXTENSIONS_DIR")
+else
+  INSTALL_DIRS+=("$ORGX_EXTENSION_DIR")
 fi
 
 if ! $LOCAL_ONLY; then
