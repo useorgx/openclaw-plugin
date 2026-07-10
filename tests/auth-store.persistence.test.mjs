@@ -43,6 +43,7 @@ test("auth store persists installation id + stores UUID userId for user-scoped o
       apiKey: "oxk_abcdef0123456789abcdef0123456789abcdef01".slice(0, 44),
       source: "manual",
       userId: "user_test_should_be_stripped",
+      workspaceId: "11111111-1111-4111-8111-111111111111",
       workspaceName: "Acme",
       keyPrefix: "oxk_deadbeef",
     });
@@ -54,6 +55,7 @@ test("auth store persists installation id + stores UUID userId for user-scoped o
     assert.ok(loaded);
     assert.equal(loaded.installationId, id1);
     assert.equal(loaded.userId, null);
+    assert.equal(loaded.workspaceId, "11111111-1111-4111-8111-111111111111");
     ensureMode600(join(dir, "auth.json"));
 
     const uuidUserId = "00000000-0000-4000-8000-000000000000";
@@ -62,6 +64,7 @@ test("auth store persists installation id + stores UUID userId for user-scoped o
       apiKey: "oxk_abcdef0123456789abcdef0123456789abcdef01".slice(0, 44),
       source: "manual",
       userId: uuidUserId,
+      workspaceId: "11111111-1111-4111-8111-111111111111",
       workspaceName: "Acme",
       keyPrefix: "oxk_deadbeef",
     });

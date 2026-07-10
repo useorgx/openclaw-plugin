@@ -25,6 +25,7 @@ import {
   type RuntimeSourceClient,
 } from "../../runtime-instance-store.js";
 import { detectMcpHandshakeFailure, shouldKillWorker } from "../../worker-supervisor.js";
+import { resolveCapacityRuntime } from "../../runtime-capacity-routing.js";
 import { humanizeSliceFailure, humanizeSliceFailureSummary } from "./humanize-slice-failure.js";
 import { getOrgxPluginConfigDir } from "../../paths.js";
 import {
@@ -5010,25 +5011,13 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       workerCwd = resolveAutopilotDefaultCwd(__filename);
     }
     const sliceAgent = resolveOrgxAgentForDomain(executionPolicy.domain);
-    const workerKind = (
+    const configuredWorkerKind = (
       workerEnvOverrides?.ORGX_AUTOPILOT_WORKER_KIND ??
       process.env.ORGX_AUTOPILOT_WORKER_KIND ??
       ""
     )
       .trim()
       .toLowerCase();
-    const inferredExecutor =
-      workerKind === "claude-code" || workerKind === "claude_code" ? "claude-code" : "codex";
-    const executorRaw =
-      (
-        workerEnvOverrides?.ORGX_AUTOPILOT_EXECUTOR ??
-        process.env.ORGX_AUTOPILOT_EXECUTOR ??
-        ""
-      )
-        .trim()
-        .toLowerCase() || inferredExecutor;
-    const executorSourceClient: RuntimeSourceClient =
-      executorRaw === "claude-code" || executorRaw === "claude_code" ? "claude-code" : "codex";
     let runtimeHookUrl: string | null = null;
     let runtimeHookToken: string | null = null;
     try {
@@ -5051,6 +5040,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
             initiative_id: run.initiativeId,
             workstream_id: selectedWorkstreamId,
             task_id: primaryTask.id,
+            domain: executionPolicy.domain,
             launch_mode: "autopilot",
           })
         : null;
@@ -5080,57 +5070,98 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       }
     }
 
-	        const spawned = spawnCodexSliceWorker({
-	          runId: sliceRunId,
-	          prompt,
-	          cwd: workerCwd,
-	          logPath,
-	          outputPath,
-            outputSchemaPath: schemaPath,
-            resumeSessionId: resumedFromSessionId,
-	          env: {
-              ...(workerEnvOverrides ?? {}),
-	            ORGX_SOURCE_CLIENT: executorSourceClient,
-	            ORGX_RUN_ID: sliceRunId,
-	            ORGX_CORRELATION_ID: sliceRunId,
-	            ORGX_INITIATIVE_ID: run.initiativeId,
-	            ORGX_WORKSTREAM_ID: selectedWorkstreamId,
-	            ORGX_WORKSTREAM_TITLE: workstreamTitle ?? undefined,
-	            ORGX_TASK_ID: primaryTask.id,
-              ORGX_REQUIRED_SKILLS: executionPolicy.requiredSkills.join(","),
-              ORGX_BEHAVIOR_CONFIG_ID: behaviorConfig.configId ?? undefined,
-              ORGX_BEHAVIOR_CONFIG_VERSION: behaviorConfig.version ?? undefined,
-              ORGX_BEHAVIOR_CONFIG_HASH: behaviorConfig.hash ?? undefined,
-              ORGX_POLICY_SOURCE: behaviorConfig.policySource ?? undefined,
-              ORGX_AUTOMATION_LEVEL: behaviorAutomationLevel,
-              ORGX_BEHAVIOR_CONTEXT: behaviorConfig.context ?? undefined,
-	            ORGX_AGENT_ID: sliceAgent.id,
-	            ORGX_AGENT_NAME: sliceAgent.name,
-              ORGX_KICKOFF_CONTEXT_HASH: kickoffContextHash ?? undefined,
-	            ORGX_OUTPUT_PATH: outputPath,
-	            ORGX_RUNTIME_HOOK_URL: runtimeHookUrl ?? undefined,
-	            ORGX_HOOK_TOKEN: runtimeHookToken ?? undefined,
-	          },
-	        });
+    const resolvedRuntime = resolveCapacityRuntime({
+      configuredWorkerKind,
+      recommendation: preflightResult?.recommended_runtime ?? null,
+    });
+    if (resolvedRuntime.requiresServerDispatch) {
+      emitActivitySafe({
+        initiativeId: run.initiativeId,
+        runId: null,
+        correlationId: sliceRunId,
+        phase: "blocked",
+        level: "warn",
+        message: `Local execution paused for ${workstreamTitle ?? selectedWorkstreamId}: OrgX selected ${resolvedRuntime.channelId ?? "a server runtime"}, but no server dispatch was acknowledged.`,
+        metadata: {
+          event: "capacity_router_server_dispatch_required",
+          workstream_id: selectedWorkstreamId,
+          task_id: primaryTask.id,
+          capacity_channel_id: resolvedRuntime.channelId,
+          routing_reason: resolvedRuntime.reason,
+          next_goal: preflightResult?.next_goal ?? null,
+        },
+      }).catch(() => {});
+      return;
+    }
 
-	    const slice: AutoContinueSliceRun = {
-	      runId: sliceRunId,
-	      initiativeId: run.initiativeId,
-	      initiativeTitle: initiativeTitle ?? null,
-	      workstreamId: selectedWorkstreamId,
-	      workstreamTitle,
-	      agentId: sliceAgent.id,
-	      agentName: sliceAgent.name,
-	      domain: executionPolicy.domain,
-	      requiredSkills: executionPolicy.requiredSkills,
-        behaviorConfigId: behaviorConfig.configId,
-        behaviorConfigVersion: behaviorConfig.version,
-        behaviorConfigHash: behaviorConfig.hash,
-        behaviorPolicySource: behaviorConfig.policySource,
-        behaviorAutomationLevel,
-	      sourceClient: executorSourceClient,
-	      pid: spawned.pid,
-	      status: RunStatus.RUNNING,
+    const workerKind = resolvedRuntime.workerKind;
+    const inferredExecutor =
+      workerKind === "claude-code" || workerKind === "claude_code" ? "claude-code" : "codex";
+    const executorRaw =
+      (
+        workerEnvOverrides?.ORGX_AUTOPILOT_EXECUTOR ??
+        process.env.ORGX_AUTOPILOT_EXECUTOR ??
+        ""
+      )
+        .trim()
+        .toLowerCase() || inferredExecutor;
+    const executorSourceClient: RuntimeSourceClient =
+      executorRaw === "claude-code" || executorRaw === "claude_code" ? "claude-code" : "codex";
+
+    const spawned = spawnCodexSliceWorker({
+      runId: sliceRunId,
+      prompt,
+      cwd: workerCwd,
+      logPath,
+      outputPath,
+      outputSchemaPath: schemaPath,
+      resumeSessionId: resumedFromSessionId,
+      env: {
+        ...(workerEnvOverrides ?? {}),
+        ORGX_AUTOPILOT_WORKER_KIND: workerKind,
+        ORGX_SOURCE_CLIENT: executorSourceClient,
+        ORGX_CAPACITY_CHANNEL_ID: resolvedRuntime.channelId ?? undefined,
+        ORGX_ROUTING_REASON: resolvedRuntime.reason ?? undefined,
+        ORGX_RUN_ID: sliceRunId,
+        ORGX_CORRELATION_ID: sliceRunId,
+        ORGX_INITIATIVE_ID: run.initiativeId,
+        ORGX_WORKSTREAM_ID: selectedWorkstreamId,
+        ORGX_WORKSTREAM_TITLE: workstreamTitle ?? undefined,
+        ORGX_TASK_ID: primaryTask.id,
+        ORGX_REQUIRED_SKILLS: executionPolicy.requiredSkills.join(","),
+        ORGX_BEHAVIOR_CONFIG_ID: behaviorConfig.configId ?? undefined,
+        ORGX_BEHAVIOR_CONFIG_VERSION: behaviorConfig.version ?? undefined,
+        ORGX_BEHAVIOR_CONFIG_HASH: behaviorConfig.hash ?? undefined,
+        ORGX_POLICY_SOURCE: behaviorConfig.policySource ?? undefined,
+        ORGX_AUTOMATION_LEVEL: behaviorAutomationLevel,
+        ORGX_BEHAVIOR_CONTEXT: behaviorConfig.context ?? undefined,
+        ORGX_AGENT_ID: sliceAgent.id,
+        ORGX_AGENT_NAME: sliceAgent.name,
+        ORGX_KICKOFF_CONTEXT_HASH: kickoffContextHash ?? undefined,
+        ORGX_OUTPUT_PATH: outputPath,
+        ORGX_RUNTIME_HOOK_URL: runtimeHookUrl ?? undefined,
+        ORGX_HOOK_TOKEN: runtimeHookToken ?? undefined,
+      },
+    });
+
+    const slice: AutoContinueSliceRun = {
+      runId: sliceRunId,
+      initiativeId: run.initiativeId,
+      initiativeTitle: initiativeTitle ?? null,
+      workstreamId: selectedWorkstreamId,
+      workstreamTitle,
+      agentId: sliceAgent.id,
+      agentName: sliceAgent.name,
+      domain: executionPolicy.domain,
+      requiredSkills: executionPolicy.requiredSkills,
+      behaviorConfigId: behaviorConfig.configId,
+      behaviorConfigVersion: behaviorConfig.version,
+      behaviorConfigHash: behaviorConfig.hash,
+      behaviorPolicySource: behaviorConfig.policySource,
+      behaviorAutomationLevel,
+      sourceClient: executorSourceClient,
+      pid: spawned.pid,
+      status: RunStatus.RUNNING,
       startedAt: now,
       finishedAt: null,
       updatedAt: now,
@@ -5162,6 +5193,13 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         worker_name: machineId,
         machine_id: machineId,
         slice_scope: run.scope ?? null,
+        metadata: {
+          capacity_channel_id: resolvedRuntime.channelId,
+          routing_source: resolvedRuntime.source,
+          routing_reason: resolvedRuntime.reason,
+          goal_id: preflightResult?.next_goal?.id ?? null,
+          goal_title: preflightResult?.next_goal?.title ?? null,
+        },
       })
       .then((result) => {
         if (result?.job_id) {
@@ -5446,7 +5484,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
         agentId: activeRun?.agentId ?? requestedByAgentId ?? "main",
         agentName: activeRun?.agentName ?? requestedByAgentName ?? null,
         scope: activeRun?.scope ?? "task",
-      };
+    };
     };
 
     const emitSkip = async (reason: AutoFixSkipReason, details?: Record<string, unknown>) => {

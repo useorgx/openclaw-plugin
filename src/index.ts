@@ -33,6 +33,7 @@ import {
   clearPersistedApiKey,
   loadAuthStore,
   resolveInstallationId,
+  saveAuthStore,
 } from "./auth-store.js";
 import {
   clearPersistedSnapshot,
@@ -74,6 +75,7 @@ import {
 import { registerOrgxCli } from "./cli/orgx.js";
 import { instrumentPluginApi } from "./services/instrumentation.js";
 import { registerSyncService } from "./services/background.js";
+import { registerGatewayHeartbeatService } from "./services/gateway-heartbeat.js";
 import { stopDetachedProcess } from "./http/helpers/openclaw-cli.js";
 import { createOutboxReplayer } from "./sync/outbox-replay.js";
 import {
@@ -393,6 +395,7 @@ export default function register(api: PluginAPI): void {
     installationId,
     persistedApiKey: persistedAuth?.apiKey ?? null,
     persistedUserId: persistedAuth?.userId ?? null,
+    persistedWorkspaceId: persistedAuth?.workspaceId ?? null,
   });
 
   if (!config.enabled) {
@@ -432,6 +435,7 @@ export default function register(api: PluginAPI): void {
     status: config.apiKey ? "connected" : "idle",
     hasApiKey: Boolean(config.apiKey),
     connectionVerified: Boolean(config.apiKey),
+    workspaceId: config.workspaceId ?? persistedAuth?.workspaceId ?? null,
     workspaceName: persistedAuth?.workspaceName ?? null,
     lastError: null,
     nextAction: config.apiKey ? "open_dashboard" : "connect",
@@ -636,6 +640,7 @@ export default function register(api: PluginAPI): void {
   function setRuntimeApiKey(input: {
     apiKey: string;
     source: "manual" | "browser_pairing";
+    workspaceId?: string | null;
     workspaceName?: string | null;
     keyPrefix?: string | null;
     userId?: string | null;
@@ -644,6 +649,7 @@ export default function register(api: PluginAPI): void {
       config,
       apiKey: input.apiKey,
       source: input.source,
+      workspaceId: input.workspaceId,
       workspaceName: input.workspaceName,
       keyPrefix: input.keyPrefix,
       userId: input.userId,
@@ -651,6 +657,25 @@ export default function register(api: PluginAPI): void {
       updateOnboardingState,
       setCredentials: (credentials) => client.setCredentials(credentials),
       logger: api.log ?? {},
+    });
+  }
+
+  function persistWorkspaceBinding(snapshot: OrgSnapshot): void {
+    if (!snapshot.workspaceId || !config.apiKey) return;
+    config.workspaceId = snapshot.workspaceId;
+    const current = loadAuthStore();
+    saveAuthStore({
+      installationId: config.installationId,
+      apiKey: config.apiKey,
+      source: current?.source ?? "manual",
+      userId: config.userId || null,
+      workspaceId: snapshot.workspaceId,
+      workspaceName: snapshot.workspaceName,
+      keyPrefix: current?.keyPrefix ?? null,
+    });
+    updateOnboardingState({
+      workspaceId: snapshot.workspaceId,
+      workspaceName: snapshot.workspaceName,
     });
   }
 
@@ -1222,6 +1247,7 @@ export default function register(api: PluginAPI): void {
     try {
       const snapshot = await client.getOrgSnapshot();
       updateCachedSnapshot(snapshot);
+      persistWorkspaceBinding(snapshot);
       localAgentMirrors = buildLocalAgentMirrorsFromSnapshot({
         agents: snapshot.agents,
       });
@@ -1466,6 +1492,7 @@ export default function register(api: PluginAPI): void {
     });
     const pairingPayload = {
       installationId: config.installationId,
+      workspaceId: config.workspaceId,
       pluginVersion: config.pluginVersion,
       openclawVersion: input.openclawVersion,
       platform: input.platform || process.platform,
@@ -1595,6 +1622,7 @@ export default function register(api: PluginAPI): void {
       pairingId: string;
       status: string;
       expiresAt: string;
+      workspaceId?: string | null;
       workspaceName?: string | null;
       keyPrefix?: string | null;
       key?: string;
@@ -1623,6 +1651,7 @@ export default function register(api: PluginAPI): void {
         status: config.apiKey ? "connected" : "pairing",
         hasApiKey: Boolean(config.apiKey),
         connectionVerified: Boolean(config.apiKey),
+        workspaceId: onboardingState.workspaceId,
         workspaceName: onboardingState.workspaceName,
         lastError: null,
         nextAction: config.apiKey ? "reconnect" : "wait_for_browser",
@@ -1657,6 +1686,7 @@ export default function register(api: PluginAPI): void {
         apiKey: key,
         source: "browser_pairing",
         userId: resolveRuntimeUserId(key, [pairingUserIdRaw, config.userId]) || null,
+        workspaceId: polled.data.workspaceId ?? null,
         workspaceName: polled.data.workspaceName ?? null,
         keyPrefix: polled.data.keyPrefix ?? null,
       });
@@ -1676,6 +1706,7 @@ export default function register(api: PluginAPI): void {
         status: "connected",
         hasApiKey: true,
         connectionVerified: false,
+        workspaceId: polled.data.workspaceId ?? null,
         workspaceName: polled.data.workspaceName ?? null,
         nextAction: "open_dashboard",
         lastError: null,
@@ -1761,7 +1792,8 @@ export default function register(api: PluginAPI): void {
       apiKey: nextKey,
       source: "manual",
       userId: resolveRuntimeUserId(nextKey, [input.userId, config.userId]) || null,
-      workspaceName: onboardingState.workspaceName,
+      workspaceId: snapshot.workspaceId,
+      workspaceName: snapshot.workspaceName,
       keyPrefix: null,
     });
 
@@ -1874,6 +1906,17 @@ export default function register(api: PluginAPI): void {
       if (syncTimer) clearTimeout(syncTimer);
       syncTimer = null;
     },
+  });
+
+  registerGatewayHeartbeatService({
+    api,
+    client,
+    installationId: config.installationId,
+    pluginVersion: config.pluginVersion,
+    gatewayVersion:
+      process.env.OPENCLAW_SERVICE_VERSION?.trim() || "unknown",
+    getWorkspaceId: () => config.workspaceId ?? null,
+    hasApiKey: () => Boolean(config.apiKey),
   });
 
   async function autoAssignEntityForCreate(input: {

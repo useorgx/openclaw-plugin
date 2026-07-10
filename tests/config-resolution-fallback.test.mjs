@@ -16,11 +16,13 @@ test("resolveConfig includes ORGX_API_FALLBACK_URL without changing the primary 
         installationId: "install-1",
         persistedApiKey: null,
         persistedUserId: null,
+        persistedWorkspaceId: "11111111-1111-4111-8111-111111111111",
       }
     );
 
     assert.equal(config.baseUrl, "https://www.useorgx.com");
     assert.equal(config.apiFallbackUrl, "https://orgx-api-fallback.example");
+    assert.equal(config.workspaceId, "11111111-1111-4111-8111-111111111111");
   } finally {
     if (previousFallback === undefined) {
       delete process.env.ORGX_API_FALLBACK_URL;
