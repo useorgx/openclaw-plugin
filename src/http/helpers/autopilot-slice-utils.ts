@@ -871,17 +871,27 @@ export function buildSliceOutputInstructions(input: {
   runId: string;
   schemaPath: string;
   requiredSkills: string[];
+  progressReportingRequired?: boolean;
 }): string {
   const skillHints = buildSkillHints(input.requiredSkills);
+  const progressReportingRequired = input.progressReportingRequired !== false;
+  const reportingLines = progressReportingRequired
+    ? [
+        "- You MUST emit progress at least twice (start + completion) using an OrgX progress tool.",
+        "- Preferred tool: orgx_report_progress. Equivalent aliases are valid (for example mcp__orgx__update_stream_progress).",
+        "- If no OrgX progress tool is available, include a blocking decisions_needed entry describing the missing tool.",
+      ]
+    : [
+        "- OrgX progress tool calls are optional for this local verification run.",
+        "- If no OrgX progress tool is available or a progress call is cancelled, continue with the local artifact and final JSON instead of blocking solely on progress reporting.",
+      ];
   return [
     "# Slice Execution",
     "",
     `Slice run: ${input.runId}`,
     "",
     "Reporting:",
-    "- You MUST emit progress at least twice (start + completion) using an OrgX progress tool.",
-    "- Preferred tool: orgx_report_progress. Equivalent aliases are valid (for example mcp__orgx__update_stream_progress).",
-    "- If no OrgX progress tool is available, include a blocking decisions_needed entry describing the missing tool.",
+    ...reportingLines,
     "- Do NOT hunt for OrgX mutation tools to mark tasks done. Instead, request status changes in your FINAL JSON via task_updates/milestone_updates; the coordinator will apply them.",
     "",
     "What to do:",
@@ -923,6 +933,7 @@ export function buildSliceOutputInstructions(input: {
         ])
       : ["- (none)"]),
     "- If you are confident OrgX statuses should change, include task_updates and/or milestone_updates (with a short reason).",
+    "- task_updates.task_id MUST exactly match one of the candidate task IDs shown in square brackets. Never invent task IDs.",
     "  - task_updates.status must be one of: todo, in_progress, done, blocked",
     "  - milestone_updates.status must be one of: planned, in_progress, completed, at_risk, cancelled",
   ].join("\n");
@@ -945,8 +956,20 @@ export function buildWorkstreamSlicePrompt(input: {
   } | null;
   runId: string;
   schemaPath: string;
+  progressReportingRequired?: boolean;
 }): string {
   const skillHints = buildSkillHints(input.executionPolicy.requiredSkills);
+  const progressReportingRequired = input.progressReportingRequired !== false;
+  const reportingLines = progressReportingRequired
+    ? [
+        "- You MUST emit progress at least twice (start + completion) using an OrgX progress tool.",
+        "- Preferred tool: orgx_report_progress. Equivalent aliases are valid (for example mcp__orgx__update_stream_progress).",
+        "- If no OrgX progress tool is available, include a blocking decisions_needed entry describing the missing tool.",
+      ]
+    : [
+        "- OrgX progress tool calls are optional for this local verification run.",
+        "- If no OrgX progress tool is available or a progress call is cancelled, continue with the local artifact and final JSON instead of blocking solely on progress reporting.",
+      ];
 
   const milestones = input.milestoneSummaries
     .map((m) => `- ${m.title} (${m.status}) [${m.id}]`)
@@ -1001,9 +1024,7 @@ export function buildWorkstreamSlicePrompt(input: {
     tasks || "- (none found)",
     "",
     "Reporting:",
-    "- You MUST emit progress at least twice (start + completion) using an OrgX progress tool.",
-    "- Preferred tool: orgx_report_progress. Equivalent aliases are valid (for example mcp__orgx__update_stream_progress).",
-    "- If no OrgX progress tool is available, include a blocking decisions_needed entry describing the missing tool.",
+    ...reportingLines,
     "- Do NOT hunt for OrgX mutation tools to mark tasks done. Instead, request status changes in your FINAL JSON via task_updates/milestone_updates; the coordinator will apply them.",
     "",
     "What to do:",
@@ -1045,6 +1066,7 @@ export function buildWorkstreamSlicePrompt(input: {
         ])
       : ["- (none)"]),
     "- If you are confident OrgX statuses should change, include task_updates and/or milestone_updates (with a short reason).",
+    "- task_updates.task_id MUST exactly match one of the candidate task IDs shown in square brackets. Never invent task IDs.",
     "  - task_updates.status must be one of: todo, in_progress, done, blocked",
     "  - milestone_updates.status must be one of: planned, in_progress, completed, at_risk, cancelled",
   ].join("\n");

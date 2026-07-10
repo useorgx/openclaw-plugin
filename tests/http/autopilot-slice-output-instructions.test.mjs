@@ -51,6 +51,58 @@ test("buildSliceOutputInstructions includes reporting and output requirements", 
   );
 });
 
+test("buildSliceOutputInstructions can make progress reporting optional for local verification", () => {
+  const output = buildSliceOutputInstructions({
+    runId: "run-abc",
+    schemaPath: "/tmp/schema.json",
+    requiredSkills: ["$orgx-engineering-agent"],
+    progressReportingRequired: false,
+  });
+
+  assert.ok(
+    output.includes("OrgX progress tool calls are optional for this local verification run"),
+    "expected optional progress reporting language",
+  );
+  assert.ok(
+    !output.includes("You MUST emit progress at least twice"),
+    "expected mandatory progress language to be omitted",
+  );
+});
+
+test("buildWorkstreamSlicePrompt can make progress reporting optional for local verification", () => {
+  const prompt = buildWorkstreamSlicePrompt({
+    initiativeTitle: "Agent Confidence Signals",
+    initiativeId: "init-1",
+    workstreamId: "ws-1",
+    workstreamTitle: "Confidence Metadata Pipeline",
+    milestoneSummaries: [{ id: "m-1", title: "Seed", status: "planned" }],
+    taskSummaries: [
+      {
+        id: "t-1",
+        title: "Add confidence_score to save_artifact tool input schema",
+        status: "todo",
+        milestoneId: "m-1",
+      },
+    ],
+    executionPolicy: {
+      domain: "engineering",
+      requiredSkills: ["$orgx-engineering-agent"],
+    },
+    runId: "run-1",
+    schemaPath: "/tmp/autopilot-slice-schema.json",
+    progressReportingRequired: false,
+  });
+
+  assert.ok(
+    prompt.includes("OrgX progress tool calls are optional for this local verification run"),
+    "expected optional progress reporting language",
+  );
+  assert.ok(
+    !prompt.includes("You MUST emit progress at least twice"),
+    "expected mandatory progress language to be omitted",
+  );
+});
+
 // ---------------------------------------------------------------------------
 // 3. Output sections match between buildSliceOutputInstructions and
 //    buildWorkstreamSlicePrompt
@@ -97,6 +149,7 @@ test("buildSliceOutputInstructions produces same output sections as buildWorkstr
     "Execution budget:",
     "Print ONLY a single JSON object",
     "skill_evidence is mandatory",
+    "task_updates.task_id MUST exactly match one of the candidate task IDs shown in square brackets",
   ];
 
   for (const phrase of sharedPhrases) {
