@@ -101,7 +101,9 @@ test("orgx_status forwards the agent task filter", async () => {
     canonical_only: true,
   });
 
-  assert.equal(result.content[0].text, "filtered snapshot");
+  assert.match(result.content[0].text, /^filtered snapshot/);
+  assert.match(result.content[0].text, /orgx_recommend_next_action/);
+  assert.match(result.content[0].text, /canonical_only=true/);
   assert.deepEqual(receivedFilter, {
     agentId: "operations-agent",
     domain: "operations",
@@ -123,7 +125,7 @@ test("orgx_recommend_next_action forwards canonical agent scope", async () => {
   });
   const tool = registerCoreTools(deps).get("orgx_recommend_next_action");
 
-  await tool.execute("call-recommend", {
+  const result = await tool.execute("call-recommend", {
     entity_type: "workspace",
     agent_id: "engineering-agent",
     domain: "engineering",
@@ -136,6 +138,8 @@ test("orgx_recommend_next_action forwards canonical agent scope", async () => {
     domain: "engineering",
     canonical_only: true,
   });
+  assert.match(result.content[0].text, /heartbeat_respond/);
+  assert.match(result.content[0].text, /outcome=no_change/);
 });
 
 test("orgx_spawn_check forwards explicit standard model tier", async () => {

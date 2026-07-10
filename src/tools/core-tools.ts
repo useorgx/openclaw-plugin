@@ -234,12 +234,18 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             "❌ Failed to fetch OrgX status. Check API key and connectivity."
           );
         }
+        const formatted = formatSnapshot(snapshot, {
+          agentId: params.agent_id,
+          domain: params.domain,
+          canonicalOnly: params.canonical_only === true,
+        });
+        if (params.canonical_only !== true) return text(formatted);
         return text(
-          formatSnapshot(snapshot, {
-            agentId: params.agent_id,
-            domain: params.domain,
-            canonicalOnly: params.canonical_only === true,
-          })
+          `${formatted}\n\n## Managed Heartbeat Required Next Step\nCall \`orgx_recommend_next_action\` with \`entity_type=workspace\`, \`agent_id=${
+            params.agent_id ?? "<canonical-agent-id>"
+          }\`, \`domain=${
+            params.domain ?? "<agent-domain>"
+          }\`, and \`canonical_only=true\`. Do not finalize before this call.`
         );
       },
     },
@@ -527,7 +533,7 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
             : Array.isArray(result.items)
             ? result.items
             : [];
-          return json(
+          const response = json(
             recommendations.length === 0
               ? "No recommendations available."
               : `Recommended ${recommendations.length} next action${
@@ -535,6 +541,15 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
                 }.`,
             result
           );
+          if (params.canonical_only === true) {
+            const nextStep =
+              recommendations.length === 0
+                ? "Call `heartbeat_respond` exactly once with `outcome=no_change` and `notify=false`, then stop without additional tools."
+                : "Select exactly one returned canonical task, perform one bounded step within the shared call budget, verify completion, call `heartbeat_respond` exactly once, and stop.";
+            response.content[0].text +=
+              `\n\n## Managed Heartbeat Required Next Step\n${nextStep}`;
+          }
+          return response;
         } catch (err: unknown) {
           return text(
             `❌ Recommendation lookup failed: ${err instanceof Error ? err.message : err}`
