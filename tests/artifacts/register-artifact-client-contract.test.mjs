@@ -425,6 +425,19 @@ test("validateRegisterArtifactInput rejects unknown entity_type values", () => {
   assert.ok(errors.includes("entity_type must be one of: initiative, workstream, milestone, task, decision, project"));
 });
 
+test("validateRegisterArtifactInput accepts an explicitly unknown confidence score", () => {
+  const errors = validateRegisterArtifactInput({
+    entity_type: "task",
+    entity_id: "task-1",
+    name: "Artifact",
+    artifact_type: "document",
+    external_url: "/tmp/artifact.md",
+    confidence_score: null,
+  });
+
+  assert.deepEqual(errors, []);
+});
+
 // --- Proof Ladder metadata injection tests ---
 
 test("registerArtifact injects atomic_unit_type from artifact_type normalization", async () => {

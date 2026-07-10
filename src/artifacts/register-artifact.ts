@@ -226,7 +226,7 @@ export function validateRegisterArtifactInput(input: RegisterArtifactInput): str
   const artifactType = normalizeText(input.artifact_type);
   if (!artifactType) errors.push("artifact_type is required");
   if (
-    typeof input.confidence_score !== "undefined" &&
+    input.confidence_score != null &&
     normalizeConfidenceScore(input.confidence_score) == null
   ) {
     errors.push("confidence_score must be a number between 0 and 1 when provided");

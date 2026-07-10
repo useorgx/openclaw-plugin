@@ -19,6 +19,14 @@ LAUNCH_AGENT="gui/$(id -u)/ai.openclaw.gateway"
 
 LOCAL_ONLY=false
 BUMP_LEVEL=""
+STAGING_DIR=""
+cleanup_staging() {
+  if [ -n "$STAGING_DIR" ] && [ -d "$STAGING_DIR" ]; then
+    rm -rf "$STAGING_DIR"
+  fi
+}
+trap cleanup_staging EXIT
+
 for arg in "$@"; do
   case "$arg" in
     --local)              LOCAL_ONLY=true ;;
@@ -80,19 +88,29 @@ fi
 
 for INSTALL_DIR in "${INSTALL_DIRS[@]}"; do
   echo "Installing to ${INSTALL_DIR}..."
-  if [ -d "$INSTALL_DIR" ]; then
-    find "$INSTALL_DIR" -mindepth 1 -delete 2>/dev/null || true
-  fi
-  mkdir -p "$INSTALL_DIR"
+  mkdir -p "$(dirname "$INSTALL_DIR")"
+  STAGING_DIR=$(mktemp -d "${INSTALL_DIR}.staging.XXXXXX")
 
   if $LOCAL_ONLY; then
-    cp -R dist openclaw.plugin.json package.json LICENSE README.md "$INSTALL_DIR/"
-    [ -d dashboard/dist ] && mkdir -p "$INSTALL_DIR/dashboard" && cp -R dashboard/dist "$INSTALL_DIR/dashboard/"
-    [ -d skills ] && cp -R skills "$INSTALL_DIR/"
-    echo "Installing runtime dependencies for local plugin at ${INSTALL_DIR}..."
-    (cd "$INSTALL_DIR" && npm install --omit=dev)
+    cp -R dist openclaw.plugin.json package.json LICENSE README.md "$STAGING_DIR/"
+    [ -d dashboard/dist ] && mkdir -p "$STAGING_DIR/dashboard" && cp -R dashboard/dist "$STAGING_DIR/dashboard/"
+    [ -d skills ] && cp -R skills "$STAGING_DIR/"
+    echo "Installing runtime dependencies for local plugin staging at ${STAGING_DIR}..."
+    (cd "$STAGING_DIR" && npm install --omit=dev)
   else
-    cp -R "$TMPDIR"/package/* "$INSTALL_DIR/"
+    cp -R "$TMPDIR"/package/* "$STAGING_DIR/"
+  fi
+
+  BACKUP_DIR="${INSTALL_DIR}.previous.$$"
+  if [ -e "$INSTALL_DIR" ]; then
+    mv "$INSTALL_DIR" "$BACKUP_DIR"
+  fi
+  if mv "$STAGING_DIR" "$INSTALL_DIR"; then
+    STAGING_DIR=""
+    [ ! -e "$BACKUP_DIR" ] || rm -rf "$BACKUP_DIR"
+  else
+    [ ! -e "$BACKUP_DIR" ] || mv "$BACKUP_DIR" "$INSTALL_DIR"
+    exit 1
   fi
 done
 

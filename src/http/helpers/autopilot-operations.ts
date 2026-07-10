@@ -8,6 +8,7 @@ type AutopilotSliceArtifact = {
   name: string;
   artifact_type?: string | null;
   confidence_score?: number | null;
+  quality_score?: number | null;
   description?: string | null;
   url?: string | null;
   verification_steps?: string[] | null;
@@ -107,6 +108,8 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
     workstreamId: string;
     fallbackMilestoneId?: string | null;
     fallbackTaskIds?: string[] | null;
+    targetTaskId?: string | null;
+    nextAction?: string | null;
     artifact: AutopilotSliceArtifact;
     isMockWorker?: boolean;
   }): Promise<{ ok: boolean; id: string | null }> {
@@ -126,6 +129,13 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
       input.artifact.confidence_score >= 0 &&
       input.artifact.confidence_score <= 1
         ? input.artifact.confidence_score
+        : null;
+    const qualityScore =
+      typeof input.artifact.quality_score === "number" &&
+      Number.isFinite(input.artifact.quality_score) &&
+      input.artifact.quality_score >= 0 &&
+      input.artifact.quality_score <= 5
+        ? input.artifact.quality_score
         : null;
     const artifactId = deps.randomUUID();
     const milestoneId =
@@ -147,6 +157,14 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
       .filter((taskId): taskId is string => typeof taskId === "string")
       .map((taskId) => taskId.trim())
       .filter(Boolean);
+    const targetTaskId =
+      typeof input.targetTaskId === "string" && input.targetTaskId.trim().length > 0
+        ? input.targetTaskId.trim()
+        : null;
+    const nextAction =
+      typeof input.nextAction === "string" && input.nextAction.trim().length > 0
+        ? input.nextAction.trim()
+        : "Review the artifact and execute the next acceptance criterion.";
 
     const verificationSteps = Array.isArray(input.artifact.verification_steps)
       ? input.artifact.verification_steps
@@ -175,8 +193,8 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
     const createdById = hasUuidAgent ? input.agentId : null;
 
     try {
-      const entityType = milestoneId ? "milestone" : "initiative";
-      const entityId = milestoneId ?? input.initiativeId;
+      const entityType = targetTaskId ? "task" : milestoneId ? "milestone" : "initiative";
+      const entityId = targetTaskId ?? milestoneId ?? input.initiativeId;
       const result = await registerArtifact(deps.client as any, deps.client.getBaseUrl(), {
         artifact_id: artifactId,
         entity_type: entityType as any,
@@ -189,20 +207,42 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
         description,
         external_url: input.artifact.url ?? null,
         preview_markdown: null,
-        status: "draft",
+        status: "in_review",
         metadata: {
           source: "autopilot_slice",
+          source_client: "openclaw",
+          source_tool: "autopilot",
+          created_by_type: createdByType,
           artifact_id: artifactId,
           run_id: input.runId,
+          run_ref: { run_id: input.runId, correlation_id: input.runId },
+          queue_ref: {
+            initiative_id: input.initiativeId,
+            workstream_id: input.workstreamId,
+            ...(targetTaskId ? { task_id: targetTaskId } : {}),
+          },
           initiative_id: input.initiativeId,
           workstream_id: input.workstreamId,
           milestone_id: milestoneId,
           task_ids: taskIds.length > 0 ? taskIds : null,
           confidence_score: confidenceScore,
+          quality_score: qualityScore,
+          proof_state: "produced",
+          event_status: "artifact_registered",
+          next_action: nextAction,
+          atomic_unit_type: artifactType,
         },
         // Make persistence validation opt-in to avoid adding latency to every slice by default.
         validate_persistence: process.env.ORGX_VALIDATE_ARTIFACT_PERSISTENCE === "1",
       });
+
+      if (!result.ok) {
+        throw new Error(
+          result.persistence.last_error ||
+            result.warnings.join("; ") ||
+            "artifact registration returned no persisted artifact"
+        );
+      }
 
       if (result.ok) {
         try {
@@ -223,6 +263,7 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
               workstream_id: input.workstreamId,
               milestone_id: milestoneId,
               task_ids: taskIds,
+              target_task_id: targetTaskId,
               agent_id: input.agentId,
               agent_name: input.agentName ?? null,
               executor_agent_id: input.agentId,
@@ -245,8 +286,8 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
           timestamp: now,
           payload: {
             artifact_id: artifactId,
-            entity_type: milestoneId ? "milestone" : "initiative",
-            entity_id: milestoneId ?? input.initiativeId,
+            entity_type: targetTaskId ? "task" : milestoneId ? "milestone" : "initiative",
+            entity_id: targetTaskId ?? milestoneId ?? input.initiativeId,
             name,
             artifact_type: artifactType,
             confidence_score: confidenceScore,
@@ -255,6 +296,12 @@ export function createAutopilotOperations(deps: CreateAutopilotOperationsDeps) {
             description,
             url: input.artifact.url ?? undefined,
             run_id: input.runId,
+            task_id: targetTaskId,
+            queue_ref: {
+              initiative_id: input.initiativeId,
+              workstream_id: input.workstreamId,
+              ...(targetTaskId ? { task_id: targetTaskId } : {}),
+            },
           },
           activityItem: {
             id: deps.randomUUID(),

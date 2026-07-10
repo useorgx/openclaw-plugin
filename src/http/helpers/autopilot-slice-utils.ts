@@ -34,6 +34,7 @@ function autopilotSliceSchema(): Record<string, unknown> {
       enum: ["pr", "commit", "document", "config", "report", "design", "retro", "other"],
     },
     confidence_score: { type: ["number", "null"], minimum: 0, maximum: 1 },
+    quality_score: { type: ["number", "null"], minimum: 0, maximum: 5 },
     description: { type: ["string", "null"] },
     url: { type: ["string", "null"] },
     verification_steps: { type: ["array", "null"], items: { type: "string" } },
@@ -157,8 +158,11 @@ function autopilotSliceSchema(): Record<string, unknown> {
   };
 }
 
-export function ensureAutopilotSliceSchemaPath(schemaFilename: string): string {
-  const file = join(getOrgxPluginConfigDir(), schemaFilename);
+export function ensureAutopilotSliceSchemaPath(
+  schemaFilename: string,
+  pluginConfigDir = getOrgxPluginConfigDir()
+): string {
+  const file = join(pluginConfigDir, schemaFilename);
   const nextSchemaRaw = JSON.stringify(autopilotSliceSchema(), null, 2);
   try {
     if (existsSync(file)) {
@@ -897,7 +901,8 @@ export function buildSliceOutputInstructions(input: {
     "What to do:",
     "- Choose a coherent slice of work you can complete end-to-end in this run.",
     "- Execute the work (code/docs/config) and produce verifiable outcomes.",
-    "- Self-assess confidence when saving artifacts and include `confidence_score` in [0,1].",
+    "- Self-assess confidence in the artifact identity/source with `confidence_score` in [0,1].",
+    "- Separately score correctness and acceptance-criteria coverage with `quality_score` in [0,5]. Do not use 3+ when a required acceptance criterion is unmet.",
     "- If blocked, be explicit about what decision/info is required.",
     "- Keep this run focused: stay inside the current repository/workdir and avoid unrelated exploration.",
     "- Execution budget: prefer <=12 shell commands and <=6 minutes wall time.",
@@ -910,6 +915,7 @@ export function buildSliceOutputInstructions(input: {
     `- Your JSON MUST conform to this schema file: ${input.schemaPath}`,
     "- Artifacts must be verifiable: include URLs or local paths, plus verification steps.",
     "- Include `confidence_score` for each artifact (`0` to `1`; use `null` when unknown).",
+    "- Include `quality_score` for each artifact (`0` to `5`; use `null` when not evaluated).",
     "- If you need a human decision, include it in decisions_needed.",
     "- Prefer structured decision options objects with: id, label, description, consequences, implied_status, action_type, requires_note.",
     "- String options are still accepted, but structured options are required for precise decision routing.",
@@ -1030,7 +1036,8 @@ export function buildWorkstreamSlicePrompt(input: {
     "What to do:",
     "- Choose a coherent slice of work you can complete end-to-end in this run.",
     "- Execute the work (code/docs/config) and produce verifiable outcomes.",
-    "- Self-assess confidence when saving artifacts and include `confidence_score` in [0,1].",
+    "- Self-assess confidence in the artifact identity/source with `confidence_score` in [0,1].",
+    "- Separately score correctness and acceptance-criteria coverage with `quality_score` in [0,5]. Do not use 3+ when a required acceptance criterion is unmet.",
     "- If blocked, be explicit about what decision/info is required.",
     "- Keep this run focused: stay inside the current repository/workdir and avoid unrelated exploration.",
     "- Execution budget: prefer <=12 shell commands and <=6 minutes wall time.",
@@ -1043,6 +1050,7 @@ export function buildWorkstreamSlicePrompt(input: {
     `- Your JSON MUST conform to this schema file: ${input.schemaPath}`,
     "- Artifacts must be verifiable: include URLs or local paths, plus verification steps.",
     "- Include `confidence_score` for each artifact (`0` to `1`; use `null` when unknown).",
+    "- Include `quality_score` for each artifact (`0` to `5`; use `null` when not evaluated).",
     "- If you need a human decision, include it in decisions_needed.",
     "- Prefer structured decision options objects with: id, label, description, consequences, implied_status, action_type, requires_note.",
     "- String options are still accepted, but structured options are required for precise decision routing.",

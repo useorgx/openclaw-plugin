@@ -721,8 +721,8 @@ test("autopilot slice lifecycle: success registers artifact and completes run", 
   assert.equal(result.status.run?.stopReason, "completed");
   const artifactCreate = result.calls.createEntity.find((c) => c.type === "artifact");
   assert.ok(artifactCreate, "expected artifact.create");
-  assert.equal(artifactCreate.payload?.entity_type, "initiative");
-  assert.equal(artifactCreate.payload?.entity_id, "init-1");
+  assert.equal(artifactCreate.payload?.entity_type, "task");
+  assert.equal(artifactCreate.payload?.entity_id, "task-1");
   assert.equal(Object.hasOwn(artifactCreate.payload ?? {}, "initiative_id"), false);
   assert.equal(artifactCreate.payload?.name, "Mock deliverable");
   assert.equal(artifactCreate.payload?.artifact_type, "document");
@@ -732,6 +732,22 @@ test("autopilot slice lifecycle: success registers artifact and completes run", 
     "https://www.useorgx.com/orgx/api/live/filesystem/open?path=%2Fartifact.txt"
   );
   assert.equal(artifactCreate.payload?.metadata?.external_url, "file://mock/artifact.txt");
+  assert.deepEqual(artifactCreate.payload?.metadata?.queue_ref, {
+    initiative_id: "init-1",
+    workstream_id: "ws-1",
+    task_id: "task-1",
+  });
+  assert.equal(
+    artifactCreate.payload?.metadata?.run_ref?.run_id,
+    artifactCreate.payload?.metadata?.run_id,
+  );
+  assert.equal(artifactCreate.payload?.metadata?.quality_score, 4.5);
+  assert.equal(artifactCreate.payload?.metadata?.proof_state, "produced");
+  assert.equal(artifactCreate.payload?.metadata?.event_status, "artifact_registered");
+  assert.equal(
+    Object.hasOwn(artifactCreate.payload?.metadata ?? {}, "outcome_event_status"),
+    false,
+  );
   assert.ok(
     result.calls.applyChangeset.some((c) =>
       Array.isArray(c.operations) && c.operations.some((op) => op.op === "task.update" && op.task_id === "task-1")
@@ -775,6 +791,50 @@ test("autopilot slice lifecycle: success registers artifact and completes run", 
   );
   assert.equal(sliceResult.metadata?.decision_required, false);
   assert.equal(sliceResult.metadata?.activity_bucket, "artifact");
+});
+
+test("autopilot slice lifecycle: hard proof gaps block task completion by default", async () => {
+  const result = await runPlayTickStatus({
+    scenario: "success",
+    configureHarness: async ({ client }) => {
+      client.rawRequest = async (method, path, body) => {
+        if (method === "POST" && path === "/api/client/artifacts") {
+          return {
+            artifact: {
+              id: body.artifact_id,
+              artifact_url: body.artifact_url,
+            },
+          };
+        }
+        if (method === "GET" && path.startsWith("/api/flywheel/proof-status?")) {
+          return {
+            overall_passed: false,
+            reason_codes: ["no_quality_gate", "no_adoption_signal"],
+            blocking_reason_codes: ["no_quality_gate"],
+            warning_reason_codes: ["no_adoption_signal"],
+          };
+        }
+        throw new Error(`Unexpected raw request: ${method} ${path}`);
+      };
+    },
+  });
+
+  assert.equal(result.status.run?.status, "stopped");
+  assert.equal(result.status.run?.stopReason, "blocked");
+  assert.equal(result.state.tasks.get("task-1")?.status, "blocked");
+  assert.ok(
+    listDecisionCreateOps(result.calls).some(
+      (op) => op.decision_type === "proof_incomplete" && op.blocking === true,
+    ),
+    "expected a blocking proof decision",
+  );
+  assert.equal(
+    result.calls.emitActivity.some(
+      (entry) => entry?.metadata?.event === "session_completed",
+    ),
+    false,
+    "proof-blocked slices must not emit a completed session",
+  );
 });
 
 test(
@@ -1891,6 +1951,8 @@ test("autopilot slice lifecycle: buffered artifact activity preserves requester/
     ) ?? null;
 
   assert.ok(localBufferedArtifact, "expected local buffered artifact activity");
+  assert.equal(result.status.run?.stopReason, "blocked");
+  assert.equal(result.state.tasks.get("task-1")?.status, "blocked");
   assert.ok(
     typeof localBufferedArtifact.agentId === "string" && localBufferedArtifact.agentId.length > 0,
     "expected fallback artifact activity agentId"

@@ -135,10 +135,13 @@ export interface CreateAutoContinueEngineDeps {
     workstreamId: string;
     fallbackMilestoneId?: string | null;
     fallbackTaskIds?: string[] | null;
+    targetTaskId?: string | null;
+    nextAction?: string | null;
     artifact: {
       name: string;
       artifact_type?: string | null;
       confidence_score?: number | null;
+      quality_score?: number | null;
       description?: string | null;
       url?: string | null;
       milestone_id?: string | null;
@@ -202,6 +205,8 @@ function resolveAutopilotDefaultCwd(filename: string): string {
 
 function captureAutopilotWorkerEnv(): Record<string, string | undefined> {
   return {
+    ORGX_OPENCLAW_PLUGIN_CONFIG_DIR:
+      (process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR ?? "").trim() || undefined,
     ORGX_AUTOPILOT_CWD: (process.env.ORGX_AUTOPILOT_CWD ?? "").trim() || undefined,
     ORGX_AUTOPILOT_EXECUTOR: (process.env.ORGX_AUTOPILOT_EXECUTOR ?? "").trim() || undefined,
     ORGX_AUTOPILOT_WORKER_KIND:
@@ -1627,6 +1632,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     name: string;
     artifact_type?: string | null;
     confidence_score?: number | null;
+    quality_score?: number | null;
     description?: string | null;
     url?: string | null;
     verification_steps?: string[] | null;
@@ -3281,6 +3287,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           payload: {
             artifact_type: artifact.artifact_type ?? null,
             confidence_score: artifact.confidence_score ?? null,
+            quality_score: artifact.quality_score ?? null,
             task_ids:
               Array.isArray(artifact.task_ids) && artifact.task_ids.length > 0
                 ? artifact.task_ids
@@ -3433,31 +3440,77 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
           new Set([...blockingDecisionIds, ...nonBlockingDecisionIds])
         );
 
+        const artifactRegistrationFailuresByTaskId = new Set<string>();
         for (const artifact of artifacts) {
-          await registerArtifactSafe({
-            initiativeId: run.initiativeId,
-            runId: slice.runId,
-            agentId: slice.agentId,
-            agentName: slice.agentName,
-            workstreamId: slice.workstreamId,
-            fallbackMilestoneId: slice.milestoneIds[0] ?? null,
-            fallbackTaskIds: slice.taskIds,
-            artifact,
-            isMockWorker: slice.isMockWorker,
-          });
+          const requestedTaskIds = Array.isArray(artifact.task_ids)
+            ? artifact.task_ids
+                .filter((taskId): taskId is string => typeof taskId === "string")
+                .map((taskId) => taskId.trim())
+                .filter((taskId) => taskId.length > 0 && slice.taskIds.includes(taskId))
+            : [];
+          const targetTaskIds = dedupeStrings(
+            requestedTaskIds.length > 0 ? requestedTaskIds : slice.taskIds
+          );
+          const registrationTargets: Array<string | null> =
+            targetTaskIds.length > 0 ? targetTaskIds : [null];
+
+          for (const targetTaskId of registrationTargets) {
+            const registration = await registerArtifactSafe({
+              initiativeId: run.initiativeId,
+              runId: slice.runId,
+              agentId: slice.agentId,
+              agentName: slice.agentName,
+              workstreamId: slice.workstreamId,
+              fallbackMilestoneId: slice.milestoneIds[0] ?? null,
+              fallbackTaskIds: targetTaskId ? [targetTaskId] : slice.taskIds,
+              targetTaskId,
+              nextAction: nextActions[0] ?? null,
+              artifact,
+              isMockWorker: slice.isMockWorker,
+            });
+            if (!registration.ok && targetTaskId) {
+              artifactRegistrationFailuresByTaskId.add(targetTaskId);
+            }
+          }
         }
 
         // --- Proof ladder gate: check completion tasks for proof readiness ---
-        // Phase 1: warn-only. Does not block status transitions but creates
-        // a decision request when proof is missing for done/completed tasks.
+        // Hard proof gaps block by default; soft maturity gaps remain warnings.
+        // ORGX_PROOF_STRICTNESS=warn preserves the legacy permissive behavior.
         const doneTaskUpdates = taskUpdates.filter(
           (tu: { task_id: string; status: string }) =>
             tu.status === "done" || tu.status === "completed"
         );
-        if (doneTaskUpdates.length > 0 && !slice.isMockWorker) {
-          const proofStrictness = process.env.ORGX_PROOF_STRICTNESS ?? "warn";
+        if (doneTaskUpdates.length > 0) {
+          const proofStrictness = String(process.env.ORGX_PROOF_STRICTNESS ?? "block")
+            .trim()
+            .toLowerCase();
           for (const dtu of doneTaskUpdates) {
             try {
+              if (artifactRegistrationFailuresByTaskId.has(dtu.task_id)) {
+                const reasonCodes = ["artifact_registration_failed"];
+                dtu.status = "blocked";
+                slice.status = "blocked";
+                slice.lastError = `Completion blocked: ${reasonCodes.join(", ")}`;
+                const decisionResult = await requestDecisionQueued({
+                  initiativeId: run.initiativeId,
+                  correlationId: slice.runId,
+                  title: `Task ${dtu.task_id} artifact did not persist`,
+                  summary: "The worker produced an artifact, but OrgX could not persist a task-linked proof record. The task remains blocked instead of being falsely marked done.",
+                  urgency: "high",
+                  blocking: true,
+                  decisionType: "proof_incomplete",
+                  workstreamId: slice.workstreamId,
+                  agentId: slice.agentId,
+                  sourceRunId: slice.runId,
+                  dedupeKey: `proof-gate:${dtu.task_id}:${slice.runId}:artifact-registration`,
+                  metadata: { reason_codes: reasonCodes },
+                });
+                blockingDecisionQueued = blockingDecisionQueued || decisionResult.queued;
+                blockingDecisionIds.push(...decisionResult.decisionIds);
+                continue;
+              }
+
               const qp = new URLSearchParams({ task_id: dtu.task_id });
               const proofResult = await client.rawRequest<Record<string, unknown>>(
                 "GET",
@@ -3468,17 +3521,21 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
               if (!proofResult) continue;
 
               const overallPassed = proofResult?.overall_passed === true;
-              if (!overallPassed && proofStrictness === "block") {
-                // Hard block: downgrade to needs_review
-                dtu.status = "needs_review";
-                const reasonCodes = Array.isArray(proofResult?.reason_codes)
-                  ? (proofResult.reason_codes as string[]).join(", ")
-                  : "incomplete_proof";
-                await requestDecisionSafe({
+              const blockingReasonCodes = Array.isArray(proofResult?.blocking_reason_codes)
+                ? (proofResult.blocking_reason_codes as unknown[])
+                    .filter((code): code is string => typeof code === "string")
+                    .map((code) => code.trim())
+                    .filter(Boolean)
+                : [];
+              if (!overallPassed && proofStrictness === "block" && blockingReasonCodes.length > 0) {
+                dtu.status = "blocked";
+                slice.status = "blocked";
+                slice.lastError = `Completion blocked: ${blockingReasonCodes.join(", ")}`;
+                const decisionResult = await requestDecisionQueued({
                   initiativeId: run.initiativeId,
                   correlationId: slice.runId,
                   title: `Task ${dtu.task_id} missing proof for completion`,
-                  summary: `Proof chain incomplete (${reasonCodes}). Task held in needs_review until proof is resolved.`,
+                  summary: `Proof chain incomplete (${blockingReasonCodes.join(", ")}). Task held as blocked until proof is resolved.`,
                   urgency: "high",
                   blocking: true,
                   decisionType: "proof_incomplete",
@@ -3488,6 +3545,8 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
                   dedupeKey: `proof-gate:${dtu.task_id}:${slice.runId}`,
                   metadata: { proof_result: proofResult },
                 });
+                blockingDecisionQueued = blockingDecisionQueued || decisionResult.queued;
+                blockingDecisionIds.push(...decisionResult.decisionIds);
               } else if (!overallPassed) {
                 // Warn-only: emit activity but allow transition
                 await emitActivitySafe({
@@ -3586,7 +3645,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       }
 
         // Emit explicit session completion event for canonical agent panel state
-        if (slice.status === "completed" || reportedParsedStatus === "completed") {
+        if (slice.status === "completed") {
           await emitActivitySafe({
             initiativeId: run.initiativeId,
             runId: slice.runId,
@@ -4902,7 +4961,15 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       milestoneId: t.milestoneId ?? null,
     }));
 
-    const schemaPath = ensureAutopilotSliceSchemaPath(AUTO_CONTINUE_SLICE_SCHEMA_FILENAME);
+    const workerEnvOverrides = run.workerEnvOverrides ?? defaultWorkerEnvOverrides;
+    const capturedPluginConfigDir = (
+      workerEnvOverrides?.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR ?? ""
+    ).trim();
+    const pluginConfigDir = capturedPluginConfigDir || getOrgxPluginConfigDir();
+    const schemaPath = ensureAutopilotSliceSchemaPath(
+      AUTO_CONTINUE_SLICE_SCHEMA_FILENAME,
+      pluginConfigDir
+    );
     const progressReportingRequired = !["0", "false", "no", "off"].includes(
       String(process.env.ORGX_AUTOPILOT_PROGRESS_REQUIRED ?? "true")
         .trim()
@@ -4997,11 +5064,10 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
       }
     }
 
-    const logsDir = join(getOrgxPluginConfigDir(), AUTO_CONTINUE_SLICE_LOG_DIRNAME);
+    const logsDir = join(pluginConfigDir, AUTO_CONTINUE_SLICE_LOG_DIRNAME);
     const logPath = join(logsDir, `${sliceRunId}.log`);
     const outputPath = join(logsDir, `${sliceRunId}.output.json`);
 
-    const workerEnvOverrides = run.workerEnvOverrides ?? defaultWorkerEnvOverrides;
     const configuredWorkerCwd = (
       workerEnvOverrides?.ORGX_AUTOPILOT_CWD ??
       process.env.ORGX_AUTOPILOT_CWD ??
