@@ -89,6 +89,7 @@ import { RETRO_ARTIFACT_SCHEMA_VERSION } from "./contracts/retro-schema.js";
 import { buildRetroWithLlm } from "./retro/domain-templates.js";
 import { computeRetroQualityRubricScore } from "./retro/quality-rubric.js";
 import {
+  type HeartbeatAfterToolCallEvent,
   createManagedHeartbeatExecutionGuard,
   type HeartbeatBeforeToolCallEvent,
   type HeartbeatToolCallResult,
@@ -159,6 +160,14 @@ export interface PluginAPI {
         event: HeartbeatBeforeToolCallEvent,
         context: HeartbeatToolContext
       ) => HeartbeatToolCallResult | void,
+      options?: { priority?: number; timeoutMs?: number }
+    ): void;
+    (
+      hookName: "after_tool_call",
+      handler: (
+        event: HeartbeatAfterToolCallEvent,
+        context: HeartbeatToolContext
+      ) => void,
       options?: { priority?: number; timeoutMs?: number }
     ): void;
     (
@@ -565,6 +574,11 @@ export default function register(api: PluginAPI): void {
     api.on(
       "before_tool_call",
       heartbeatExecutionGuard.beforeToolCall,
+      { priority: 100, timeoutMs: 1_000 }
+    );
+    api.on(
+      "after_tool_call",
+      heartbeatExecutionGuard.afterToolCall,
       { priority: 100, timeoutMs: 1_000 }
     );
     api.on("agent_end", (_event, context) => {

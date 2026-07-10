@@ -66,6 +66,16 @@ test("terminal reporting remains available after the execution cap", () => {
 test("heartbeat response closes the turn to additional tools", () => {
   const guard = createManagedHeartbeatExecutionGuard();
   canonicalDiscovery(guard);
+  guard.afterToolCall(
+    {
+      toolName: "orgx_verify_completion",
+      params: {},
+      result: {
+        content: [{ type: "text", text: '{"ready":true,"verified":true}' }],
+      },
+    },
+    context
+  );
   guard.beforeToolCall(
     { toolName: "heartbeat_respond", params: { outcome: "progress" } },
     context
@@ -82,6 +92,74 @@ test("heartbeat response closes the turn to additional tools", () => {
     assert.equal(blocked?.block, true);
     assert.match(blocked?.blockReason ?? "", /terminal status is already recorded/i);
   }
+});
+
+test("done outcomes require a passing completion verification result", () => {
+  const guard = createManagedHeartbeatExecutionGuard();
+  canonicalDiscovery(guard);
+
+  const missing = guard.beforeToolCall(
+    { toolName: "heartbeat_respond", params: { outcome: "done" } },
+    context
+  );
+  assert.equal(missing?.block, true);
+  assert.match(missing?.blockReason ?? "", /completion is not verified/i);
+
+  guard.afterToolCall(
+    {
+      toolName: "orgx_verify_completion",
+      params: {},
+      result: {
+        content: [
+          { type: "text", text: '{"ready":false,"verified":false}' },
+        ],
+      },
+    },
+    context
+  );
+  const failed = guard.beforeToolCall(
+    { toolName: "orgx_emit_activity", params: { phase: "completed" } },
+    context
+  );
+  assert.equal(failed?.block, true);
+  assert.match(failed?.blockReason ?? "", /completion is not verified/i);
+
+  guard.afterToolCall(
+    {
+      toolName: "orgx_verify_completion",
+      params: {},
+      result: {
+        content: [
+          {
+            type: "text",
+            text: '{"ready":true,"verification":{"verified":true}}',
+          },
+        ],
+      },
+    },
+    context
+  );
+  assert.equal(
+    guard.beforeToolCall(
+      { toolName: "orgx_emit_activity", params: { phase: "completed" } },
+      context
+    ),
+    undefined
+  );
+  assert.equal(
+    guard.beforeToolCall(
+      { toolName: "orgx_update_entity", params: { status: "done" } },
+      context
+    ),
+    undefined
+  );
+  assert.equal(
+    guard.beforeToolCall(
+      { toolName: "heartbeat_respond", params: { outcome: "done" } },
+      context
+    ),
+    undefined
+  );
 });
 
 test("repeated status discovery cannot reset the execution budget", () => {
