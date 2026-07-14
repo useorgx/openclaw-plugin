@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.99",
+    "@sentry/react": "10.65.0",
+    "@sentry/replay": "10.65.0",
     "@tanstack/react-query": "^5.90.20",
     "ai": "^6.0.97",
     "date-fns": "^4.1.0",
@@ -23,6 +25,7 @@
     "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
+    "@sentry/vite-plugin": "5.4.0",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",

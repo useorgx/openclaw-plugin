@@ -1522,7 +1522,7 @@ const CONTENT_SECURITY_POLICY = [
   "img-src 'self' data: blob:",
   "font-src 'self' data: https://fonts.gstatic.com",
   "media-src 'self'",
-  "connect-src 'self' https://*.useorgx.com https://*.openclaw.ai https://api.openai.com https://*.openai.com http://127.0.0.1:* http://localhost:*",
+  "connect-src 'self' https://*.useorgx.com https://*.openclaw.ai https://api.openai.com https://*.openai.com https://*.ingest.sentry.io https://*.ingest.us.sentry.io http://127.0.0.1:* http://localhost:*",
 ].join("; ");
 
 const SECURITY_HEADERS: Record<string, string> = {
