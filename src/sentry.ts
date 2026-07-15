@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/node';
 
-const DEFAULT_DSN = '';
+const DEFAULT_DSN =
+  'https://8c918638b4bd7bba5c0b54b52018feba@o4507108730077184.ingest.us.sentry.io/4511736557666304';
 const PACKAGE_NAME = '@useorgx/openclaw-plugin';
 const SENSITIVE_KEY =
   /(?:^|[_-])(authorization|cookie|password|secret|token|api[_-]?key|private[_-]?key|session|prompt|input|output|completion|model[_-]?(?:input|output))(?:$|[_-])/i;

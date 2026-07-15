@@ -7,6 +7,8 @@ import { readFileSync } from 'node:fs';
 const { version } = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 ) as { version: string };
+const defaultSentryDsn =
+  'https://8c918638b4bd7bba5c0b54b52018feba@o4507108730077184.ingest.us.sentry.io/4511736557666304';
 
 export default defineConfig(({ command }) => {
   const isBuild = command === 'build';
@@ -30,7 +32,9 @@ export default defineConfig(({ command }) => {
     ],
     define: {
       __ORGX_PLUGIN_VERSION__: JSON.stringify(version),
-      __ORGX_SENTRY_DSN__: JSON.stringify(process.env.ORGX_SENTRY_DSN ?? ''),
+      __ORGX_SENTRY_DSN__: JSON.stringify(
+        process.env.ORGX_SENTRY_DSN ?? defaultSentryDsn,
+      ),
     },
     base: '/orgx/live/',
     server: isBuild
