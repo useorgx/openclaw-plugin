@@ -1,4 +1,5 @@
 import { posthogCapture } from "../telemetry/posthog.js";
+import { captureOpenClawException } from "../sentry.js";
 
 type ToolLike = {
   name: string;
@@ -71,6 +72,10 @@ export function instrumentPluginApi(input: {
             return result;
           } catch (err) {
             const durationMs = Date.now() - startedAt;
+            captureOpenClawException(err, {
+              stage: "tool_execute",
+              tool: toolName,
+            });
 
             void posthogCapture({
               event: "openclaw_tool_failed",
@@ -117,6 +122,10 @@ export function instrumentPluginApi(input: {
           });
         } catch (err) {
           const durationMs = Date.now() - startedAt;
+          captureOpenClawException(err, {
+            stage: "service_start",
+            service: service.id,
+          });
           void posthogCapture({
             event: "openclaw_service_start_failed",
             distinctId: input.installationId,
@@ -150,6 +159,10 @@ export function instrumentPluginApi(input: {
           });
         } catch (err) {
           const durationMs = Date.now() - startedAt;
+          captureOpenClawException(err, {
+            stage: "service_stop",
+            service: service.id,
+          });
           void posthogCapture({
             event: "openclaw_service_stop_failed",
             distinctId: input.installationId,

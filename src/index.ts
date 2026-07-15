@@ -74,6 +74,10 @@ import {
 } from "./auth/flows.js";
 import { registerOrgxCli } from "./cli/orgx.js";
 import { instrumentPluginApi } from "./services/instrumentation.js";
+import {
+  captureOpenClawException,
+  initializeOpenClawSentry,
+} from "./sentry.js";
 import { registerSyncService } from "./services/background.js";
 import { registerGatewayHeartbeatService } from "./services/gateway-heartbeat.js";
 import { stopDetachedProcess } from "./http/helpers/openclaw-cli.js";
@@ -396,6 +400,7 @@ export default function register(api: PluginAPI): void {
     persistedUserId: persistedAuth?.userId ?? null,
     persistedWorkspaceId: persistedAuth?.workspaceId ?? null,
   });
+  initializeOpenClawSentry(config.pluginVersion);
 
   if (!config.enabled) {
     api.log?.info?.("[orgx] Plugin disabled");
@@ -2047,8 +2052,13 @@ export default function register(api: PluginAPI): void {
     req: Parameters<typeof httpHandler>[0],
     res: Parameters<typeof httpHandler>[1]
   ) => {
-    if (await mcpHttpHandler(req, res)) return true;
-    return await httpHandler(req, res);
+    try {
+      if (await mcpHttpHandler(req, res)) return true;
+      return await httpHandler(req, res);
+    } catch (error) {
+      captureOpenClawException(error, { stage: "http_handler" });
+      throw error;
+    }
   };
   if (typeof api.registerHttpRoute === "function") {
     api.registerHttpRoute({
@@ -2067,6 +2077,10 @@ export default function register(api: PluginAPI): void {
     // Backward compatibility for OpenClaw builds before route-based plugin HTTP registration.
     api.registerHttpHandler(compositeHttpHandler);
   } else {
+    captureOpenClawException(
+      new Error("OpenClaw plugin API does not expose an HTTP registration method."),
+      { stage: "plugin_registration" }
+    );
     throw new Error("OpenClaw plugin API does not expose an HTTP registration method.");
   }
 
