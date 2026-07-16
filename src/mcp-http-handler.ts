@@ -89,6 +89,7 @@ export const ORGX_BASE_TOOLS = [
   "orgx_poll_attention",
   "orgx_ack_attention",
   "orgx_request_decision",
+  "orgx_manage_lifecycle",
   "orgx_spawn_check",
   // Proof ladder tools (all domains)
   "orgx_quality_score",

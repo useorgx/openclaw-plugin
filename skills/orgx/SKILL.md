@@ -69,6 +69,7 @@ Available on the unscoped `/orgx/mcp` endpoint for power users and debugging:
 - `orgx_sentinel_catalog`
 - `orgx_delegation_preflight`
 - `orgx_run_action`
+- `orgx_manage_lifecycle` — use for pause/resume/retry/cancel when hierarchy and runtime state must stay synchronized
 - `orgx_checkpoints_list`
 - `orgx_checkpoint_restore`
 - `orgx_create_entity`

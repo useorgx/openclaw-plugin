@@ -390,6 +390,7 @@ Delegation, checkpoints, run control:
 - `orgx_delegation_preflight`
 - `orgx_spawn_check`
 - `orgx_run_action`
+- `orgx_manage_lifecycle` — atomic initiative/workstream/milestone/task/run pause, resume, retry, and cancel
 - `orgx_checkpoints_list`
 - `orgx_checkpoint_restore`
 

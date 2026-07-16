@@ -689,6 +689,57 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     { optional: true }
   );
 
+  // --- orgx_manage_lifecycle ---
+  registerMcpTool(
+    {
+      name: "orgx_manage_lifecycle",
+      description:
+        "Atomically pause, resume, retry, or cancel an initiative, workstream, milestone, task, or run. Use this instead of a generic status update so descendant runs, blockers, runtime streams, and redispatch stay synchronized.",
+      parameters: {
+        type: "object",
+        properties: {
+          level: {
+            type: "string",
+            enum: ["initiative", "workstream", "milestone", "task", "run"],
+            description: "Hierarchy level to control",
+          },
+          id: {
+            type: "string",
+            description: "Full UUID of the initiative, workstream, milestone, task, or run",
+          },
+          action: {
+            type: "string",
+            enum: ["pause", "resume", "retry", "cancel"],
+            description: "Lifecycle action; resume/retry can dispatch replacement work",
+          },
+        },
+        required: ["level", "id", "action"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          level: "initiative" | "workstream" | "milestone" | "task" | "run";
+          id: string;
+          action: "pause" | "resume" | "retry" | "cancel";
+        } = { level: "workstream", id: "", action: "resume" }
+      ) {
+        try {
+          const result = await client.manageLifecycle(params);
+          if (!result.ok) {
+            return text(`❌ Lifecycle action failed: ${result.error ?? result.message}`);
+          }
+          return json("Lifecycle action applied:", result);
+        } catch (err: unknown) {
+          return text(
+            `❌ Lifecycle action failed: ${err instanceof Error ? err.message : err}`
+          );
+        }
+      },
+    },
+    { optional: true }
+  );
+
   // --- orgx_checkpoints_list ---
   registerMcpTool(
     {

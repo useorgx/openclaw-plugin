@@ -22,6 +22,20 @@ function deps() {
           calls.push({ kind: "ack", id, receipt });
           return { ok: true };
         },
+        manageLifecycle: async (input) => {
+          calls.push({ kind: "lifecycle", input });
+          return {
+            ok: true,
+            ...input,
+            affected: {
+              nodes: 1,
+              runsPaused: 0,
+              runsCancelled: 0,
+              redispatched: input.action === "retry" ? 1 : 0,
+            },
+            message: "Lifecycle action applied",
+          };
+        },
       },
       config: { syncIntervalMs: 10_000, pluginVersion: "test" },
       getCachedSnapshot: () => null,
@@ -94,4 +108,31 @@ test("attention tools preserve one request id through polling and truthful conti
       },
     },
   ]);
+});
+
+test("hierarchy lifecycle tool forwards one atomic recovery request", async () => {
+  const setup = deps();
+  const tools = registerCoreTools(setup.value);
+  const lifecycleTool = tools.get("orgx_manage_lifecycle");
+  assert.ok(lifecycleTool);
+  assert.deepEqual(lifecycleTool.parameters.required, ["level", "id", "action"]);
+  assert.equal(lifecycleTool.parameters.additionalProperties, false);
+
+  const result = await lifecycleTool.execute("call-lifecycle", {
+    level: "workstream",
+    id: "11111111-1111-4111-8111-111111111111",
+    action: "retry",
+  });
+
+  assert.deepEqual(setup.calls, [
+    {
+      kind: "lifecycle",
+      input: {
+        level: "workstream",
+        id: "11111111-1111-4111-8111-111111111111",
+        action: "retry",
+      },
+    },
+  ]);
+  assert.match(result.content[0].text, /Lifecycle action applied/);
 });

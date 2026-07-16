@@ -37,6 +37,7 @@ These tools are part of the plugin registry, but are elevated and should be used
 - `orgx_reassign_streams`
 - `orgx_delegation_preflight`
 - `orgx_run_action`
+- `orgx_manage_lifecycle`
 - `orgx_checkpoints_list`
 - `orgx_checkpoint_restore`
 - `orgx_agent_sessions`

@@ -1,12 +1,12 @@
 {
   "name": "@useorgx/openclaw-plugin",
-  "version": "0.7.37",
+  "version": "0.7.38",
   "description": "Persistent organizational memory and coordination for OpenClaw agents",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "orgx-openclaw-reconcile-hooks": "./dist/hooks/orgx-work-graph-reconcile.mjs"
+    "orgx-openclaw-reconcile-hooks": "dist/hooks/orgx-work-graph-reconcile.mjs"
   },
   "exports": {
     ".": {
