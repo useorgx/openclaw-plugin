@@ -2,6 +2,12 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.37 - 2026-07-16
+
+### Release Management
+- Configured the release runner for npm OIDC trusted publishing with the npm registry and a pinned compatible npm client.
+- Published the resumable attention bridge under a new immutable package version after the `v0.7.36` authentication failure.
+
 ## 0.7.35 - 2026-05-18
 
 ### OpenClaw 2026.5 Compatibility
