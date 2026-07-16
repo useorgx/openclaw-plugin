@@ -1916,6 +1916,13 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
     // Stall detection is only enforced when explicitly overridden; keep lower bound permissive for tests.
     { min: 20, max: 60 * 60_000 }
   );
+  // Process startup can be slower than the configured stall window on a busy host.
+  // Preserve aggressive test/diagnostic settings without killing a worker before
+  // its first log write has had a fair chance to reach disk.
+  const AUTO_CONTINUE_SLICE_EFFECTIVE_STALL_MS = Math.max(
+    500,
+    AUTO_CONTINUE_SLICE_LOG_STALL_MS
+  );
   const AUTO_CONTINUE_SLICE_HEARTBEAT_MS = 12_000;
   const AUTO_CONTINUE_SLICE_SCHEMA_FILENAME = "autopilot-slice-schema.json";
   const AUTO_CONTINUE_SLICE_LOG_DIRNAME = "autopilot-logs";
@@ -2979,7 +2986,7 @@ export function createAutoContinueEngine(deps: CreateAutoContinueEngineDeps) {
 	              startedAtEpochMs: fallbackEpochMs,
 	              logUpdatedAtEpochMs: stallUpdatedAtEpochMs,
 	            },
-	            { timeoutMs: scopeTimeoutMs, stallMs: AUTO_CONTINUE_SLICE_LOG_STALL_MS }
+	            { timeoutMs: scopeTimeoutMs, stallMs: AUTO_CONTINUE_SLICE_EFFECTIVE_STALL_MS }
 	          );
 
 	            if (killDecision.kill) {
