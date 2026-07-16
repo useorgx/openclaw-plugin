@@ -85,6 +85,9 @@ export const ORGX_BASE_TOOLS = [
   "orgx_report_progress",
   "update_stream_progress",
   "orgx_register_artifact",
+  "orgx_request_attention",
+  "orgx_poll_attention",
+  "orgx_ack_attention",
   "orgx_request_decision",
   "orgx_spawn_check",
   // Proof ladder tools (all domains)

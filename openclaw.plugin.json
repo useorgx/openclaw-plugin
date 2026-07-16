@@ -1,7 +1,7 @@
 {
   "id": "orgx",
   "name": "OrgX for OpenClaw",
-  "version": "0.7.35",
+  "version": "0.7.36",
   "description": "Persistent organizational memory and coordinated execution for OpenClaw agents",
   "entry": "./dist/index.js",
   "author": "OrgX Team",
@@ -49,6 +49,9 @@
       "orgx_emit_activity",
       "orgx_apply_changeset",
       "orgx_report_progress",
+      "orgx_request_attention",
+      "orgx_poll_attention",
+      "orgx_ack_attention",
       "orgx_request_decision",
       "orgx_register_artifact",
       "orgx_agent_sessions",
