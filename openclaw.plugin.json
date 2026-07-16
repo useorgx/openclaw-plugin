@@ -33,6 +33,7 @@
       "orgx_recommend_next_action",
       "orgx_delegation_preflight",
       "orgx_run_action",
+      "orgx_manage_lifecycle",
       "orgx_checkpoints_list",
       "orgx_checkpoint_restore",
       "orgx_spawn_check",

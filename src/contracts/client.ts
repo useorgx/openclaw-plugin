@@ -157,6 +157,23 @@ type ClientToolExecutionResponse<T> = {
 
 export type DecisionAction = "approve" | "reject";
 export type RunAction = "pause" | "resume" | "cancel" | "rollback";
+export type LifecycleLevel = "initiative" | "workstream" | "milestone" | "task" | "run";
+export type LifecycleAction = "pause" | "resume" | "retry" | "cancel";
+
+export interface LifecycleControlResult {
+  ok: boolean;
+  action: LifecycleAction;
+  level: LifecycleLevel;
+  id: string;
+  affected: {
+    nodes: number;
+    runsPaused: number;
+    runsCancelled: number;
+    redispatched: number;
+  };
+  message: string;
+  error?: string;
+}
 
 export interface DecisionActionResult {
   id: string;
@@ -1297,6 +1314,14 @@ export class OrgXClient {
       `/api/client/runs/${encodedRunId}/actions/${encodedAction}`,
       payload ?? {}
     );
+  }
+
+  async manageLifecycle(input: {
+    level: LifecycleLevel;
+    id: string;
+    action: LifecycleAction;
+  }): Promise<LifecycleControlResult> {
+    return this.post('/api/client/lifecycle', input);
   }
 
   async listRunCheckpoints(
