@@ -2,6 +2,12 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.38 - 2026-07-16
+
+### Lifecycle Control
+- Added `orgx_manage_lifecycle` so OpenClaw can pause, resume, retry, or cancel initiative, workstream, milestone, task, and run scopes through OrgX's authenticated lifecycle endpoint.
+- Corrected the published CLI bin mapping so package managers expose the OpenClaw bridge executable reliably.
+
 ## 0.7.37 - 2026-07-16
 
 ### Release Management
