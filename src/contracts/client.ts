@@ -170,6 +170,58 @@ export interface DecisionMutationInput {
   optionId?: string;
 }
 
+export type AttentionKind = "question" | "permission" | "approval" | "recovery";
+export type AttentionContinuationState =
+  | "answer_received"
+  | "resuming"
+  | "resumed"
+  | "resume_failed"
+  | "cancelled";
+
+export interface AttentionRequestInput {
+  initiative_id: string;
+  attention_kind: AttentionKind;
+  idempotency_key: string;
+  question: string;
+  source_tool: string;
+  context?: string;
+  impact_if_delayed?: string;
+  options?: Array<string | { id?: string; label: string; description?: string }>;
+  response_mode?: "single_select" | "multi_select" | "free_text" | "confirmation";
+  recommended_option_id?: string;
+  recommended_action?: string;
+  blocking?: boolean;
+  urgency?: "low" | "medium" | "high" | "urgent";
+  workstream_id?: string;
+  run_id?: string;
+  correlation_id?: string;
+  source_client?: string;
+  source_session_id?: string;
+  source_event_id?: string;
+  continuation?: {
+    strategy?: "reply_in_place" | "resume_session" | "followup_from_checkpoint" | "poll" | "none";
+    session_handle?: string;
+    thread_id?: string;
+    turn_id?: string;
+    tool_call_id?: string;
+    checkpoint_id?: string;
+    peer_id?: string;
+    capability_version?: string;
+  };
+  source_ref?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AttentionReceiptInput {
+  state: AttentionContinuationState;
+  idempotency_key: string;
+  session_handle?: string;
+  client_event_id?: string;
+  detail?: string;
+  occurred_at?: string;
+  metadata?: Record<string, unknown>;
+}
+
 export class OrgXClient {
   private apiKey: string;
   private baseUrl: string;
@@ -1301,6 +1353,28 @@ export class OrgXClient {
       decisions,
       total: response.pagination?.total ?? decisions.length,
     };
+  }
+
+  async requestAttention(
+    input: AttentionRequestInput
+  ): Promise<Record<string, unknown>> {
+    return this.post("/api/client/live/attention", input);
+  }
+
+  async pollAttention(attentionId: string): Promise<Record<string, unknown>> {
+    return this.get(
+      `/api/client/live/attention/${encodeURIComponent(attentionId)}`
+    );
+  }
+
+  async acknowledgeAttention(
+    attentionId: string,
+    input: AttentionReceiptInput
+  ): Promise<Record<string, unknown>> {
+    return this.post(
+      `/api/client/live/attention/${encodeURIComponent(attentionId)}`,
+      input
+    );
   }
 
   async decideDecision(

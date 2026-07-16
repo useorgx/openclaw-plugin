@@ -3232,7 +3232,203 @@ export function registerCoreTools(deps: RegisterCoreToolsDeps): Map<string, Regi
     { optional: true }
   );
 
-  // --- orgx_request_decision (alias -> orgx_apply_changeset decision.create) ---
+  // --- Resumable human attention -------------------------------------------
+  registerMcpTool(
+    {
+      name: "orgx_request_attention",
+      description:
+        "Forward a real human question, permission, approval, or recovery request while preserving the source session. Do not use for retryable runtime boundaries. Poll the returned id, apply the answer, then acknowledge actual continuation.",
+      parameters: {
+        type: "object",
+        properties: {
+          initiative_id: { type: "string", description: "Initiative UUID" },
+          attention_kind: {
+            type: "string",
+            enum: ["question", "permission", "approval", "recovery"],
+          },
+          idempotency_key: {
+            type: "string",
+            description: "Stable key for safe retries of the same interruption",
+          },
+          question: { type: "string", description: "Concrete owner request" },
+          context: { type: "string" },
+          impact_if_delayed: { type: "string" },
+          options: {
+            type: "array",
+            items: {
+              anyOf: [
+                { type: "string" },
+                {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    label: { type: "string" },
+                    description: { type: "string" },
+                  },
+                  required: ["label"],
+                  additionalProperties: false,
+                },
+              ],
+            },
+          },
+          response_mode: {
+            type: "string",
+            enum: ["single_select", "multi_select", "free_text", "confirmation"],
+          },
+          recommended_option_id: { type: "string" },
+          recommended_action: { type: "string" },
+          blocking: { type: "boolean" },
+          urgency: {
+            type: "string",
+            enum: ["low", "medium", "high", "urgent"],
+          },
+          workstream_id: { type: "string" },
+          run_id: { type: "string" },
+          correlation_id: { type: "string" },
+          source_client: {
+            type: "string",
+            enum: ["openclaw", "codex", "claude-code", "cursor", "opencode", "api"],
+          },
+          source_session_id: { type: "string" },
+          source_tool: { type: "string" },
+          source_event_id: { type: "string" },
+          continuation: {
+            type: "object",
+            properties: {
+              strategy: {
+                type: "string",
+                enum: [
+                  "reply_in_place",
+                  "resume_session",
+                  "followup_from_checkpoint",
+                  "poll",
+                  "none",
+                ],
+              },
+              session_handle: { type: "string" },
+              thread_id: { type: "string" },
+              turn_id: { type: "string" },
+              tool_call_id: { type: "string" },
+              checkpoint_id: { type: "string" },
+              peer_id: { type: "string" },
+              capability_version: { type: "string" },
+            },
+            additionalProperties: false,
+          },
+          source_ref: { type: "object", additionalProperties: true },
+          metadata: { type: "object", additionalProperties: true },
+        },
+        required: [
+          "initiative_id",
+          "attention_kind",
+          "idempotency_key",
+          "question",
+          "source_tool",
+        ],
+        additionalProperties: false,
+      },
+      async execute(_callId: string, params: any = {}) {
+        const sourceClient = params.source_client ?? "openclaw";
+        const result = await client.requestAttention({
+          ...params,
+          source_client: sourceClient,
+          ...(!params.run_id && !params.correlation_id
+            ? { correlation_id: `openclaw:${randomUUID()}`.slice(0, 120) }
+            : {}),
+          continuation: {
+            strategy: "poll",
+            ...(params.continuation ?? {}),
+            capability_version:
+              params.continuation?.capability_version ?? "openclaw-attention-v1",
+          },
+        });
+        return json("Attention request", result);
+      },
+    },
+    { optional: true }
+  );
+
+  registerMcpTool(
+    {
+      name: "orgx_poll_attention",
+      description:
+        "Read the durable owner answer and continuation state. Resume only when resolved=true; do not create a duplicate request while waiting.",
+      parameters: {
+        type: "object",
+        properties: {
+          attention_id: { type: "string", description: "Attention UUID" },
+        },
+        required: ["attention_id"],
+        additionalProperties: false,
+      },
+      async execute(_callId: string, params: { attention_id: string }) {
+        return json(
+          "Attention status",
+          await client.pollAttention(params.attention_id)
+        );
+      },
+    },
+    { optional: true }
+  );
+
+  registerMcpTool(
+    {
+      name: "orgx_ack_attention",
+      description:
+        "Record the native continuation result. Use resumed only after new execution evidence; use resume_failed with an actionable detail when work did not restart.",
+      parameters: {
+        type: "object",
+        properties: {
+          attention_id: { type: "string", description: "Attention UUID" },
+          state: {
+            type: "string",
+            enum: [
+              "answer_received",
+              "resuming",
+              "resumed",
+              "resume_failed",
+              "cancelled",
+            ],
+          },
+          idempotency_key: { type: "string" },
+          session_handle: { type: "string" },
+          client_event_id: { type: "string" },
+          detail: { type: "string" },
+          occurred_at: { type: "string" },
+          metadata: { type: "object", additionalProperties: true },
+        },
+        required: ["attention_id", "state", "idempotency_key"],
+        additionalProperties: false,
+      },
+      async execute(
+        _callId: string,
+        params: {
+          attention_id: string;
+          state:
+            | "answer_received"
+            | "resuming"
+            | "resumed"
+            | "resume_failed"
+            | "cancelled";
+          idempotency_key: string;
+          session_handle?: string;
+          client_event_id?: string;
+          detail?: string;
+          occurred_at?: string;
+          metadata?: Record<string, unknown>;
+        }
+      ) {
+        const { attention_id: attentionId, ...receipt } = params;
+        return json(
+          "Continuation receipt",
+          await client.acknowledgeAttention(attentionId, receipt)
+        );
+      },
+    },
+    { optional: true }
+  );
+
+  // --- orgx_request_decision (legacy alias -> decision.create) ---
   registerMcpTool(
     {
       name: "orgx_request_decision",

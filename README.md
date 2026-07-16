@@ -377,7 +377,7 @@ Environment overrides:
 
 ### MCP Tools
 
-The plugin currently registers **30 MCP tools** from `src/tools/core-tools.ts`.
+The plugin currently declares **36 MCP tools** in its OpenClaw contract.
 
 Core sync/reporting:
 - `orgx_status`
@@ -410,6 +410,9 @@ Entity and stream management:
 - `update_stream_progress`
 
 Decision and config/policy:
+- `orgx_request_attention`
+- `orgx_poll_attention`
+- `orgx_ack_attention`
 - `orgx_request_decision`
 - `orgx_sentinel_catalog`
 - `list_agent_configs`
@@ -692,7 +695,7 @@ src/                              # Plugin core (TypeScript, ES modules)
     router.ts                     # Lightweight dependency-free router
     routes/                       # Route modules (mission control, snapshot, onboarding, etc.)
     helpers/                      # Shared mission-control/autopilot/runtime helpers
-  tools/core-tools.ts             # MCP tool registrations (30 tools)
+  tools/core-tools.ts             # MCP tool registrations and attention continuity
   mcp-http-handler.ts             # Local MCP bridge at /orgx/mcp
   mcp-client-setup.ts             # Auto-config for Claude/Codex/Cursor
   outbox.ts                       # Offline queue + replay
