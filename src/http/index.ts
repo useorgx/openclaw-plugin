@@ -34,6 +34,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 
+import { sanitizedChildProcessEnv } from "../child-process-env.js";
 import {
   readNextUpQueuePins,
   removeNextUpQueuePin,
@@ -1748,23 +1749,29 @@ async function openPathInTerminal(pathname: string): Promise<void> {
       'tell application "Terminal" to activate',
       "-e",
       `tell application "Terminal" to do script "tail -f \\"${escapedPath}\\""`,
-    ]);
+    ], { env: sanitizedChildProcessEnv(process.env) });
     return;
   }
 
   if (process.platform === "win32") {
-    await execFileAsync("cmd", ["/c", "start", "", resolvedPath]);
+    await execFileAsync("cmd", ["/c", "start", "", resolvedPath], {
+      env: sanitizedChildProcessEnv(process.env),
+    });
     return;
   }
 
   try {
-    await execFileAsync("gnome-terminal", ["--", "tail", "-f", resolvedPath]);
+    await execFileAsync("gnome-terminal", ["--", "tail", "-f", resolvedPath], {
+      env: sanitizedChildProcessEnv(process.env),
+    });
     return;
   } catch {
     // Fallback to generic opener when no terminal app is available.
   }
 
-  await execFileAsync("xdg-open", [resolvedPath]);
+  await execFileAsync("xdg-open", [resolvedPath], {
+    env: sanitizedChildProcessEnv(process.env),
+  });
 }
 
 function readFilePreview(pathname: string, totalBytes: number): {

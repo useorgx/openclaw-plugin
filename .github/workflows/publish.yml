@@ -34,8 +34,63 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Test
+        run: npm run test:hooks
+
       - name: Build
         run: npm run build
 
+      - name: Verify clean install
+        run: npm run verify:clean-install
+
+      - name: Verify package budget
+        run: npm run verify:package-budget
+
+      - name: Pack release artifact
+        run: npm run pack
+
+      - name: Resolve release metadata
+        id: release
+        run: |
+          node - <<'NODE' >> "$GITHUB_OUTPUT"
+          const { readFileSync } = require('node:fs');
+          const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
+          const manifest = JSON.parse(readFileSync('openclaw.plugin.json', 'utf8'));
+          if (pkg.version !== manifest.version) {
+            throw new Error(`package version ${pkg.version} does not match manifest ${manifest.version}`);
+          }
+          if (process.env.GITHUB_REF_NAME !== `v${pkg.version}`) {
+            throw new Error(`release tag ${process.env.GITHUB_REF_NAME} does not match package v${pkg.version}`);
+          }
+          console.log(`name=${pkg.name}`);
+          console.log(`version=${pkg.version}`);
+          console.log(`tag=${pkg.version.includes('-') ? 'alpha' : 'latest'}`);
+          NODE
+
+      - name: Check registry
+        id: registry
+        run: |
+          if npm view "${{ steps.release.outputs.name }}@${{ steps.release.outputs.version }}" version >/dev/null 2>&1; then
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to NPM
-        run: npm publish --access public
+        if: steps.registry.outputs.already_published != 'true'
+        run: npm publish artifacts/*.tgz --access public --tag "${{ steps.release.outputs.tag }}"
+
+      - name: Verify registry version
+        run: |
+          for _ in {1..12}; do
+            actual="$(npm view "${{ steps.release.outputs.name }}@${{ steps.release.outputs.version }}" version 2>/dev/null || true)"
+            test "$actual" = "${{ steps.release.outputs.version }}" && exit 0
+            sleep 5
+          done
+          exit 1
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-package
+          path: artifacts/*.tgz

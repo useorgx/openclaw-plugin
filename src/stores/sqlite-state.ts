@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
+import { sanitizedChildProcessEnv } from "../child-process-env.js";
 import { getOrgxPluginConfigDir, getOrgxPluginConfigPath } from "../paths.js";
 import { ensureStoreDirSync, parseJsonSafe } from "./json-store.js";
 
@@ -109,7 +110,7 @@ function repairBetterSqlite3Binding(pluginRoot: string): void {
   try {
     execFileSync(command, args, {
       cwd: installRoot,
-      env: process.env,
+      env: sanitizedChildProcessEnv(process.env),
       stdio: "pipe",
     });
     writeRuntimeDepMarker(pluginRoot);

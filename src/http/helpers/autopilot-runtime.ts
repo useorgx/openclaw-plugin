@@ -14,6 +14,7 @@ import { dirname, join, resolve, sep } from "node:path";
 import type { RuntimeHookPayload, RuntimeInstanceRecord } from "../../runtime-instance-store.js";
 import type { RuntimeSourceClient } from "../../runtime-instance-store.js";
 import { getOrgxPluginConfigDir } from "../../paths.js";
+import { sanitizedChildProcessEnv } from "../../child-process-env.js";
 import type { CodexBinInfo } from "./autopilot-slice-utils.js";
 import { normalizeCodexArgs } from "./autopilot-slice-utils.js";
 
@@ -283,10 +284,7 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
 
       const child = spawn("node", [scriptPath], {
         cwd: input.cwd,
-        env: {
-          ...process.env,
-          ...input.env,
-        },
+        env: sanitizedChildProcessEnv(process.env, input.env),
         stdio: ["ignore", "pipe", "pipe"],
         // Keep the mock worker as a normal child so stdout/stderr capture is deterministic.
         detached: false,
@@ -457,11 +455,10 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
         `claude_skip_permissions: ${hasDangerousSkipPermissions || hasAllowDangerousSkipPermissions ? "provided" : "dangerously-skip-permissions"}\n`
       );
 
-      const childEnv: Record<string, string | undefined> = {
-        ...process.env,
+      const childEnv = sanitizedChildProcessEnv(process.env, {
         ...deps.resolveByokEnvOverrides(),
         ...input.env,
-      };
+      });
       if (claudeBin.includes(sep)) {
         const binDir = dirname(claudeBin);
         childEnv.PATH = childEnv.PATH ? `${binDir}:${childEnv.PATH}` : binDir;
@@ -593,11 +590,10 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
       `codex_bin: ${codexBin}${codexInfo.versionString ? ` (${codexInfo.versionString})` : ""}\n`
     );
 
-    const childEnv: Record<string, string | undefined> = {
-      ...process.env,
+    const childEnv = sanitizedChildProcessEnv(process.env, {
       ...deps.resolveByokEnvOverrides(),
       ...input.env,
-    };
+    });
     const shouldIsolateCodexHome = envFlag("ORGX_AUTOPILOT_ISOLATE_CODEX_HOME", true);
     const autopilotCodexHome = prepareAutopilotCodexHome();
     if (autopilotCodexHome) {

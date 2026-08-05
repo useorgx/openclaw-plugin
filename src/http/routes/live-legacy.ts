@@ -5,6 +5,7 @@ import type {
   RunLaunchContext,
 } from "../../agent-context-store.js";
 import { resolveWorkspaceScope } from "../helpers/workspace-scope.js";
+import { sanitizedChildProcessEnv } from "../../child-process-env.js";
 import type { Router } from "../router.js";
 
 type LocalSnapshot = Awaited<
@@ -680,7 +681,7 @@ export function registerLiveLegacyRoutes<
           command = `gnome-terminal -- bash -c "tail -f \\"${shellPath}\\"; exec bash"`;
         }
 
-        cp.exec(command, (error) => {
+        cp.exec(command, { env: sanitizedChildProcessEnv(process.env) }, (error) => {
           if (error) {
             console.error("Failed to open terminal:", error);
           }
