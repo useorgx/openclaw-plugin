@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 
 import type { OrgXClient } from "../../api.js";
+import { sanitizedChildProcessEnv } from "../../child-process-env.js";
 import { readByokKeys } from "../../byok-store.js";
 import { parseJsonSafe } from "../../json-utils.js";
 import {
@@ -34,7 +35,7 @@ async function runCommandCollect(input: {
   const timeoutMs = input.timeoutMs ?? 10_000;
   return await new Promise((resolve, reject) => {
     const child = spawn(input.command, input.args, {
-      env: input.env ? { ...process.env, ...input.env } : process.env,
+      env: sanitizedChildProcessEnv(process.env, input.env),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -127,7 +128,7 @@ export function spawnOpenClawAgentTurn(input: {
   }
 
   const child = spawn("openclaw", args, {
-    env: { ...process.env, ...resolveByokEnvOverrides() },
+    env: sanitizedChildProcessEnv(process.env, resolveByokEnvOverrides()),
     stdio: "ignore",
     detached: true,
   });

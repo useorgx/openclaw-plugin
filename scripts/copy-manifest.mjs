@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -47,5 +47,6 @@ for (const hookName of [
     }
     const hookRaw = readFileSync(hookSource, 'utf8');
     writeFileSync(hookTarget, hookRaw, 'utf8');
+    chmodSync(hookTarget, 0o755);
   }
 }

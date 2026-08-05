@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { dirname, join, sep } from "node:path";
 
 import { writeFileAtomicSync } from "../../fs-utils.js";
+import { sanitizedChildProcessEnv } from "../../child-process-env.js";
 import { parseJsonSafe } from "../../json-utils.js";
 import { getOrgxPluginConfigDir } from "../../paths.js";
 
@@ -675,7 +676,7 @@ function probeCodexBin(bin: string): CodexBinInfo | null {
   const trimmed = (bin ?? "").trim();
   if (!trimmed) return null;
   try {
-    const env = { ...process.env };
+    const env = sanitizedChildProcessEnv(process.env);
     // NVM-installed codex scripts commonly use `#!/usr/bin/env node`. LaunchAgent PATH may not
     // include the corresponding node binary, so prefer the sibling bin dir for resolution.
     if (trimmed.includes(sep)) {

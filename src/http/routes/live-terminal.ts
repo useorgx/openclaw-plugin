@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { platform } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { getOrgxPluginConfigDir } from "../../paths.js";
+import { sanitizedChildProcessEnv } from "../../child-process-env.js";
 import type { Router } from "../router.js";
 
 type RegisterLiveTerminalRoutesDeps<TReq, TRes> = {
@@ -78,7 +79,7 @@ function openPathInTerminal(targetPath: string): Promise<void> {
       return;
     }
 
-    exec(cmd, (err) => {
+    exec(cmd, { env: sanitizedChildProcessEnv(process.env) }, (err) => {
       if (err) rejectPromise(err);
       else resolvePromise();
     });
@@ -99,7 +100,7 @@ function openPathInEditor(targetPath: string): Promise<void> {
       rejectPromise(new Error(`Editor open not supported on ${os}`));
       return;
     }
-    exec(cmd, (err) => {
+    exec(cmd, { env: sanitizedChildProcessEnv(process.env) }, (err) => {
       if (err) rejectPromise(err);
       else resolvePromise();
     });

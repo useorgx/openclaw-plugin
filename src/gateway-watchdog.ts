@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { sanitizedChildProcessEnv } from "./child-process-env.js";
 import { getOpenClawDir } from "./paths.js";
 import { readOpenClawGatewayPort, readOpenClawSettingsSnapshot } from "./openclaw-settings.js";
 
@@ -94,7 +95,7 @@ async function runCommandCollect(input: {
   const timeoutMs = input.timeoutMs ?? 10_000;
   return await new Promise((resolve, reject) => {
     const child = spawn(input.command, input.args, {
-      env: process.env,
+      env: sanitizedChildProcessEnv(process.env),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -271,7 +272,7 @@ export function ensureGatewayWatchdog(logger: Logger): { started: boolean; pid: 
 
   const runnerPath = fileURLToPath(new URL("./gateway-watchdog-runner.js", import.meta.url));
   const child = spawn(process.execPath, [runnerPath], {
-    env: process.env,
+    env: sanitizedChildProcessEnv(process.env),
     stdio: "ignore",
     detached: true,
   });

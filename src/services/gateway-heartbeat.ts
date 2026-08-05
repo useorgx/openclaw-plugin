@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { hostname } from "node:os";
 
 import type { OrgXClient } from "../api.js";
+import { sanitizedChildProcessEnv } from "../child-process-env.js";
 
 const HEARTBEAT_INTERVAL_MS = 45_000;
 const DETECTION_CACHE_MS = 30_000;
@@ -35,7 +36,7 @@ function commandResult(command: string, args: string[]) {
     process.env;
   return spawnSync(command, args, {
     encoding: "utf8",
-    env,
+    env: sanitizedChildProcessEnv(env),
     timeout: 5_000,
   });
 }

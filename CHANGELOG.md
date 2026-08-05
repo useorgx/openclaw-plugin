@@ -2,6 +2,13 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.39 - 2026-08-05
+
+### Trust + Release Hardening
+- Removed OrgX gateway credentials from every production child-process environment while preserving provider credentials required by the selected agent runtime.
+- Added regression coverage for the child-process least-authority boundary.
+- Preserved executable permissions on the packaged Work Graph reconciler and made the release publish the exact tested tarball.
+
 ## 0.7.38 - 2026-07-16
 
 ### Lifecycle Control
