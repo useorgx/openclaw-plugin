@@ -78,7 +78,7 @@ jobs:
 
       - name: Publish to NPM
         if: steps.registry.outputs.already_published != 'true'
-        run: npm publish artifacts/*.tgz --access public --tag "${{ steps.release.outputs.tag }}"
+        run: npm publish ./artifacts/*.tgz --access public --tag "${{ steps.release.outputs.tag }}"
 
       - name: Verify registry version
         run: |
