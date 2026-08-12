@@ -122,6 +122,22 @@ OrgX creates the structure, and every agent in your setup can query and contribu
 
 ---
 
+## Example: coordinate an X/Twitter launch workflow
+
+Install TweetClaw beside OrgX when your launch, support, or research agents need X/Twitter automation inside the same OpenClaw workspace:
+
+```bash
+openclaw plugins install @xquik/tweetclaw
+openclaw config set plugins.entries.tweetclaw.config.apiKey "$XQUIK_API_KEY"
+openclaw config set tools.alsoAllow '["explore", "tweetclaw"]'
+```
+
+OrgX keeps the initiative, milestones, decisions, approvals, and follow-up tasks in its shared entity graph. TweetClaw stays responsible for the X/Twitter tool calls: scrape tweets, search tweet replies, export followers, look up users, monitor tweets, deliver webhooks, handle media, run giveaway draws, and post tweets or replies after review.
+
+Keep the Xquik API key in local OpenClaw config or a secret manager. Do not paste it into OrgX entities, tasks, activity notes, issues, logs, or prompts.
+
+---
+
 ## Need help setting this up for your specific workflow?
 
 OrgX Amplify is our guided setup service for founders and teams running serious agent operations. We configure OrgX for your exact stack, migrate your existing context, and get you operational in a week.
