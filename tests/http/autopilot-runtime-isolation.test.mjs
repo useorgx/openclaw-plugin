@@ -396,7 +396,7 @@ test("autopilot isolation extracts orgx-openclaw MCP URL from single-quoted sour
   );
 });
 
-test("autopilot claude worker injects print/json/schema defaults for structured output parity", async () => {
+async function runClaudeStubSlice(workerEnv = {}) {
   const root = mkdtempSync(join(tmpdir(), "orgx-autopilot-runtime-claude-"));
   const pluginConfigDir = join(root, "plugin-config");
   mkdirSync(pluginConfigDir, { recursive: true });
@@ -508,6 +508,7 @@ test("autopilot claude worker injects print/json/schema defaults for structured 
       ORGX_AUTOPILOT_WORKER_KIND: "claude-code",
       ORGX_CLAUDE_CODE_BIN: "node",
       ORGX_CLAUDE_CODE_ARGS: claudeStubPath,
+      ORGX_AUTOPILOT_BYPASS_PERMISSIONS: undefined,
     },
     async () => {
       runtime.spawnCodexSliceWorker({
@@ -522,6 +523,7 @@ test("autopilot claude worker injects print/json/schema defaults for structured 
           ORGX_WORKSTREAM_ID: "ws-test",
           ORGX_WORKSTREAM_TITLE: "WS Test",
           ORGX_RUN_ID: "slice-claude-test",
+          ...workerEnv,
         },
       });
 
@@ -530,15 +532,30 @@ test("autopilot claude worker injects print/json/schema defaults for structured 
   );
 
   const log = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
+  assert.ok(existsSync(outputPath), "claude worker should write output");
+  return { log, output: JSON.parse(readFileSync(outputPath, "utf8")) };
+}
+
+test("autopilot claude worker injects print/json/schema defaults for structured output parity", async () => {
+  const { log, output } = await runClaudeStubSlice();
   assert.match(log, /claude_bin:\s+node/i);
   assert.match(log, /claude_output_format:\s+json/i);
   assert.match(log, /claude_json_schema:\s+/i);
-  assert.ok(existsSync(outputPath), "claude worker should write output");
-  const output = JSON.parse(readFileSync(outputPath, "utf8"));
   assert.equal(output?.debug?.hasPrint, true);
   assert.equal(String(output?.debug?.outputFormat ?? "").toLowerCase(), "json");
   assert.equal(output?.debug?.hasJsonSchema, true);
+  assert.equal(output?.debug?.promptSeen, true);
+});
+
+test("autopilot claude worker keeps native permissions on by default (plan v3 §5.3)", async () => {
+  const { log, output } = await runClaudeStubSlice();
+  assert.equal(String(output?.debug?.permissionMode ?? ""), "acceptEdits");
+  assert.equal(output?.debug?.hasDangerousSkip, false);
+  assert.match(log, /claude_permission_mode:\s+acceptEdits/);
+});
+
+test("autopilot claude worker bypasses permissions only on explicit opt-in", async () => {
+  const { output } = await runClaudeStubSlice({ ORGX_AUTOPILOT_BYPASS_PERMISSIONS: "1" });
   assert.equal(String(output?.debug?.permissionMode ?? "").toLowerCase(), "bypasspermissions");
   assert.equal(output?.debug?.hasDangerousSkip, true);
-  assert.equal(output?.debug?.promptSeen, true);
 });

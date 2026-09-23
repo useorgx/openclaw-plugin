@@ -34,6 +34,17 @@ type CreateAutopilotRuntimeDeps = {
   clearSnapshotResponseCache: () => void;
 };
 
+/**
+ * Explicit, per-process opt-in to run Claude slices without native permission
+ * checks. Never the default.
+ */
+export function autopilotBypassPermissionsOptIn(
+  env: Record<string, string | undefined> | undefined,
+): boolean {
+  const value = env?.ORGX_AUTOPILOT_BYPASS_PERMISSIONS ?? process.env.ORGX_AUTOPILOT_BYPASS_PERMISSIONS;
+  return value === "1" || value === "true";
+}
+
 export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
   function hasExplicitCodexSubcommand(args: string[]): boolean {
     const first = (args[0] ?? "").trim();
@@ -423,8 +434,24 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
       } else if (!sessionResumeEnabled() && !hasNoSessionPersistence) {
         claudeExtraArgs.push("--no-session-persistence");
       }
-      if (!hasPermissionMode) claudeExtraArgs.push("--permission-mode", "bypassPermissions");
-      if (!hasDangerousSkipPermissions && !hasAllowDangerousSkipPermissions) {
+      // Native permissions stay on unless the operator opts out explicitly
+      // (plan v3 §5.3). The old default added bypassPermissions plus
+      // --dangerously-skip-permissions to every slice whose caller had not
+      // named a mode, so an unattended worker could run any shell command.
+      // acceptEdits lets a headless slice edit files in its cwd; anything that
+      // would prompt is refused in --print mode instead of silently allowed.
+      const bypassPermissions = autopilotBypassPermissionsOptIn(input.env);
+      if (!hasPermissionMode) {
+        claudeExtraArgs.push(
+          "--permission-mode",
+          bypassPermissions ? "bypassPermissions" : "acceptEdits",
+        );
+      }
+      if (
+        bypassPermissions &&
+        !hasDangerousSkipPermissions &&
+        !hasAllowDangerousSkipPermissions
+      ) {
         claudeExtraArgs.push("--dangerously-skip-permissions");
       }
       if (schemaArg) claudeExtraArgs.push("--json-schema", schemaArg);
@@ -449,7 +476,7 @@ export function createAutopilotRuntime(deps: CreateAutopilotRuntimeDeps) {
       }
       logStream.write(`claude_output_format: ${hasOutputFormat ? explicitOutputFormat ?? "provided" : "json"}\n`);
       logStream.write(
-        `claude_permission_mode: ${hasPermissionMode ? explicitPermissionMode ?? "provided" : "bypassPermissions"}\n`
+        `claude_permission_mode: ${hasPermissionMode ? explicitPermissionMode ?? "provided" : bypassPermissions ? "bypassPermissions (ORGX_AUTOPILOT_BYPASS_PERMISSIONS)" : "acceptEdits"}\n`
       );
       logStream.write(
         `claude_skip_permissions: ${hasDangerousSkipPermissions || hasAllowDangerousSkipPermissions ? "provided" : "dangerously-skip-permissions"}\n`
