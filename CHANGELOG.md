@@ -2,6 +2,11 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.40 - 2026-09-24
+
+### Safer autopilot defaults
+- Claude autopilot slices without an explicit permission mode now run with `acceptEdits` instead of bypassing permissions. Bypass requires `ORGX_AUTOPILOT_BYPASS_PERMISSIONS=1`. Codex `--full-auto` (sandboxed workspace-write) is unchanged.
+
 ## 0.7.39 - 2026-08-05
 
 ### Trust + Release Hardening
