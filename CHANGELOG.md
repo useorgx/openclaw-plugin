@@ -2,7 +2,12 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
-## 0.7.40 - 2026-09-24
+## 0.7.41 - 2026-09-24
+
+### Release pipeline
+- Publish on Node 22, the newest version CI tests. On Node 24.21 the `better-sqlite3` 11.x native module aborts at process exit, which failed the 0.7.40 publish job after every test had passed. 0.7.40 was never published to npm; 0.7.41 ships its changes.
+
+## 0.7.40 - 2026-09-24 (not published)
 
 ### Safer autopilot defaults
 - Claude autopilot slices without an explicit permission mode now run with `acceptEdits` instead of bypassing permissions. Bypass requires `ORGX_AUTOPILOT_BYPASS_PERMISSIONS=1`. Codex `--full-auto` (sandboxed workspace-write) is unchanged.

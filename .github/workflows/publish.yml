@@ -18,7 +18,11 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '24'
+          # CI tests Node 18/20/22. On Node 24.21, better-sqlite3 11.x aborts
+          # at process exit (node::Assert in RemoveEnvironmentCleanupHook from
+          # Statement::~Statement), failing test files whose tests all pass.
+          # That broke the v0.7.40 publish. Publish on the newest tested Node.
+          node-version: '22'
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
 
