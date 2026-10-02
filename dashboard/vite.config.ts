@@ -51,6 +51,11 @@ export default defineConfig(({ command }) => {
       alias: {
         '@': path.resolve(__dirname, './src'),
         '@shared': path.resolve(__dirname, '../src/contracts'),
+        // Vendored by scripts/sync-ui-kit.mjs (the kit is not on npm yet).
+        '@useorgx/orgx-ui-kit/elements': path.resolve(__dirname, './vendor/orgx-ui-kit/elements/index.js'),
+        '@useorgx/orgx-ui-kit/react': path.resolve(__dirname, './vendor/orgx-ui-kit/react/index.js'),
+        '@useorgx/orgx-ui-kit/tokens.css': path.resolve(__dirname, './vendor/orgx-ui-kit/tokens.css'),
+        '@useorgx/orgx-ui-kit/tokens': path.resolve(__dirname, './vendor/orgx-ui-kit/tokens.js'),
       },
     },
     esbuild: isBuild

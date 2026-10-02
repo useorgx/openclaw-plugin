@@ -1,0 +1,28 @@
+{
+  "name": "@useorgx/orgx-ui-kit",
+  "version": "0.2.0-alpha.0",
+  "repository": "https://github.com/useorgx/orgx-ui-kit",
+  "commit": "d8fffc5851f00dd5684ddc89443b5c9647c1816e",
+  "dirty": false,
+  "files": 28,
+  "avatars": {
+    "source": "https://mcp.useorgx.com/widgets/shared/avatars/",
+    "repository": "https://github.com/useorgx/orgx-mcp",
+    "commit": "189a8dca94e7936c020a42812e7aaefe7596228d",
+    "forms": [
+      "base",
+      "working",
+      "asking",
+      "verifying",
+      "proactive"
+    ],
+    "sizes": [
+      48,
+      96,
+      192
+    ],
+    "files": 105,
+    "servedFrom": "/orgx/live/avatars/"
+  },
+  "sync": "node scripts/sync-ui-kit.mjs"
+}
