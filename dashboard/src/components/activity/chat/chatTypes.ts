@@ -8,6 +8,7 @@ import type {
   SessionTreeNode,
 } from '@/types';
 import type { UIMessage } from 'ai';
+import { colors } from '@/lib/tokens';
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -112,7 +113,7 @@ export type ChatProviderDef = {
 
 export const CHAT_PROVIDERS: ChatProviderDef[] = [
   { id: 'auto', label: 'Auto (best available)', shortLabel: 'Auto', accent: '#8F9AB7', icon: 'auto' },
-  { id: 'anthropic', label: 'Claude Code', shortLabel: 'Claude', accent: '#F5B700', icon: 'anthropic' },
+  { id: 'anthropic', label: 'Claude Code', shortLabel: 'Claude', accent: colors.amber, icon: 'anthropic' },
   { id: 'openai', label: 'Codex', shortLabel: 'Codex', accent: '#10B981', icon: 'openai' },
 ];
 

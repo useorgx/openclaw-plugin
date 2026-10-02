@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { OxReceiptRow } from '@useorgx/orgx-ui-kit/react';
 
 type EvidenceIcon = 'pr' | 'file' | 'artifact' | 'log' | 'decision';
 
@@ -18,18 +18,16 @@ export interface EvidenceCardProps {
   onOpenTerminal?: () => void;
 }
 
-const ICON_CHARS: Record<EvidenceIcon, string> = {
-  pr: '\u238B', // ⎋
-  file: '\u25C7', // ◇
-  artifact: '\u25AA', // ▪
-  log: '\u25B8', // ▸
-  decision: '\u25C8', // ◈
-};
-
-function confidenceColor(c: number): string {
-  if (c >= 0.8) return '#BFFF00'; // lime
-  if (c >= 0.5) return '#F5B700'; // amber
-  return '#FF6B88'; // red
+/**
+ * Confidence -> kit receipt status. High confidence is met (teal); the middle
+ * band is the person's call (amber); low or missing confidence is unverified
+ * (muted), never "failed": weak evidence is not a failed check.
+ */
+function receiptStatus(confidence: number | null | undefined): 'met' | 'yours' | 'unverified' {
+  if (confidence == null) return 'unverified';
+  if (confidence >= 0.8) return 'met';
+  if (confidence >= 0.5) return 'yours';
+  return 'unverified';
 }
 
 function detectUrl(text: string): string | null {
@@ -37,6 +35,17 @@ function detectUrl(text: string): string | null {
   return match ? match[0] : null;
 }
 
+function displayTypeFallback(evidenceType: string | null | undefined, icon: EvidenceIcon | undefined): string {
+  if (evidenceType) return evidenceType;
+  if (icon) return icon.toUpperCase();
+  return 'Evidence';
+}
+
+/**
+ * One line of proof (the OrgX kit's <ox-receipt-row>): status, title, type and
+ * summary, confidence on the right, and the source as the link. The raw
+ * payload and the terminal shortcut stay one click away.
+ */
 export function EvidenceCard({
   evidenceType,
   title,
@@ -50,130 +59,56 @@ export function EvidenceCard({
 }: EvidenceCardProps) {
   const [expanded, setExpanded] = useState(false);
 
-  // Determine display values
-  const displayTitle = title ?? label ?? null;
+  const displayTitle = title ?? label ?? displayTypeFallback(evidenceType, icon);
   const displayType = evidenceType ?? (icon ? icon.toUpperCase() : null);
-  const iconChar = icon ? ICON_CHARS[icon] : null;
-
-  // For PR refs, detect URL in label
   const prUrl = icon === 'pr' && label ? detectUrl(label) : null;
+  const href = sourceUrl ?? prUrl ?? undefined;
+  const hasPayload = Boolean(payload && Object.keys(payload).length > 0);
+  const hasTerminal = icon === 'log' && Boolean(onOpenTerminal);
+  const detail = [displayType, summary].filter(Boolean).join(' · ');
 
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
-      <div
-        className="flex items-start gap-2.5 cursor-pointer"
-        onClick={() => setExpanded((prev) => !prev)}
-      >
-        {/* Type/icon badge */}
-        {(displayType || iconChar) && (
-          <span className="mt-0.5 flex-shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-secondary">
-            {iconChar ? <span className="mr-1">{iconChar}</span> : null}
-            {displayType}
-          </span>
-        )}
-
-        {/* Title + summary */}
-        <div className="min-w-0 flex-1">
-          {displayTitle && (
-            <p className="text-body font-medium text-primary">
-              {sourceUrl ? (
-                <a
-                  href={sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[#D8FFA1] hover:underline"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {displayTitle}
-                </a>
-              ) : prUrl ? (
-                <a
-                  href={prUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[#D8FFA1] hover:underline"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  {displayTitle}
-                </a>
-              ) : (
-                displayTitle
-              )}
-            </p>
-          )}
-          {summary && (
-            <p className={`mt-0.5 text-caption text-secondary ${expanded ? '' : 'line-clamp-2'}`}>
-              {summary}
-            </p>
-          )}
-        </div>
-
-        {/* Expand chevron */}
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          className={`mt-1 flex-shrink-0 text-muted transition-transform ${expanded ? 'rotate-180' : ''}`}
-        >
-          <path d="m6 9 6 6 6-6" />
-        </svg>
-      </div>
-
-      {/* Confidence bar */}
-      {confidence != null && (
-        <div className="mt-2 flex items-center gap-2">
-          <div className="h-1 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{
-                width: `${Math.round(confidence * 100)}%`,
-                backgroundColor: confidenceColor(confidence),
-              }}
-            />
-          </div>
-          <span className="text-micro text-muted tabular-nums">{Math.round(confidence * 100)}%</span>
-        </div>
-      )}
-
-      {/* Expanded content */}
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-            className="overflow-hidden"
+    // The row drops its own top rule as a first child; the wrapper carries the hairline.
+    <div className="border-t border-ox-border first:border-t-0">
+      <OxReceiptRow
+        status={receiptStatus(confidence)}
+        label={displayTitle}
+        detail={detail || undefined}
+        value={confidence != null ? `${Math.round(confidence * 100)}%` : undefined}
+        href={href}
+        target={href ? '_blank' : undefined}
+      />
+      {hasPayload || hasTerminal ? (
+        <div className="pb-2 pl-[30px]">
+          <button
+            type="button"
+            onClick={() => setExpanded((prev) => !prev)}
+            aria-expanded={expanded}
+            className="text-micro font-semibold text-muted transition-colors hover:text-secondary"
           >
+            {expanded ? 'Hide details' : 'Show details'}
+          </button>
+          {expanded ? (
             <div className="mt-2 space-y-2">
-              {/* Terminal button for log refs */}
-              {icon === 'log' && onOpenTerminal && (
+              {hasTerminal && (
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenTerminal();
-                  }}
+                  onClick={() => onOpenTerminal?.()}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-white/[0.12] bg-white/[0.04] px-3 py-1.5 text-caption font-semibold text-primary transition-colors hover:bg-white/[0.08]"
                 >
                   <span className="font-mono text-micro">{'>_'}</span>
                   Open in terminal
                 </button>
               )}
-
-              {/* Payload JSON block */}
-              {payload && Object.keys(payload).length > 0 && (
-                <pre className="max-h-40 overflow-auto rounded-lg bg-black/40 p-2.5 text-micro text-secondary font-mono">
+              {hasPayload && (
+                <pre className="max-h-40 overflow-auto rounded-lg bg-black/40 p-2.5 font-mono text-micro text-secondary">
                   {JSON.stringify(payload, null, 2)}
                 </pre>
               )}
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

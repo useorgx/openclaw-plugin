@@ -2,6 +2,7 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { LiveTriageItem, TriageSeverity } from '@/types';
 import type { TriageQueueModel, TriageQueueActions } from '@/hooks/useTriageQueue';
+import { colors } from '@/lib/tokens';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -11,15 +12,15 @@ const PAGE_SIZE = 40;
 
 const SEVERITY_COLORS: Record<TriageSeverity, string> = {
   critical: '#FF6B6B',
-  high: '#F5B700',
+  high: colors.amber,
   medium: '#0AD4C4',
   low: '#8B8FA3',
 };
 
 const SEVERITY_BG: Record<TriageSeverity, string> = {
   critical: 'bg-[#FF6B6B]/14',
-  high: 'bg-[#F5B700]/14',
-  medium: 'bg-[#0AD4C4]/14',
+  high: 'bg-orgx-amber/14',
+  medium: 'bg-cyan/14',
   low: 'bg-white/[0.06]',
 };
 
@@ -112,7 +113,7 @@ function TriageCard({
               onSelect(item.id);
             }}
             onClick={(e) => e.stopPropagation()}
-            className="h-3.5 w-3.5 rounded border-white/20 bg-transparent accent-[#0AD4C4] flex-shrink-0"
+            className="h-3.5 w-3.5 rounded border-white/20 bg-transparent accent-cyan flex-shrink-0"
           />
           <span className="text-body font-medium text-primary truncate">
             {item.title}
@@ -197,7 +198,7 @@ function BulkActionsFooter({
           type="button"
           onClick={onApproveAll}
           disabled={isActing}
-          className="rounded-full bg-[#0AD4C4]/20 px-3 py-1 text-caption font-medium text-[#7AEDE5] hover:bg-[#0AD4C4]/30 transition-colors disabled:opacity-40"
+          className="rounded-full bg-cyan/20 px-3 py-1 text-caption font-medium text-[#7AEDE5] hover:bg-cyan/30 transition-colors disabled:opacity-40"
         >
           Approve all
         </button>
@@ -220,7 +221,7 @@ function TriageEmptyState({
   if (degraded.length > 0) {
     return (
       <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
-        <div className="rounded-full bg-[#F5B700]/14 px-3 py-1 text-micro font-semibold text-[#FFE7A8]">
+        <div className="rounded-full bg-orgx-amber/14 px-3 py-1 text-micro font-semibold text-[#FFE7A8]">
           Partial data
         </div>
         <p className="text-body text-secondary max-w-xs">
@@ -349,7 +350,7 @@ export function TriageQueue({
           </span>
         </div>
         {model.degraded.length > 0 && (
-          <span className="rounded-full bg-[#F5B700]/14 px-2 py-0.5 text-[10px] font-semibold text-[#FFE7A8]">
+          <span className="rounded-full bg-orgx-amber/14 px-2 py-0.5 text-[10px] font-semibold text-[#FFE7A8]">
             Partial
           </span>
         )}

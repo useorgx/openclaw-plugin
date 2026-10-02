@@ -1,30 +1,14 @@
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
+import { agentColors, agentRoles } from '@/lib/tokens';
 import type { InferredAgent } from '@/hooks/useAgentEntityMap';
 
 // ── OrgX Agent Persona Resolution ────────────────────────────────
 // Maps system identifiers to branded OrgX persona names and colors.
 
-export const agentPersonaColors: Record<string, string> = {
-  Pace: '#7C7CFF',
-  Eli: '#BFFF00',
-  Dana: '#FF00D4',
-  Mark: '#F5B700',
-  Sage: '#0AD4C4',
-  Orion: '#14B8A6',
-  Xandy: '#FF6B88',
-  Nova: '#A78BFA',
-};
+// Hues and domains come from the OrgX design kit via lib/tokens.
+export const agentPersonaColors: Record<string, string> = agentColors;
 
-export const agentPersonaDomains: Record<string, string> = {
-  Eli: 'Engineering',
-  Pace: 'Product',
-  Dana: 'Design',
-  Mark: 'Marketing',
-  Sage: 'Strategy',
-  Orion: 'Operations',
-  Xandy: 'Orchestrator',
-  Nova: 'Research',
-};
+export const agentPersonaDomains: Record<string, string> = agentRoles;
 
 /** Reverse: domain keyword to persona name. */
 const domainToPersona: Record<string, string> = {

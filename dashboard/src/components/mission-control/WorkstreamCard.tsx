@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { StatusChip } from '@/components/shared/StatusChip';
 import { colors } from '@/lib/tokens';
 import type { InitiativeWorkstream, InitiativeTask, Initiative } from '@/types';
 import {
@@ -43,11 +44,7 @@ export function WorkstreamCard({ workstream, tasks, initiative }: WorkstreamCard
         <h4 className="truncate text-body font-medium text-bright">
           {workstream.name}
         </h4>
-        <span
-          className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] flex-shrink-0 ${getWorkstreamStatusClass(workstream.status)}`}
-        >
-          {formatEntityStatus(workstream.status)}
-        </span>
+        <StatusChip className="flex-shrink-0" status={workstream.status} />
       </div>
 
       {completion !== null && (

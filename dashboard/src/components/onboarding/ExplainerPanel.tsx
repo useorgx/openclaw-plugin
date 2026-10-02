@@ -8,6 +8,7 @@ import {
 } from '@/lib/storageKeys';
 import orgxLogo from '@/assets/orgx-logo.png';
 import { EntityIcon, type EntityIconType } from '@/components/shared/EntityIcon';
+import { colors } from '@/lib/tokens';
 
 interface ExplainerPanelProps {
   state: OnboardingState;
@@ -150,8 +151,8 @@ const featureAccentByType: Record<EntityIconType, string> = {
   task: 'text-primary',
   session: 'text-[#43E7D8]',
   active: 'text-lime',
-  blocked: 'text-[#FF6B88]',
-  failed: 'text-[#FF6B88]',
+  blocked: 'text-orgx-red',
+  failed: 'text-orgx-red',
   handoff: 'text-[#A8A0FF]',
   outbox: 'text-[#F5D37A]',
   decision: 'text-[#F5D37A]',
@@ -391,7 +392,7 @@ export function ExplainerPanel({
         </motion.div>
 
         <motion.div variants={rise} className="space-y-2.5">
-          <div className="rounded-xl border border-[#14B8A6]/20 bg-[#14B8A6]/[0.06] px-3.5 py-3">
+          <div className="rounded-xl border border-teal/20 bg-teal/[0.06] px-3.5 py-3">
             <div className="flex items-center gap-1.5">
               <EntityIcon type="workstream" size={12} className="text-[#7EEDE1]" />
               <p className="text-caption uppercase tracking-[0.08em] text-[#7EEDE1]">OpenClaw Integration</p>
@@ -449,7 +450,7 @@ export function ExplainerPanel({
           <div className="flex items-center gap-3 rounded-xl border border-red-500/15 bg-red-500/[0.04] px-4 py-3">
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-red-500/15">
               <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                <path d="M5 2.5v3M5 7.5h.004" stroke="#FF6B88" strokeWidth="1.4" strokeLinecap="round" />
+                <path d="M5 2.5v3M5 7.5h.004" stroke={colors.red} strokeWidth="1.4" strokeLinecap="round" />
               </svg>
             </span>
             <div className="min-w-0 flex-1">

@@ -33,7 +33,8 @@ src/
 dashboard/
   src/components/       # React components (agents, activity, initiatives, decisions)
   src/hooks/            # useLiveData, useConnection, useOnboarding
-  src/lib/tokens.ts     # Design tokens (read this before any UI work)
+  src/lib/tokens.ts     # Design tokens (read this before any UI work); values come from the kit
+  vendor/orgx-ui-kit/   # Vendored @useorgx/orgx-ui-kit (tokens, <ox-*> elements, React wrappers)
 scripts/
   run-codex-dispatch-job.mjs  # Full-auto agent dispatch orchestrator
   capture-qa-evidence.mjs     # Playwright QA automation
@@ -107,6 +108,7 @@ Every rule below exists because it was violated in a prior session.
 
 - Read source files before editing. Read docs/specs before implementing integrations.
 - Read `dashboard/src/lib/tokens.ts` before any UI change.
+- The palette comes from the OrgX design kit (`--ox-*` variables in `dashboard/vendor/orgx-ui-kit/tokens.css`). Use the kit elements (`OxStateChip`, `OxAttentionLine`, `OxReceiptRow`, `OxFooter`, `OxGlyph`, `OxAvatar` from `@useorgx/orgx-ui-kit/react`) before hand-rolling a pill, header, proof row or action footer. Never edit the vendored files; update the kit and run `npm run ui-kit:sync` (also copies the avatar renders into `dashboard/public/avatars`).
 - If a docs URL is given, fetch and read it end-to-end before writing code.
 
 ### 2) Use exactly what was specified

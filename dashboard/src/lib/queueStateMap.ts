@@ -29,7 +29,7 @@ export function queueTone(state: string): string {
     case QueueState.IDLE:
       return 'border-strong bg-white/[0.05] text-secondary';
     default:
-      return 'border-[#BFFF00]/30 bg-[#BFFF00]/12 text-[#E1FFB2]';
+      return 'border-lime/30 bg-lime/12 text-[#E1FFB2]';
   }
 }
 
@@ -80,7 +80,7 @@ export function queueHighlight(state: string): string {
     case QueueState.IDLE:
       return 'from-white/0 via-white/35 to-white/0';
     default:
-      return 'from-[#BFFF00]/0 via-[#BFFF00]/70 to-[#BFFF00]/0';
+      return 'from-lime/0 via-lime/70 to-lime/0';
   }
 }
 

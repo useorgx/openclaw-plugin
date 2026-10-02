@@ -98,7 +98,7 @@ export function SliceDetailHero({
             {confidence && (
               <span className={`chip text-[9px] font-semibold ${
                 confidence === 'high' ? 'border-lime/30 bg-lime/[0.12] text-lime'
-                : confidence === 'medium' ? 'border-[#F5B700]/30 bg-[#F5B700]/[0.12] text-[#FFE7A8]'
+                : confidence === 'medium' ? 'border-orgx-amber/30 bg-orgx-amber/[0.12] text-[#FFE7A8]'
                 : 'border-white/[0.12] bg-white/[0.05] text-white/60'
               }`}>
                 {confidence} confidence

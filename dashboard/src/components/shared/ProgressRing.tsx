@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { motion as motionTokens } from '@/lib/tokens';
+import { colors, motion as motionTokens } from '@/lib/tokens';
 
 interface ProgressRingProps {
   percent: number;
@@ -20,7 +20,7 @@ export function ProgressRing({
   const offset = circumference - (clamped / 100) * circumference;
 
   const color =
-    clamped > 66 ? '#BFFF00' : clamped > 33 ? '#F5B700' : 'rgba(255,255,255,0.38)';
+    clamped > 66 ? colors.lime : clamped > 33 ? colors.amber : 'rgba(255,255,255,0.38)';
 
   return (
     <div className={className} style={{ width: size, height: size, position: 'relative' }}>

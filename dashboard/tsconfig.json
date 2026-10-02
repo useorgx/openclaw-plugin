@@ -18,7 +18,10 @@
     "noFallthroughCasesInSwitch": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@shared/*": ["../src/contracts/*"]
+      "@shared/*": ["../src/contracts/*"],
+      "@useorgx/orgx-ui-kit/elements": ["./vendor/orgx-ui-kit/elements/index.d.ts"],
+      "@useorgx/orgx-ui-kit/react": ["./vendor/orgx-ui-kit/react/index.d.ts"],
+      "@useorgx/orgx-ui-kit/tokens": ["./vendor/orgx-ui-kit/tokens.d.ts"]
     }
   },
   "include": ["src"]

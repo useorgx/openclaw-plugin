@@ -1734,7 +1734,7 @@ export function NextUpPanel({
                           if (score == null) return null;
                           const tier = score >= 80 ? 'S' : score >= 60 ? 'A' : 'B';
                           const tierColor = tier === 'S' ? 'border-lime/30 bg-lime/[0.12] text-lime'
-                            : tier === 'A' ? 'border-[#14B8A6]/30 bg-[#14B8A6]/[0.12] text-[#87FFE9]'
+                            : tier === 'A' ? 'border-teal/30 bg-teal/[0.12] text-[#87FFE9]'
                             : 'border-white/[0.12] bg-white/[0.05] text-white/60';
                           return (
                             <span className={`chip text-[9px] font-semibold ${tierColor}`}>

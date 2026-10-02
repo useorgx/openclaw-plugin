@@ -629,7 +629,7 @@ export function SliceDetailModal({
       {actionFeedback && (
         <div className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-medium ${
           actionFeedback.startsWith('Error') || actionFeedback.startsWith('Failed')
-            ? 'bg-[#FF6B88]/10 text-[#FF6B88]'
+            ? 'bg-orgx-red/10 text-orgx-red'
             : actionFeedback.includes('…')
               ? 'bg-white/[0.04] text-white/60 animate-pulse'
               : 'bg-lime/10 text-lime'
@@ -686,7 +686,7 @@ export function SliceDetailModal({
                     className={`inline-flex h-7 items-center gap-1 rounded-md px-3 text-[11px] font-semibold transition-colors disabled:opacity-30 ${
                       actionMode === 'accept'
                         ? 'bg-lime/12 text-lime hover:bg-lime/20'
-                        : 'bg-[#FF6B88]/12 text-[#FF6B88] hover:bg-[#FF6B88]/20'
+                        : 'bg-orgx-red/12 text-orgx-red hover:bg-orgx-red/20'
                     }`}
                   >
                     {actionMode === 'accept' ? 'Confirm accept' : 'Request changes'}
@@ -707,7 +707,7 @@ export function SliceDetailModal({
               <button
                 type="button"
                 onClick={() => { onRemoveFromQueue?.(d.initiativeId!, d.workstreamId!); onClose(); }}
-                className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-[#FF6B88]/70 transition-colors hover:bg-[#FF6B88]/[0.08] hover:text-[#FF6B88]"
+                className="rounded-md px-2.5 py-1.5 text-[12px] font-medium text-orgx-red/70 transition-colors hover:bg-orgx-red/[0.08] hover:text-orgx-red"
               >
                 Remove
               </button>
@@ -735,7 +735,7 @@ export function SliceDetailModal({
             <button
               type="button"
               onClick={() => { onOpenDecisions?.(primaryPendingDecision?.id ?? null); onClose(); }}
-              className={`rounded-md px-2.5 py-1.5 text-[12px] font-medium text-[#0AD4C4]/70 transition-colors hover:bg-[#0AD4C4]/[0.08] hover:text-[#0AD4C4] ${highlightedButton === 'resolve_decision' ? highlightRing : ''}`}
+              className={`rounded-md px-2.5 py-1.5 text-[12px] font-medium text-cyan/70 transition-colors hover:bg-cyan/[0.08] hover:text-cyan ${highlightedButton === 'resolve_decision' ? highlightRing : ''}`}
             >
               Resolve decision
             </button>
@@ -773,7 +773,7 @@ export function SliceDetailModal({
               onClick={() => setActionMode(actionMode === 'reject' ? null : 'reject')}
               className={`rounded-md px-2.5 py-1.5 text-[12px] font-medium transition-colors ${
                 actionMode === 'reject'
-                  ? 'bg-[#FF6B88]/12 text-[#FF6B88]'
+                  ? 'bg-orgx-red/12 text-orgx-red'
                   : 'text-white/35 hover:bg-white/[0.04] hover:text-white/60'
               }`}
             >
@@ -899,7 +899,7 @@ export function SliceDetailModal({
                   {sr?.confidence && (
                     <span className={`chip text-[9px] font-semibold ${
                       sr.confidence === 'high' ? 'border-lime/30 bg-lime/[0.12] text-lime'
-                      : sr.confidence === 'medium' ? 'border-[#F5B700]/30 bg-[#F5B700]/[0.12] text-[#FFE7A8]'
+                      : sr.confidence === 'medium' ? 'border-orgx-amber/30 bg-orgx-amber/[0.12] text-[#FFE7A8]'
                       : 'border-white/[0.12] bg-white/[0.05] text-white/60'
                     }`}>
                       {sr.confidence}
@@ -1169,7 +1169,7 @@ export function SliceDetailModal({
 
                 {d.autoContinue && (
                   <div className="flex items-center gap-2 text-caption text-secondary">
-                    <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5 flex-shrink-0 text-[#0AD4C4]">
+                    <svg viewBox="0 0 20 20" fill="none" aria-hidden className="h-3.5 w-3.5 flex-shrink-0 text-cyan">
                       <path
                         d="M6.1 13.25C4.25 13.25 2.8 11.8 2.8 10s1.45-3.25 3.3-3.25c3.15 0 4.35 6.5 8.05 6.5 1.85 0 3.3-1.45 3.3-3.25s-1.45-3.25-3.3-3.25c-3.7 0-4.9 6.5-8.05 6.5Z"
                         stroke="currentColor"

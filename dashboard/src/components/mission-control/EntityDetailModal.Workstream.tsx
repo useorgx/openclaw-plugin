@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { StatusChip } from '@/components/shared/StatusChip';
 import { colors } from '@/lib/tokens';
 import { humanizeWarning } from '@/lib/humanize';
 import type { Initiative, InitiativeWorkstream } from '@/types';
@@ -218,11 +219,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
           <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-white/65">
             {workstream.hierarchyLabel ?? iwmtLevelCode('workstream')}
           </span>
-          <span
-            className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getWorkstreamStatusClass(workstream.status)}`}
-          >
-            {formatEntityStatus(workstream.status)}
-          </span>
+          <StatusChip status={workstream.status} />
         </div>
         {editMode ? (
           <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
@@ -346,13 +343,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                             </div>
                           </div>
                         </button>
-                        <span
-                          className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getMilestoneStatusClass(
-                            milestone.status
-                          )}`}
-                        >
-                          {formatEntityStatus(milestone.status)}
-                        </span>
+                        <StatusChip status={milestone.status} />
                       </div>
 
                       <div className="ml-7 mt-2.5 border-l border-white/[0.08] pl-3">
@@ -382,13 +373,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                                     </p>
                                   )}
                                 </div>
-                                <span
-                                  className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getTaskStatusClass(
-                                    task.status
-                                  )}`}
-                                >
-                                  {formatEntityStatus(task.status)}
-                                </span>
+                                <StatusChip status={task.status} />
                               </button>
                             ))}
                           </div>
@@ -427,13 +412,7 @@ export function WorkstreamDetail({ workstream, initiative }: WorkstreamDetailPro
                               </span>
                             </div>
                           </div>
-                          <span
-                            className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getTaskStatusClass(
-                              task.status
-                            )}`}
-                          >
-                            {formatEntityStatus(task.status)}
-                          </span>
+                          <StatusChip status={task.status} />
                         </button>
                       ))}
                     </div>

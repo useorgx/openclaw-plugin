@@ -25,6 +25,7 @@ import { Pill } from '@/components/shared/Pill';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
 import { resolveProvider, type ProviderId } from '@/lib/providers';
+import { OxReceiptRow, OxStateChip, type ActionState } from '@useorgx/orgx-ui-kit/react';
 import { ActivityEventIcon } from './activityVisuals';
 import { ThreadView } from './ThreadView';
 import type { ActivityTimeFilterId } from '@/lib/activityTimeFilters';
@@ -690,13 +691,6 @@ function classifyActorCategory(item: LiveActivityItem, actorFlow: ActivityActorF
   return 'agent';
 }
 
-const ACTOR_CATEGORY_RAIL_COLORS: Record<ActorCategory, string> = {
-  user: colors.lime,
-  system: 'rgba(255,255,255,0.15)',
-  orchestrator: colors.iris,
-  agent: '', // uses domain color from AgentAvatar — resolved at render time
-};
-
 function actorCategoryLabel(category: ActorCategory): string {
   switch (category) {
     case 'user': return 'You';
@@ -973,6 +967,22 @@ function userStateLabel(state: ActivityUserState): string {
   if (state === 'issue') return 'Issue';
   if (state === 'in_progress') return 'In progress';
   return 'Update';
+}
+
+/** Activity user state -> kit chip state (wording and tone come from the kit). */
+function activityChipState(decorated: DecoratedActivityItem): { state: ActionState; label?: string } {
+  switch (decorated.userState) {
+    case 'completed':
+      return { state: 'succeeded' };
+    case 'needs_input':
+      return { state: 'needs_you' };
+    case 'issue':
+      return { state: decorated.canonicalProjection.status === 'failed' ? 'failed_step' : 'blocked' };
+    case 'in_progress':
+      return { state: 'running' };
+    default:
+      return { state: 'committed', label: 'Update' };
+  }
 }
 
 function userStateColor(state: ActivityUserState): string {
@@ -5277,10 +5287,7 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       const role = getAgentRole(resolvedAgentName);
       if (role) displayAgentName = `${resolvedAgentName} (${role})`;
     }
-    const statusColor = userStateColor(decorated.userState);
-    const railColor = actorCategory === 'agent'
-      ? getAgentColor(resolvedAgentName) || statusColor
-      : ACTOR_CATEGORY_RAIL_COLORS[actorCategory] || statusColor;
+    const chip = activityChipState(decorated);
     const isRecent = sortOrder === 'newest' && index < 2;
     const runId = decorated.runId;
     const syncSummary = syncReplaySummary(item);
@@ -5354,7 +5361,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
     const queueSuffix = queueInfo ? ` — #${queueInfo.rank} in queue` : '';
     const contextLabel = (breadcrumb || initiativeName || workstreamName || eventContextLabel || labelForType(item.type))
       + (isActiveInQueue ? queueSuffix : '');
-    const primaryTag = userStateLabel(decorated.userState);
     const timeLabel = new Date(item.timestamp).toLocaleTimeString([], {
       hour: 'numeric',
       minute: '2-digit',
@@ -5372,9 +5378,8 @@ export const ActivityTimeline = memo(function ActivityTimeline({
         contextLabel={contextLabel}
         detailText={(displaySummary ?? displayDesc) !== headline ? displaySummary ?? displayDesc : null}
         displayAgentName={displayAgentName}
-        railColor={railColor}
-        statusColor={statusColor}
-        userStateLabel={primaryTag}
+        chipState={chip.state}
+        chipLabel={chip.label}
         userStateWhy={decorated.userStateWhy}
         relativeTime={relativeTime}
         timeLabel={timeLabel}
@@ -6222,19 +6227,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
       <ActivityDetailModal open={activeDecorated !== null} onClose={closeDetail}>
         {activeDecorated && (
           <div className="relative flex h-[100dvh] w-full min-h-0 flex-col sm:h-[86vh] sm:max-h-[86vh]">
-            <div className="absolute inset-x-0 top-0 h-20 bg-gradient-to-b from-lime/10 via-cyan/5 to-transparent" />
 
             <div className="relative z-10 flex items-center justify-between border-b border-subtle px-5 py-3 sm:px-6">
               <div className="flex items-center gap-2 min-w-0">
-                <span
-                  className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
-                  style={{
-                    backgroundColor: userStateColor(activeDecorated.userState),
-                    boxShadow: `0 0 12px ${userStateColor(activeDecorated.userState)}55`,
-                  }}
-                />
-                <span className="text-caption text-secondary">
-                  {userStateLabel(activeDecorated.userState)} · {activeIndex + 1}/{filtered.length} sessions
+                {(() => {
+                  const chip = activityChipState(activeDecorated);
+                  return <OxStateChip className="flex-shrink-0" state={chip.state} label={chip.label} />;
+                })()}
+                <span className="text-caption tabular-nums text-secondary">
+                  {activeIndex + 1}/{filtered.length} sessions
                 </span>
                 {copyNotice && (
                   <Pill tone="neutral" className="text-micro font-semibold tracking-[0.02em]">
@@ -6397,9 +6398,6 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           </Pill>
                         );
                       })()}
-                      <Pill tone="neutral" className="font-semibold tracking-[0.02em]">
-                        {userStateLabel(activeDecorated.userState)}
-                      </Pill>
                       <Pill tone="muted">
                         <AgentAvatar
                           name={activePrimaryActor?.label ?? activeActorFlow?.primaryLabel ?? 'OrgX'}
@@ -6633,81 +6631,64 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           <p className="text-micro font-semibold uppercase tracking-wider text-muted">
                             {showUpdatesInOutcomes ? 'Updates & outcomes' : 'Outcomes'}
                           </p>
-                          {showUpdatesInOutcomes && (
-                            <div className="rounded-xl border border-[#14B8A6]/20 bg-[#14B8A6]/[0.06] px-3.5 py-2.5">
-                              <div className="flex items-center gap-3">
-                                <span className="h-2 w-2 flex-shrink-0 rounded-full bg-[#14B8A6]" />
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-micro font-semibold uppercase tracking-wider text-[#7ce0d3]">
-                                    {statusBuffered ? 'Updates being applied' : 'Updates applied'}
-                                  </p>
-                                  <p className="mt-0.5 text-body text-primary">
-                                    {statusUpdates.length > 0
-                                      ? `${statusUpdates.length} scoped update${statusUpdates.length === 1 ? '' : 's'}`
-                                      : (statusUpdatesApplied ?? 0) > 0
-                                        ? `${statusUpdatesApplied} status update${statusUpdatesApplied === 1 ? '' : 's'}`
-                                        : 'Status updates recorded'}
-                                    {statusBuffered ? ' · queued for sync' : ''}
-                                  </p>
-                                </div>
-                              </div>
-                              {statusUpdates.length > 0 && (
-                                <ul className="mt-2 space-y-1.5 pl-5">
-                                  {statusUpdates.slice(0, 6).map((update, i) => (
-                                    <li key={`${update.scope}-${update.label}-${i}`} className="text-caption text-secondary">
-                                      <span className="text-primary">{update.scope}: {update.label}</span>
-                                      {update.status ? ` → ${update.status}` : ''}
-                                      {update.reason ? ` · ${update.reason}` : ''}
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </div>
-                          )}
-                          {prUrl && (
-                            <a
-                              href={prUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-3 rounded-xl border border-lime/20 bg-lime/[0.06] px-3.5 py-2.5 transition-colors hover:bg-lime/[0.10]"
-                            >
-                              <span className="h-2 w-2 flex-shrink-0 rounded-full bg-lime" />
-                              <div className="min-w-0 flex-1">
-                                <p className="text-micro font-semibold uppercase tracking-wider text-lime/70">Pull Request</p>
-                                <p className="mt-0.5 text-body font-semibold text-primary">
-                                  {prNumber ? `#${prNumber}` : 'View on GitHub'}
-                                </p>
-                              </div>
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="flex-shrink-0 text-muted">
-                                <path d="M7 17 17 7M17 7H7M17 7v10" />
-                              </svg>
-                            </a>
-                          )}
-                          {commitSha && (
-                            <div className="flex items-center gap-3 rounded-xl border border-lime/15 bg-lime/[0.04] px-3.5 py-2.5">
-                              <span className="h-2 w-2 flex-shrink-0 rounded-full bg-lime/60" />
-                              <div className="min-w-0 flex-1">
-                                <p className="text-micro font-semibold uppercase tracking-wider text-lime/60">Commit</p>
-                                <p className="mt-0.5 font-mono text-caption text-primary">{commitSha.slice(0, 7)}</p>
-                              </div>
-                              {commitUrl && (
-                                <a href={commitUrl} target="_blank" rel="noopener noreferrer" className="text-caption text-secondary hover:text-primary transition-colors">View</a>
-                              )}
-                            </div>
-                          )}
-                          {tests && (
-                            <div className="flex items-center gap-3 rounded-xl border border-cyan-400/15 bg-cyan-500/[0.04] px-3.5 py-2.5">
-                              <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: (tests.failed ?? 0) > 0 ? colors.red : '#67e8f9' }} />
-                              <div className="min-w-0 flex-1">
-                                <p className="text-micro font-semibold uppercase tracking-wider" style={{ color: (tests.failed ?? 0) > 0 ? colors.red : 'rgba(103,232,249,0.7)' }}>Tests</p>
-                                <p className="mt-0.5 text-body text-primary">
-                                  {tests.passed ?? 0} passed
-                                  {(tests.failed ?? 0) > 0 && <span className="text-red-300"> · {tests.failed} failed</span>}
-                                  {(tests.skipped ?? 0) > 0 && <span className="text-muted"> · {tests.skipped} skipped</span>}
-                                </p>
-                              </div>
-                            </div>
-                          )}
+                          {/* One line of proof per outcome (OrgX kit receipt rows). */}
+                          <div role="list">
+                            {showUpdatesInOutcomes && (
+                              <OxReceiptRow
+                                status={statusBuffered ? 'pending' : 'met'}
+                                label={
+                                  statusUpdates.length > 0
+                                    ? `${statusUpdates.length} scoped update${statusUpdates.length === 1 ? '' : 's'}`
+                                    : (statusUpdatesApplied ?? 0) > 0
+                                      ? `${statusUpdatesApplied} status update${statusUpdatesApplied === 1 ? '' : 's'}`
+                                      : 'Status updates recorded'
+                                }
+                                detail={statusBuffered ? 'Updates being applied · queued for sync' : 'Updates applied'}
+                              />
+                            )}
+                            {showUpdatesInOutcomes && statusUpdates.length > 0 && (
+                              <ul className="space-y-1.5 pb-2.5 pl-[30px]">
+                                {statusUpdates.slice(0, 6).map((update, i) => (
+                                  <li key={`${update.scope}-${update.label}-${i}`} className="text-caption text-secondary">
+                                    <span className="text-primary">{update.scope}: {update.label}</span>
+                                    {update.status ? ` → ${update.status}` : ''}
+                                    {update.reason ? ` · ${update.reason}` : ''}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                            {prUrl && (
+                              <OxReceiptRow
+                                status="met"
+                                label={prNumber ? `Pull request #${prNumber}` : 'Pull request'}
+                                detail="View on GitHub"
+                                href={prUrl}
+                                target="_blank"
+                              />
+                            )}
+                            {commitSha && (
+                              <OxReceiptRow
+                                status="met"
+                                label={`Commit ${commitSha.slice(0, 7)}`}
+                                href={commitUrl ?? undefined}
+                                target={commitUrl ? '_blank' : undefined}
+                              />
+                            )}
+                            {tests && (
+                              <OxReceiptRow
+                                status={(tests.failed ?? 0) > 0 ? 'fail' : 'met'}
+                                label={`Tests: ${tests.passed ?? 0} passed`}
+                                detail={
+                                  [
+                                    (tests.failed ?? 0) > 0 ? `${tests.failed} failed` : null,
+                                    (tests.skipped ?? 0) > 0 ? `${tests.skipped} skipped` : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(' · ') || undefined
+                                }
+                              />
+                            )}
+                          </div>
                         </div>
                       );
                     })()}
@@ -7358,22 +7339,21 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                           </p>
                           <div className="space-y-2">
                             {showBlocker && (
-                              <div className="rounded-xl border border-red-400/20 bg-red-500/[0.06] px-3.5 py-2.5">
-                                <div className="flex items-center gap-3">
-                                  <span className="h-2 w-2 flex-shrink-0 rounded-full bg-red-400" />
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-micro font-semibold uppercase tracking-wider text-red-300/70">Blocker</p>
-                                    <p className="mt-0.5 text-body text-primary">{blocker.description ?? 'Blocked'}</p>
-                                    {blocker.waiting_on && (
-                                      <p className="mt-0.5 text-caption text-secondary">Waiting on: {blocker.waiting_on}</p>
-                                    )}
-                                    {blocker.required_action && (
-                                      <p className="mt-0.5 text-caption text-secondary">Next action: {blocker.required_action}</p>
-                                    )}
-                                  </div>
-                                </div>
+                              <div>
+                                <OxReceiptRow
+                                  status="fail"
+                                  label={blocker.description ?? 'Blocked'}
+                                  detail={
+                                    [
+                                      blocker.waiting_on ? `Waiting on: ${blocker.waiting_on}` : null,
+                                      blocker.required_action ? `Next action: ${blocker.required_action}` : null,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(' · ') || 'Blocker'
+                                  }
+                                />
                                 {canOpenDecisionFromDetail && activeDecisionIds.length > 0 && (
-                                  <div className="mt-2 flex flex-wrap gap-2">
+                                  <div className="mt-1 flex flex-wrap gap-2 pl-[30px]">
                                     {activeSliceDecisionOptions.map((opt) => (
                                       <button
                                         key={opt.id}
@@ -7399,14 +7379,15 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                               </div>
                             )}
                             {decisionsNeeded && decisionsNeeded.length > 0 && (
-                              <div className="space-y-1.5">
+                              <div role="list">
                                 {decisionsNeeded.map((decisionItem, i) => (
-                                  <div key={decisionItem.id ?? i} className="flex items-center gap-3 rounded-xl border border-amber-300/15 bg-amber-400/[0.05] px-3.5 py-2.5">
-                                    <span className="h-2 w-2 flex-shrink-0 rounded-full bg-amber-400" />
-                                    <div className="min-w-0 flex-1">
-                                      <p className="text-micro font-semibold uppercase tracking-wider text-amber-200/70">Decision needed</p>
-                                      <p className="mt-0.5 text-body text-primary">{decisionItem.title}</p>
-                                    </div>
+                                  <div key={decisionItem.id ?? i} role="listitem" className="flex items-center gap-2 border-t border-ox-border first:border-t-0">
+                                    <OxReceiptRow
+                                      className="min-w-0 flex-1"
+                                      status="yours"
+                                      label={decisionItem.title}
+                                      detail="Decision needed"
+                                    />
                                     {decisionItem.id && onOpenDecision && (
                                       <button
                                         type="button"
@@ -7425,31 +7406,24 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                 <summary className="cursor-pointer list-none text-caption font-semibold text-secondary select-none">
                                   {activeFileEvidenceUnique.length} evidence file{activeFileEvidenceUnique.length === 1 ? '' : 's'}
                                 </summary>
-                                <div className="mt-2 space-y-2">
+                                <div className="mt-2" role="list">
                                   {activeFileEvidencePreview.map((entry, index) => {
                                     const evidenceHref = resolveFileEvidenceHref(entry.path);
                                     return (
                                       <div
                                         key={`${entry.key}:${entry.path}:${index}`}
-                                        className="flex items-center justify-between gap-3 py-1"
+                                        role="listitem"
+                                        className="flex items-center justify-between gap-2 border-t border-ox-border first:border-t-0"
                                       >
-                                        <div className="min-w-0 flex-1">
-                                          <p className="text-micro text-muted">{humanizeText(entry.key)}</p>
-                                          <p className="mt-0.5 truncate font-mono text-caption text-primary">
-                                            {humanizePath(entry.path)}
-                                          </p>
-                                        </div>
+                                        <OxReceiptRow
+                                          className="min-w-0 flex-1"
+                                          status="unverified"
+                                          label={humanizePath(entry.path)}
+                                          detail={humanizeText(entry.key)}
+                                          href={evidenceHref ?? undefined}
+                                          target={evidenceHref ? '_blank' : undefined}
+                                        />
                                         <div className="flex flex-shrink-0 items-center gap-1.5">
-                                          {evidenceHref && (
-                                            <a
-                                              href={evidenceHref}
-                                              target="_blank"
-                                              rel="noopener noreferrer"
-                                              className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                                            >
-                                              Open
-                                            </a>
-                                          )}
                                           <button
                                             type="button"
                                             onClick={() => void copyText(`${humanizeText(entry.key)} path`, entry.path)}
@@ -7467,25 +7441,18 @@ export const ActivityTimeline = memo(function ActivityTimeline({
                                       return (
                                         <div
                                           key={`${entry.key}:${entry.path}:overflow:${index}`}
-                                          className="flex items-center justify-between gap-3 py-1"
+                                          role="listitem"
+                                          className="flex items-center justify-between gap-2 border-t border-ox-border"
                                         >
-                                          <div className="min-w-0 flex-1">
-                                            <p className="text-micro text-muted">{humanizeText(entry.key)}</p>
-                                            <p className="mt-0.5 truncate font-mono text-caption text-primary">
-                                              {humanizePath(entry.path)}
-                                            </p>
-                                          </div>
+                                          <OxReceiptRow
+                                            className="min-w-0 flex-1"
+                                            status="unverified"
+                                            label={humanizePath(entry.path)}
+                                            detail={humanizeText(entry.key)}
+                                            href={evidenceHref ?? undefined}
+                                            target={evidenceHref ? '_blank' : undefined}
+                                          />
                                           <div className="flex flex-shrink-0 items-center gap-1.5">
-                                            {evidenceHref && (
-                                              <a
-                                                href={evidenceHref}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="rounded-full border border-strong bg-white/[0.04] px-2.5 py-1 text-caption text-primary transition hover:bg-white/[0.1]"
-                                              >
-                                                Open
-                                              </a>
-                                            )}
                                             <button
                                               type="button"
                                               onClick={() =>

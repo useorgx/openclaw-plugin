@@ -5,6 +5,7 @@ import { ManualKeyPanel } from '@/components/onboarding/ManualKeyPanel';
 import { WelcomeNameStep } from '@/components/onboarding/WelcomeNameStep';
 import { LegalLinks } from '@/components/shared/LegalLinks';
 import type { OnboardingState, OnboardingStatus } from '@/types';
+import { colors } from '@/lib/tokens';
 
 const NAME_ASKED_KEY = 'orgx.user.name-asked';
 
@@ -133,7 +134,7 @@ export function OnboardingGate({
   return (
     <div
       className="relative flex min-h-screen items-start justify-center px-4 pb-6 pt-0 sm:pt-2"
-      style={{ backgroundColor: '#02040A' }}
+      style={{ backgroundColor: colors.background }}
     >
 
       <motion.div
@@ -239,7 +240,7 @@ export function OnboardingGate({
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2, duration: 0.3 }}
-            className="mt-3 rounded-xl border border-[#7C7CFF]/25 bg-[#7C7CFF]/10 px-4 py-3"
+            className="mt-3 rounded-xl border border-iris/25 bg-iris/10 px-4 py-3"
           >
             <p className="text-caption uppercase tracking-[0.08em] text-[#CFCBFF]">
               Mission Control Tip
