@@ -1056,7 +1056,7 @@ export function HierarchyTreeTable({
                             onClick={() => toggleStatusFilter(status)}
                             className={`inline-flex h-7 items-center gap-1 rounded-full border px-2.5 text-micro transition-colors ${
                               isActive
-                                ? 'border-[#14B8A6]/35 bg-[#14B8A6]/12 text-[#8FF7EC]'
+                                ? 'border-teal/35 bg-teal/12 text-[#8FF7EC]'
                                 : 'border-strong bg-white/[0.03] text-white/58 hover:bg-white/[0.07] hover:text-bright'
                             }`}
                           >
@@ -1273,7 +1273,7 @@ export function HierarchyTreeTable({
         <div className="mb-2 flex items-center gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] px-3 py-1.5">
           <div className="flex items-center -space-x-1.5">
             {sharedAgent.slice(0, 2).map((agent) => (
-              <div key={agent.id} className="rounded-full ring-1 ring-[#02040A]">
+              <div key={agent.id} className="rounded-full ring-1 ring-surface-0">
                 <AgentAvatar name={agent.name} hint={agent.id} size="xs" />
               </div>
             ))}
@@ -1375,7 +1375,7 @@ export function HierarchyTreeTable({
                     selected
                       ? 'border-lime/[0.22] bg-lime/[0.08]'
                       : highlighted
-                        ? 'border-[#14B8A6]/[0.2] bg-[#14B8A6]/[0.08]'
+                        ? 'border-teal/[0.2] bg-teal/[0.08]'
                         : 'border-subtle bg-white/[0.02] hover:border-strong hover:bg-white/[0.05]'
                   }`}
                 >
@@ -1411,7 +1411,7 @@ export function HierarchyTreeTable({
                               });
                             }}
                             aria-label={`${expandedRows.has(node.id) ? 'Collapse' : 'Expand'} ${node.type}: ${node.title}`}
-                            className="rounded text-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                            className="rounded text-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/35 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-0"
                           >
                             {expandedRows.has(node.id) ? '▾' : '▸'}
                           </button>
@@ -1426,7 +1426,7 @@ export function HierarchyTreeTable({
                             onOpenNode(node);
                           }}
                           aria-label={`Open ${node.type} details: ${node.title}`}
-                          className="min-w-0 max-w-[560px] flex-1 truncate rounded text-left text-body text-bright hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#02040A]"
+                          className="min-w-0 max-w-[560px] flex-1 truncate rounded text-left text-body text-bright hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-lime/35 focus-visible:ring-offset-2 focus-visible:ring-offset-surface-0"
                         >
                           {node.title}
                         </button>
@@ -1503,7 +1503,7 @@ export function HierarchyTreeTable({
                               <div
                                 key={`${node.id}:${agent.id}`}
                                 title={agent.name}
-                                className="rounded-full ring-1 ring-[#02040A]"
+                                className="rounded-full ring-1 ring-surface-0"
                               >
                                 <AgentAvatar
                                   name={agent.name}

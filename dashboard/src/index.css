@@ -2,28 +2,38 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * The --ox-* variables come from the OrgX design kit (vendor/orgx-ui-kit/tokens.css,
+ * imported in main.tsx). The dashboard's --orgx-* names are aliases onto them, so
+ * existing classes keep working but resolve to the shared values. Only values the
+ * kit has no token for keep a literal here. The dashboard is dark-only: index.html
+ * pins data-theme="dark", which selects the kit's dark values.
+ */
 :root {
   color-scheme: dark;
-  --orgx-bg: #02040a;
-  --orgx-surface: #08090d;
+  --orgx-bg: var(--ox-bg);
+  --orgx-surface: var(--ox-panel-solid);
   --orgx-surface-elevated: #0c0e14;
   --orgx-surface-hero: #121824;
-  --orgx-border: rgba(255, 255, 255, 0.08);
-  --orgx-border-strong: rgba(255, 255, 255, 0.12);
+  --orgx-border: var(--ox-border);
+  --orgx-border-strong: var(--ox-border-strong);
   --orgx-border-subtle: rgba(255, 255, 255, 0.05);
   --orgx-border-hairline: rgba(255, 255, 255, 0.035);
-  --orgx-text: #f2f7ff;
-  --orgx-text-muted: #8f9ab7;
-  --orgx-lime: #bfff00;
-  --orgx-teal: #14b8a6;
+  --orgx-text: var(--ox-text);
+  --orgx-lime: var(--ox-lime);
+  --orgx-teal: var(--ox-teal);
+  --orgx-amber: var(--ox-warning);
+  --orgx-red: var(--ox-danger);
   --orgx-cyan: #0ad4c4;
-  --orgx-text-bright: rgba(242, 247, 255, 0.95);
-  --orgx-text-primary: rgba(242, 247, 255, 0.78);
-  --orgx-text-secondary: rgba(242, 247, 255, 0.55);
+  --orgx-text-bright: var(--ox-text);
+  --orgx-text-primary: var(--ox-text-2);
+  --orgx-text-secondary: var(--ox-text-muted);
   --orgx-text-muted: rgba(242, 247, 255, 0.38);
   --orgx-text-faint: rgba(242, 247, 255, 0.22);
   --orgx-ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
-  --orgx-ease-entrance: cubic-bezier(0.16, 1, 0.3, 1);
+  --orgx-ease-entrance: var(--ox-ease-out);
+  /* Kit elements inherit the dashboard's type stack. */
+  --ox-font: 'Geist', system-ui, -apple-system, sans-serif;
 }
 
 * {
@@ -49,8 +59,8 @@
   body {
     font-family: 'Geist', system-ui, -apple-system, sans-serif;
     background:
-      radial-gradient(1200px 700px at 12% -20%, rgba(191, 255, 0, 0.09), transparent 58%),
-      radial-gradient(1000px 700px at 90% -20%, rgba(20, 184, 166, 0.09), transparent 64%),
+      radial-gradient(1200px 700px at 12% -20%, rgba(var(--ox-lime-rgb), 0.09), transparent 58%),
+      radial-gradient(1000px 700px at 90% -20%, rgba(var(--ox-teal-rgb), 0.09), transparent 64%),
       var(--orgx-bg);
     color: var(--orgx-text);
     -webkit-font-smoothing: antialiased;
@@ -76,7 +86,7 @@
   a:focus-visible,
   input:focus-visible {
     outline: none;
-    box-shadow: 0 0 0 2px rgba(191, 255, 0, 0.35);
+    box-shadow: 0 0 0 2px rgba(var(--ox-lime-rgb), 0.35);
     transition: box-shadow 150ms var(--orgx-ease-standard);
   }
 }
@@ -158,14 +168,14 @@
   }
 
   .surface-hero {
-    border: 1px solid rgba(191, 255, 0, 0.16);
+    border: 1px solid rgba(var(--ox-lime-rgb), 0.16);
     background:
-      linear-gradient(140deg, rgba(191, 255, 0, 0.06), rgba(10, 212, 196, 0.05) 46%, rgba(255, 255, 255, 0.02)),
+      linear-gradient(140deg, rgba(var(--ox-lime-rgb), 0.06), rgba(10, 212, 196, 0.05) 46%, rgba(255, 255, 255, 0.02)),
       var(--orgx-surface-hero);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.05),
       0 18px 40px rgba(0, 0, 0, 0.4),
-      0 0 0 1px rgba(191, 255, 0, 0.08);
+      0 0 0 1px rgba(var(--ox-lime-rgb), 0.08);
   }
 
   .control-pill {
@@ -204,8 +214,8 @@
   }
 
   .control-pill[data-state='active'] {
-    border-color: rgba(191, 255, 0, 0.24);
-    background: rgba(191, 255, 0, 0.09);
+    border-color: rgba(var(--ox-lime-rgb), 0.24);
+    background: rgba(var(--ox-lime-rgb), 0.09);
     color: #d8ffa1;
   }
 
@@ -251,8 +261,8 @@
   }
 
 .status-pill[data-tone='done'] {
-  border-color: rgba(20, 184, 166, 0.26);
-  background: rgba(20, 184, 166, 0.11);
+  border-color: rgba(var(--ox-teal-rgb), 0.26);
+  background: rgba(var(--ox-teal-rgb), 0.11);
   color: rgba(135, 255, 233, 0.9);
 }
 
@@ -345,13 +355,13 @@
 .orgx-datepicker .react-datepicker__day--selected,
 .orgx-datepicker .react-datepicker__day--keyboard-selected,
 .orgx-datepicker .react-datepicker__time-list-item--selected {
-  background: rgba(191, 255, 0, 0.22) !important;
+  background: rgba(var(--ox-lime-rgb), 0.22) !important;
   color: #e1ffb2 !important;
 }
 
 .orgx-datepicker .react-datepicker__day--in-range,
 .orgx-datepicker .react-datepicker__day--in-selecting-range {
-  background: rgba(191, 255, 0, 0.14) !important;
+  background: rgba(var(--ox-lime-rgb), 0.14) !important;
   color: rgba(242, 247, 255, 0.9) !important;
 }
 
@@ -407,27 +417,27 @@
 }
 
   .status-pill[data-tone='done']::before {
-    background: rgba(20, 184, 166, 0.95);
+    background: rgba(var(--ox-teal-rgb), 0.95);
   }
 
   .status-pill[data-tone='active'] {
-    border-color: rgba(191, 255, 0, 0.28);
-    background: rgba(191, 255, 0, 0.11);
+    border-color: rgba(var(--ox-lime-rgb), 0.28);
+    background: rgba(var(--ox-lime-rgb), 0.11);
     color: rgba(223, 255, 156, 0.9);
   }
 
   .status-pill[data-tone='active']::before {
-    background: rgba(191, 255, 0, 0.95);
+    background: rgba(var(--ox-lime-rgb), 0.95);
   }
 
   .status-pill[data-tone='blocked'] {
-    border-color: rgba(255, 107, 136, 0.28);
-    background: rgba(255, 107, 136, 0.12);
+    border-color: rgba(var(--ox-danger-rgb), 0.28);
+    background: rgba(var(--ox-danger-rgb), 0.12);
     color: rgba(255, 195, 208, 0.9);
   }
 
   .status-pill[data-tone='blocked']::before {
-    background: rgba(255, 107, 136, 0.98);
+    background: rgba(var(--ox-danger-rgb), 0.98);
   }
 
   .status-pill[data-tone='planned'] {
@@ -568,11 +578,11 @@
     inset: -1px;
     background: linear-gradient(
       90deg,
-      rgba(191, 255, 0, 0) 0%,
-      rgba(191, 255, 0, 0.06) 45%,
-      rgba(191, 255, 0, 0.1) 52%,
-      rgba(191, 255, 0, 0.06) 58%,
-      rgba(191, 255, 0, 0) 100%
+      rgba(var(--ox-lime-rgb), 0) 0%,
+      rgba(var(--ox-lime-rgb), 0.06) 45%,
+      rgba(var(--ox-lime-rgb), 0.1) 52%,
+      rgba(var(--ox-lime-rgb), 0.06) 58%,
+      rgba(var(--ox-lime-rgb), 0) 100%
     );
     transform: translateX(-35%);
     animation: nextUpSweep 2.8s ease-in-out infinite;
@@ -660,8 +670,8 @@
 /* ── 10x micro-interaction keyframes ───────────────────────────── */
 
 @keyframes livePulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(191, 255, 0, 0); }
-  50% { box-shadow: 0 0 8px 2px rgba(191, 255, 0, 0.25); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--ox-lime-rgb), 0); }
+  50% { box-shadow: 0 0 8px 2px rgba(var(--ox-lime-rgb), 0.25); }
 }
 
 @keyframes undoCountdown {
@@ -670,9 +680,9 @@
 }
 
 @keyframes successGlow {
-  0% { box-shadow: 0 0 0 0 rgba(191, 255, 0, 0.4); }
-  50% { box-shadow: 0 0 12px 4px rgba(191, 255, 0, 0.15); }
-  100% { box-shadow: 0 0 0 0 rgba(191, 255, 0, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(var(--ox-lime-rgb), 0.4); }
+  50% { box-shadow: 0 0 12px 4px rgba(var(--ox-lime-rgb), 0.15); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--ox-lime-rgb), 0); }
 }
 
 @keyframes selfHealProgress {
@@ -681,9 +691,9 @@
 }
 
 @keyframes swipeApproveFlash {
-  0% { background-color: rgba(191, 255, 0, 0); }
-  40% { background-color: rgba(191, 255, 0, 0.12); }
-  100% { background-color: rgba(191, 255, 0, 0); }
+  0% { background-color: rgba(var(--ox-lime-rgb), 0); }
+  40% { background-color: rgba(var(--ox-lime-rgb), 0.12); }
+  100% { background-color: rgba(var(--ox-lime-rgb), 0); }
 }
 
 .live-pulse {
@@ -793,4 +803,16 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* OrgX kit avatar: fill the AgentAvatar footprint (Pill and .chip-avatar resize it). */
+.ox-avatar-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.ox-avatar-fill::part(avatar) {
+  width: 100%;
+  height: 100%;
 }

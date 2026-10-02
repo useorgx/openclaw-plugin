@@ -24,8 +24,8 @@ function resolveTone(item: LiveActivityItem): 'teal' | 'amber' | 'red' | 'neutra
 }
 
 const TONE_STYLES = {
-  teal: { dot: 'bg-[#0AD4C4]', label: 'text-[#7AEDE5]' },
-  amber: { dot: 'bg-[#F5B700]', label: 'text-[#FFE7A8]' },
+  teal: { dot: 'bg-cyan', label: 'text-[#7AEDE5]' },
+  amber: { dot: 'bg-orgx-amber', label: 'text-[#FFE7A8]' },
   red: { dot: 'bg-[#FF6B6B]', label: 'text-[#FFA8A8]' },
   neutral: { dot: 'bg-white/40', label: 'text-secondary' },
 };

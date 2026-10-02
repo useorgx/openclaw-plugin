@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { LiveDecision, LiveTriageItem, TriageAction } from '@/types';
 import type { TriageQueueActions } from '@/hooks/useTriageQueue';
+import { colors } from '@/lib/tokens';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -27,7 +28,7 @@ function severityColor(severity: string): string {
     case 'critical':
       return '#FF6B6B';
     case 'high':
-      return '#F5B700';
+      return colors.amber;
     case 'medium':
       return '#0AD4C4';
     default:
@@ -336,7 +337,7 @@ function InterventionSection({ item }: { item: LiveTriageItem }) {
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-caption font-medium text-primary">{option.label}</p>
                     {option.recommended ? (
-                      <span className="rounded-full bg-[#0AD4C4]/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#7AEDE5]">
+                      <span className="rounded-full bg-cyan/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#7AEDE5]">
                         Recommended
                       </span>
                     ) : null}
@@ -355,12 +356,12 @@ function InterventionSection({ item }: { item: LiveTriageItem }) {
         {((context.taskUpdateCount ?? 0) > 0 || (context.milestoneUpdateCount ?? 0) > 0) && (
           <div className="flex flex-wrap gap-2">
             {(context.taskUpdateCount ?? 0) > 0 && (
-              <span className="rounded bg-[#0AD4C4]/12 px-1.5 py-0.5 text-micro text-[#7AEDE5]">
+              <span className="rounded bg-cyan/12 px-1.5 py-0.5 text-micro text-[#7AEDE5]">
                 {context.taskUpdateCount} task update{context.taskUpdateCount === 1 ? '' : 's'}
               </span>
             )}
             {(context.milestoneUpdateCount ?? 0) > 0 && (
-              <span className="rounded bg-[#0AD4C4]/12 px-1.5 py-0.5 text-micro text-[#7AEDE5]">
+              <span className="rounded bg-cyan/12 px-1.5 py-0.5 text-micro text-[#7AEDE5]">
                 {context.milestoneUpdateCount} milestone update{context.milestoneUpdateCount === 1 ? '' : 's'}
               </span>
             )}
@@ -456,7 +457,7 @@ function LinkedDecisionSection({
   const evidence = Array.isArray(decision.evidenceRefs) ? decision.evidenceRefs.slice(0, 3) : [];
 
   return (
-    <div className="rounded-xl border border-[#14B8A6]/18 bg-[#14B8A6]/[0.06] px-3.5 py-3">
+    <div className="rounded-xl border border-teal/18 bg-teal/[0.06] px-3.5 py-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-micro font-semibold uppercase tracking-wider text-[#7AEDE5]">
@@ -473,7 +474,7 @@ function LinkedDecisionSection({
           <button
             type="button"
             onClick={() => onReviewDecision(decision.id)}
-            className="rounded-lg border border-[#14B8A6]/25 bg-[#14B8A6]/10 px-3 py-1.5 text-caption font-semibold text-[#7AEDE5] transition-colors hover:bg-[#14B8A6]/18"
+            className="rounded-lg border border-teal/25 bg-teal/10 px-3 py-1.5 text-caption font-semibold text-[#7AEDE5] transition-colors hover:bg-teal/18"
           >
             Open full decision
           </button>
@@ -496,7 +497,7 @@ function LinkedDecisionSection({
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-caption font-medium text-primary">{option.label}</p>
                   {option.impliedStatus === 'approved' ? (
-                    <span className="rounded-full bg-[#14B8A6]/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#7AEDE5]">
+                    <span className="rounded-full bg-teal/12 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#7AEDE5]">
                       Suggested
                     </span>
                   ) : null}
@@ -552,7 +553,7 @@ function ImpactChip({
   label: string;
   tone?: 'amber' | 'red';
 }) {
-  const bg = tone === 'red' ? 'bg-[#FF6B6B]/14' : 'bg-[#F5B700]/14';
+  const bg = tone === 'red' ? 'bg-[#FF6B6B]/14' : 'bg-orgx-amber/14';
   const text = tone === 'red' ? 'text-[#FFA8A8]' : 'text-[#FFE7A8]';
   return (
     <span className={`rounded-full px-2 py-0.5 text-micro font-medium ${bg} ${text}`}>
@@ -582,7 +583,7 @@ function ActionButton({
   const isDanger = triageAction.action === 'dismiss';
 
   const baseClass = isPrimary
-    ? 'bg-[#0AD4C4]/20 text-[#7AEDE5] hover:bg-[#0AD4C4]/30'
+    ? 'bg-cyan/20 text-[#7AEDE5] hover:bg-cyan/30'
     : isDanger
       ? 'bg-[#FF6B6B]/14 text-[#FFA8A8] hover:bg-[#FF6B6B]/20'
       : 'bg-white/[0.08] text-secondary hover:bg-white/[0.12]';

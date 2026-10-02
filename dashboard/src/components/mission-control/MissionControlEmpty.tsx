@@ -136,7 +136,7 @@ export function MissionControlEmpty({
                 type="button"
                 onClick={() => void runAction('autopilot', onStartAutopilot)}
                 disabled={pending !== null}
-                className="rounded-full border border-[#0AD4C4]/30 bg-[#0AD4C4]/10 px-3 py-1.5 text-caption font-semibold text-[#98FFF5] transition hover:bg-[#0AD4C4]/16 disabled:opacity-45"
+                className="rounded-full border border-cyan/30 bg-cyan/10 px-3 py-1.5 text-caption font-semibold text-[#98FFF5] transition hover:bg-cyan/16 disabled:opacity-45"
               >
                 {pending === 'autopilot' ? 'Starting...' : 'Start Autopilot'}
               </button>

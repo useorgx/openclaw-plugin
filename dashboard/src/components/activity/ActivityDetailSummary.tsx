@@ -41,15 +41,15 @@ function resolveTone(item: LiveActivityItem): 'teal' | 'amber' | 'red' | 'neutra
 
 const TONE_STYLES = {
   teal: {
-    border: 'border-[#0AD4C4]/20',
-    bg: 'bg-[#0AD4C4]/[0.04]',
-    dot: 'bg-[#0AD4C4]',
+    border: 'border-cyan/20',
+    bg: 'bg-cyan/[0.04]',
+    dot: 'bg-cyan',
     label: 'text-[#7AEDE5]',
   },
   amber: {
-    border: 'border-[#F5B700]/20',
-    bg: 'bg-[#F5B700]/[0.04]',
-    dot: 'bg-[#F5B700]',
+    border: 'border-orgx-amber/20',
+    bg: 'bg-orgx-amber/[0.04]',
+    dot: 'bg-orgx-amber',
     label: 'text-[#FFE7A8]',
   },
   red: {

@@ -1,6 +1,7 @@
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { sanitizeDisplayText } from '@/lib/humanize';
 import type { NextUpQueueItem } from '@/types';
+import { colors } from '@/lib/tokens';
 
 interface ActionQueueStripProps {
   items: NextUpQueueItem[];
@@ -9,9 +10,9 @@ interface ActionQueueStripProps {
 }
 
 function statusDotColor(state: string): string {
-  if (state === 'blocked') return '#FF6B88';
-  if (state === 'running') return '#BFFF00';
-  return '#F5B700';
+  if (state === 'blocked') return colors.red;
+  if (state === 'running') return colors.lime;
+  return colors.amber;
 }
 
 export function ActionQueueStrip({ items, onOpenItem, className }: ActionQueueStripProps) {

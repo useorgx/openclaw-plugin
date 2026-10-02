@@ -1923,8 +1923,8 @@ function MissionControlInner({
     <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
       <div className="relative flex-1 min-h-0">
         {/* Scroll fade indicators */}
-        <div className="pointer-events-none absolute top-0 left-0 right-0 h-6 bg-gradient-to-b from-[#02040A] to-transparent z-10" />
-        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-[#02040A] to-transparent z-10" />
+        <div className="pointer-events-none absolute top-0 left-0 right-0 h-6 bg-gradient-to-b from-surface-0 to-transparent z-10" />
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-surface-0 to-transparent z-10" />
 
         <div data-mc-scroll-host="true" className="h-full overflow-y-auto overflow-x-hidden">
           <div
@@ -2139,7 +2139,7 @@ function MissionControlInner({
                           : `${autopilot.isRunning ? 'Stop' : 'Start'} Autopilot`}
                     </span>
                     {autopilot.isRunning && hasActiveRuntime && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#0AD4C4] status-breathe" />
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan status-breathe" />
                     )}
                   </button>
                   {/* Autopilot Rail - persistent status banner */}
@@ -2152,8 +2152,8 @@ function MissionControlInner({
                       }
                     >
                       <span className="relative flex h-2 w-2 flex-shrink-0">
-                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#0AD4C4] opacity-75" />
-                        <span className="relative inline-flex h-2 w-2 rounded-full bg-[#0AD4C4]" />
+                        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-cyan opacity-75" />
+                        <span className="relative inline-flex h-2 w-2 rounded-full bg-cyan" />
                       </span>
                       <span className="text-micro font-semibold text-[#7AEDE5]">
                         Autopilot Active

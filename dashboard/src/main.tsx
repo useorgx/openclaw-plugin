@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App';
 import { initTelemetry } from './lib/telemetry';
 import { initDashboardSentry, Sentry } from './lib/sentry';
+import '@useorgx/orgx-ui-kit/tokens.css';
+import { configureOrgxKit } from './lib/orgxKit';
 import './index.css';
 
 if (typeof window !== 'undefined') {
@@ -14,6 +16,7 @@ if (typeof window !== 'undefined') {
   });
 }
 
+configureOrgxKit();
 initDashboardSentry();
 initTelemetry();
 

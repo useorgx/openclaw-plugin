@@ -31,7 +31,7 @@ const providerInfo: Record<ProviderId, ProviderInfo> = {
   anthropic: {
     id: 'anthropic',
     label: 'Anthropic',
-    accent: '#F5B700',
+    accent: colors.amber,
     tint: 'rgba(245, 183, 0, 0.18)',
   },
   openclaw: {

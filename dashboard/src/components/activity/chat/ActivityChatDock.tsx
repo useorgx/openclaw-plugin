@@ -763,7 +763,7 @@ export function ActivityChatDock() {
                 'border text-micro font-medium',
                 'transition-all duration-200',
                 selectedProvider === 'anthropic'
-                  ? 'border-[#F5B700]/30 bg-[#F5B700]/[0.08] text-[#F5B700]'
+                  ? 'border-orgx-amber/30 bg-orgx-amber/[0.08] text-orgx-amber'
                   : selectedProvider === 'openai'
                     ? 'border-emerald-400/30 bg-emerald-400/[0.08] text-emerald-300'
                     : 'border-white/[0.12] bg-white/[0.04] text-muted'

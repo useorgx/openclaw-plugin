@@ -1,22 +1,23 @@
 import { colors, normalizeStatus } from '@/lib/tokens';
 import type { Initiative } from '@/types';
 
-// Adapted to target palette: lime #BFFF00, teal #14B8A6, red #FF6B88, amber #F5B700
-// Tailwind JIT needs full static class strings, so we hardcode the hex values.
+// Classes resolve to the OrgX kit tokens (tailwind.config.js maps lime / teal /
+// orgx-amber / orgx-red onto --ox-*). Tailwind JIT needs full static class strings.
+// Kit semantics: amber = needs you, teal = accepted / done, red = failed and retryable.
 
 export const initiativeStatusClass: Record<Initiative['status'], string> = {
-  active: 'text-[#BFFF00] bg-[#BFFF00]/10 border-[#BFFF00]/20',
-  paused: 'text-[#F5B700] bg-[#F5B700]/10 border-[#F5B700]/20',
-  blocked: 'text-[#FF6B88] bg-[#FF6B88]/10 border-[#FF6B88]/20',
-  completed: 'text-[#14B8A6] bg-[#14B8A6]/10 border-[#14B8A6]/20',
+  active: 'text-lime bg-lime/10 border-lime/20',
+  paused: 'text-orgx-amber bg-orgx-amber/10 border-orgx-amber/20',
+  blocked: 'text-orgx-red bg-orgx-red/10 border-orgx-red/20',
+  completed: 'text-teal bg-teal/10 border-teal/20',
 };
 
 const taskStatusClass: Record<string, string> = {
-  done: 'text-[#14B8A6] bg-[#14B8A6]/10 border-[#14B8A6]/20',
-  completed: 'text-[#14B8A6] bg-[#14B8A6]/10 border-[#14B8A6]/20',
-  in_progress: 'text-[#BFFF00] bg-[#BFFF00]/10 border-[#BFFF00]/20',
-  active: 'text-[#BFFF00] bg-[#BFFF00]/10 border-[#BFFF00]/20',
-  blocked: 'text-[#FF6B88] bg-[#FF6B88]/10 border-[#FF6B88]/20',
+  done: 'text-teal bg-teal/10 border-teal/20',
+  completed: 'text-teal bg-teal/10 border-teal/20',
+  in_progress: 'text-lime bg-lime/10 border-lime/20',
+  active: 'text-lime bg-lime/10 border-lime/20',
+  blocked: 'text-orgx-red bg-orgx-red/10 border-orgx-red/20',
   todo: 'text-white/60 bg-white/5 border-white/10',
 };
 
@@ -26,20 +27,20 @@ export const getTaskStatusClass = (status: string) =>
 export const getWorkstreamStatusClass = (status: string) => {
   const s = normalizeStatus(status);
   if (s === 'active' || s === 'in_progress')
-    return 'text-[#BFFF00] bg-[#BFFF00]/10 border-[#BFFF00]/20';
+    return 'text-lime bg-lime/10 border-lime/20';
   if (s === 'blocked')
-    return 'text-[#FF6B88] bg-[#FF6B88]/10 border-[#FF6B88]/20';
+    return 'text-orgx-red bg-orgx-red/10 border-orgx-red/20';
   if (s === 'completed' || s === 'done')
-    return 'text-[#14B8A6] bg-[#14B8A6]/10 border-[#14B8A6]/20';
+    return 'text-teal bg-teal/10 border-teal/20';
   return 'text-white/60 bg-white/5 border-white/10';
 };
 
 export const getMilestoneStatusClass = (status: string) => {
   const s = normalizeStatus(status);
   if (s === 'done' || s === 'completed')
-    return 'text-[#14B8A6] bg-[#14B8A6]/10 border-[#14B8A6]/20';
+    return 'text-teal bg-teal/10 border-teal/20';
   if (s === 'active' || s === 'in_progress')
-    return 'text-[#BFFF00] bg-[#BFFF00]/10 border-[#BFFF00]/20';
+    return 'text-lime bg-lime/10 border-lime/20';
   return 'text-white/60 bg-white/5 border-white/10';
 };
 
@@ -61,12 +62,15 @@ export const statusRank = (value: string): number => {
 
 export const statusColor = (status: string): string => {
   const s = normalizeStatus(status);
-  if (s === 'blocked' || s === 'failed' || s === 'cancelled') return colors.red;
-  if (s === 'active' || s === 'in_progress' || s === 'running') return colors.lime;
+  if (s === 'blocked' || s === 'failed') return colors.red;
+  if (s === 'needs_input' || s === 'needs_attention' || s === 'awaiting_input') return colors.amber;
+  if (s === 'active' || s === 'in_progress' || s === 'running' || s === 'working' || s === 'planning') {
+    return colors.lime;
+  }
   if (s === 'handoff' || s === 'review') return colors.teal;
   if (s === 'done' || s === 'completed') return colors.teal;
-  if (s === 'paused') return colors.amber;
-  if (s === 'queued' || s === 'pending' || s === 'working' || s === 'planning') return colors.amber;
+  // Paused, queued and cancelled are out of your hands, not alarms: muted.
+  if (s === 'paused' || s === 'queued' || s === 'pending' || s === 'cancelled') return 'rgba(255,255,255,0.5)';
   if (s === 'archived' || s === 'draft') return 'rgba(255,255,255,0.5)';
   return 'rgba(255,255,255,0.35)';
 };

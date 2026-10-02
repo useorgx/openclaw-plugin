@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import { colors } from '@/lib/tokens';
 
 interface EntityActionButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   label?: string;
@@ -11,7 +12,7 @@ interface EntityActionButtonProps extends ButtonHTMLAttributes<HTMLButtonElement
 export function EntityActionButton({
   label,
   icon,
-  color = '#BFFF00',
+  color = colors.lime,
   variant = 'secondary',
   size = 'md',
   className = '',

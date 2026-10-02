@@ -1,20 +1,39 @@
+import { tokens as kit } from '@useorgx/orgx-ui-kit/tokens';
+
+// ── Palette ──────────────────────────────────────────────────────
+// The OrgX design kit (@useorgx/orgx-ui-kit, vendored under
+// dashboard/vendor/orgx-ui-kit by scripts/sync-ui-kit.mjs) is the source of
+// truth. The dashboard is dark-only, so these are the kit's dark values; CSS
+// and Tailwind read the same values live through the --ox-* variables (see
+// src/index.css and tailwind.config.js). Only values the kit has no token for
+// (cyan, the elevated surface, the muted text tint) are defined here.
+const ox = kit.color.dark;
+
+/** "#rrggbb" -> "r, g, b" for rgba() composition. */
+function rgbOf(hex: string): string {
+  const h = hex.replace('#', '');
+  return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)).join(', ');
+}
+const rgba = (hex: string, alpha: number) => `rgba(${rgbOf(hex)}, ${alpha})`;
+
 export const colors = {
-  // OrgX brand system (aligned with useorgx.com + mcp.useorgx.com)
-  lime: '#BFFF00',
-  teal: '#14B8A6',
+  lime: ox.lime,
+  teal: ox.teal,
   cyan: '#0AD4C4',
-  iris: '#7C7CFF',
+  iris: ox.iris,
 
-  amber: '#F5B700',
-  red: '#FF6B88',
+  /** Needs you. */
+  amber: ox.warning,
+  /** Failed, retryable. */
+  red: ox.danger,
 
-  background: '#02040A',
-  cardBg: '#08090D',
+  background: ox.bg,
+  cardBg: ox['panel-solid'],
   cardBgElevated: '#0C0E14',
-  cardBorder: 'rgba(255, 255, 255, 0.08)',
-  cardBorderStrong: 'rgba(255, 255, 255, 0.12)',
+  cardBorder: ox.border,
+  cardBorderStrong: ox['border-strong'],
 
-  text: '#F2F7FF',
+  text: ox.text,
   textMuted: '#8F9AB7',
 } as const;
 
@@ -86,9 +105,9 @@ export const border = {
     subtle: 'rgba(255, 255, 255, 0.05)',
     default: colors.cardBorder,
     strong: colors.cardBorderStrong,
-    accentLime: 'rgba(191, 255, 0, 0.28)',
-    accentTeal: 'rgba(10, 212, 196, 0.32)',
-    destructive: 'rgba(255, 107, 136, 0.28)',
+    accentLime: rgba(colors.lime, 0.28),
+    accentTeal: rgba(colors.teal, 0.32),
+    destructive: rgba(colors.red, 0.28),
   },
 } as const;
 
@@ -97,8 +116,7 @@ export const elevation = {
     'inset 0 1px 0 rgba(255, 255, 255, 0.035), 0 14px 34px rgba(0, 0, 0, 0.36)',
   surfaceTier2:
     'inset 0 1px 0 rgba(255, 255, 255, 0.045), 0 16px 36px rgba(0, 0, 0, 0.38)',
-  hero:
-    'inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(191, 255, 0, 0.08)',
+  hero: `inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 40px rgba(0, 0, 0, 0.4), 0 0 0 1px ${rgba(colors.lime, 0.08)}`,
   card: '0 12px 34px rgba(0, 0, 0, 0.35)',
   mobileNav: '0 20px 50px rgba(0, 0, 0, 0.52)',
   modal: '0 24px 60px rgba(0, 0, 0, 0.5)',
@@ -136,7 +154,7 @@ export const interaction = {
   minTouchTarget: 44,
   focusRing: {
     width: border.width.focus,
-    color: 'rgba(191, 255, 0, 0.35)',
+    color: rgba(colors.lime, 0.35),
   },
   hoverLiftPx: 2,
   activePressPx: 0.5,
@@ -144,19 +162,19 @@ export const interaction = {
 
 export const stateTones = {
   active: {
-    border: 'rgba(191, 255, 0, 0.28)',
-    background: 'rgba(191, 255, 0, 0.11)',
-    text: 'rgba(223, 255, 156, 0.9)',
+    border: rgba(colors.lime, 0.28),
+    background: rgba(colors.lime, 0.11),
+    text: rgba(colors.lime, 0.9),
   },
   done: {
-    border: 'rgba(20, 184, 166, 0.26)',
-    background: 'rgba(20, 184, 166, 0.11)',
-    text: 'rgba(135, 255, 233, 0.9)',
+    border: rgba(colors.teal, 0.26),
+    background: rgba(colors.teal, 0.11),
+    text: rgba(colors.teal, 0.9),
   },
   blocked: {
-    border: 'rgba(255, 107, 136, 0.28)',
-    background: 'rgba(255, 107, 136, 0.12)',
-    text: 'rgba(255, 195, 208, 0.9)',
+    border: rgba(colors.red, 0.28),
+    background: rgba(colors.red, 0.12),
+    text: rgba(colors.red, 0.9),
   },
   planned: {
     border: 'rgba(255, 255, 255, 0.16)',
@@ -170,10 +188,11 @@ export const stateTones = {
  * Each status has text, bg, and border at canonical opacities.
  */
 export const statusColors = {
-  success: { text: '#BFFF00', bg: 'rgba(191, 255, 0, 0.12)', border: 'rgba(191, 255, 0, 0.30)' },
-  failed: { text: '#FCA5A5', bg: 'rgba(239, 68, 68, 0.12)', border: 'rgba(248, 113, 113, 0.30)' },
-  warning: { text: '#FDE68A', bg: 'rgba(245, 183, 0, 0.12)', border: 'rgba(252, 211, 77, 0.30)' },
-  inProgress: { text: '#5EEAD4', bg: 'rgba(20, 184, 166, 0.12)', border: 'rgba(94, 234, 212, 0.30)' },
+  // Kit semantics: teal = accepted / done, amber = needs you, red = failed and retryable.
+  success: { text: colors.teal, bg: rgba(colors.teal, 0.12), border: rgba(colors.teal, 0.3) },
+  failed: { text: colors.red, bg: rgba(colors.red, 0.12), border: rgba(colors.red, 0.3) },
+  warning: { text: colors.amber, bg: rgba(colors.amber, 0.12), border: rgba(colors.amber, 0.3) },
+  inProgress: { text: colors.teal, bg: rgba(colors.teal, 0.08), border: rgba(colors.teal, 0.22) },
   idle: { text: 'rgba(255, 255, 255, 0.60)', bg: 'rgba(255, 255, 255, 0.04)', border: 'rgba(255, 255, 255, 0.14)' },
 } as const;
 
@@ -191,40 +210,44 @@ export const opacity = {
   activeBorder: 0.28,
 } as const;
 
+// The seven OrgX agents take their hue and domain from the kit, so the
+// dashboard rings match <ox-avatar> and the MCP widgets.
+const kitAgent = kit.agent;
+
 export const agentColors: Record<string, string> = {
-  Pace: '#7C7CFF',
-  Eli: '#BFFF00',
-  Dana: '#FF00D4',
-  Mark: '#F5B700',
-  System: '#14B8A6',
-  Sage: '#0AD4C4',
-  Orion: '#14B8A6',
-  Xandy: '#FF6B88',
+  Pace: kitAgent.pace.hue,
+  Eli: kitAgent.eli.hue,
+  Dana: kitAgent.dana.hue,
+  Mark: kitAgent.mark.hue,
+  Sage: kitAgent.sage.hue,
+  Orion: kitAgent.orion.hue,
+  Xandy: kitAgent.xandy.hue,
+  System: colors.teal,
   Nova: '#A78BFA',
 };
 
 export const agentRoles: Record<string, string> = {
-  Pace: 'Product',
-  Eli: 'Engineering',
-  Dana: 'Product Design',
-  Mark: 'Marketing',
+  Pace: kitAgent.pace.domain,
+  Eli: kitAgent.eli.domain,
+  Dana: kitAgent.dana.domain,
+  Mark: kitAgent.mark.domain,
+  Sage: kitAgent.sage.domain,
+  Orion: kitAgent.orion.domain,
+  Xandy: kitAgent.xandy.domain,
   System: 'System',
-  Sage: 'Strategy',
-  Orion: 'Operations',
-  Xandy: 'Orchestrator',
   Nova: 'Research',
 };
 
 // Map real backend agent/domain identifiers to domain keys
 const DOMAIN_ALIAS_MAP: Record<string, { domain: string; color: string }> = {
-  engineering: { domain: 'Engineering', color: '#BFFF00' },
-  product: { domain: 'Product', color: '#A78BFA' },
-  design: { domain: 'Design', color: '#FF00D4' },
-  marketing: { domain: 'Marketing', color: '#F5B700' },
-  sales: { domain: 'Sales', color: '#0AD4C4' },
-  operations: { domain: 'Operations', color: '#14B8A6' },
-  orchestration: { domain: 'Orchestrator', color: '#FF6B88' },
-  orchestrator: { domain: 'Orchestrator', color: '#FF6B88' },
+  engineering: { domain: kitAgent.eli.domain, color: kitAgent.eli.hue },
+  product: { domain: kitAgent.pace.domain, color: kitAgent.pace.hue },
+  design: { domain: kitAgent.dana.domain, color: kitAgent.dana.hue },
+  marketing: { domain: kitAgent.mark.domain, color: kitAgent.mark.hue },
+  sales: { domain: kitAgent.sage.domain, color: kitAgent.sage.hue },
+  operations: { domain: kitAgent.orion.domain, color: kitAgent.orion.hue },
+  orchestration: { domain: kitAgent.xandy.domain, color: kitAgent.xandy.hue },
+  orchestrator: { domain: kitAgent.xandy.domain, color: kitAgent.xandy.hue },
 };
 
 function resolveDomainFromName(name: string): { domain: string; color: string } | null {
