@@ -1,4 +1,5 @@
 import { memo, useMemo, useState } from 'react';
+import { StatusChip } from '@/components/shared/StatusChip';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { Initiative, SliceRunProjection } from '@/types';
 import { PremiumCard } from '@/components/shared/PremiumCard';
@@ -746,11 +747,7 @@ export const NeedsInputPanel = memo(function NeedsInputPanel({
                                   ) : null}
                                 </div>
                                 <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
-                                  <span
-                                    className={`inline-flex h-6 items-center rounded-full border px-2 text-micro font-semibold uppercase tracking-[0.08em] ${statusTone(row.item.status)}`}
-                                  >
-                                    {statusLabel(row.item.status)}
-                                  </span>
+<StatusChip kind="run" status={row.item.status} />
                                   {row.scopeText ? (
                                     <span className="chip text-micro capitalize">{row.scopeText}</span>
                                   ) : null}

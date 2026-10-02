@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
+import { OxAvatar, type ActionState, type AgentKey } from '@useorgx/orgx-ui-kit/react';
 import { getAgentColor, getInitials } from '@/lib/tokens';
+import { formForState, resolveAgentKey, toKitState } from '@/lib/agentIdentity';
 import { UserFractalAvatar } from '@/components/settings/UserFractalAvatar';
 
 interface AgentAvatarProps {
@@ -7,6 +9,12 @@ interface AgentAvatarProps {
   size?: 'xs' | 'sm' | 'md' | 'lg';
   hint?: string | null;
   src?: string | null;
+  /**
+   * The agent's run state (any dashboard status spelling, or a kit action
+   * state). Picks the avatar form: working = running, asking = needs a person,
+   * verifying = checking proof. Omit for the resting face.
+   */
+  state?: ActionState | string | null;
 }
 
 const sizeMap = {
@@ -28,15 +36,11 @@ const USER_SEED_SUFFIX_KEY = 'orgx.user.avatar-seed-suffix';
 const baseUrl = '/orgx/live/';
 const withBaseUrl = (path: string) => `${baseUrl.replace(/\/+$/, '/')}${path}`;
 
+// The seven OrgX agents render through <ox-avatar> (kit renders in
+// public/avatars). Everything else keeps its brand mark or initials.
+const KIT_AGENT_KEYS = new Set<string>(['pace', 'eli', 'mark', 'sage', 'orion', 'dana', 'xandy']);
+
 const avatarMap: Record<string, string> = {
-  pace: withBaseUrl('brand/product-orchestrator.png'),
-  eli: withBaseUrl('brand/engineering-autopilot.png'),
-  mark: withBaseUrl('brand/launch-captain.png'),
-  sage: withBaseUrl('brand/pipeline-intelligence.png'),
-  orion: withBaseUrl('brand/control-tower.png'),
-  dana: withBaseUrl('brand/design-codex.png'),
-  xandy: withBaseUrl('brand/xandy-orchestrator.png'),
-  nova: withBaseUrl('brand/xandy-orchestrator.png'),
   openclaw: withBaseUrl('brand/openclaw-mark.svg'),
   codex: withBaseUrl('brand/openai-mark.svg'),
   openai: withBaseUrl('brand/openai-mark.svg'),
@@ -44,7 +48,9 @@ const avatarMap: Record<string, string> = {
   orgx: withBaseUrl('brand/orgx-logo.png'),
 };
 
-const resolverRules: Array<{ test: RegExp; key: keyof typeof avatarMap }> = [
+// Broader legacy aliases (substring matches) for names the kit's whole-word
+// resolver does not know, e.g. "nova" or "dev-delivery".
+const resolverRules: Array<{ test: RegExp; key: string }> = [
   { test: /\bpace\b|product|nova|strategist/i, key: 'pace' },
   { test: /\beli\b|engineering|dev-delivery|executor/i, key: 'eli' },
   { test: /\bmark\b|marketing|launch-captain/i, key: 'mark' },
@@ -58,7 +64,10 @@ const resolverRules: Array<{ test: RegExp; key: keyof typeof avatarMap }> = [
   { test: /\borgx\b/i, key: 'orgx' },
 ];
 
-function resolveAgentAvatar(...hints: Array<string | null | undefined>): string | null {
+function resolveAvatarKey(...hints: Array<string | null | undefined>): string | null {
+  const kitKey = resolveAgentKey(...hints);
+  if (kitKey) return kitKey;
+
   const haystack = hints
     .map((value) => (typeof value === 'string' ? value.trim() : ''))
     .filter(Boolean)
@@ -68,9 +77,7 @@ function resolveAgentAvatar(...hints: Array<string | null | undefined>): string 
   if (!haystack) return null;
 
   for (const rule of resolverRules) {
-    if (rule.test.test(haystack)) {
-      return avatarMap[rule.key];
-    }
+    if (rule.test.test(haystack)) return rule.key;
   }
 
   return null;
@@ -105,6 +112,7 @@ export function AgentAvatar({
   size = 'xs',
   hint,
   src,
+  state,
 }: AgentAvatarProps) {
   const color = getAgentColor(name);
   const [failedToLoad, setFailedToLoad] = useState(false);
@@ -116,10 +124,32 @@ export function AgentAvatar({
     () => (showUserAvatar ? readUserAvatarSeed() : null),
     [showUserAvatar]
   );
+  const avatarKey = useMemo(() => resolveAvatarKey(name, hint), [hint, name]);
+  const kitAgent: AgentKey | null =
+    !showUserAvatar && !(src && src.trim()) && avatarKey && KIT_AGENT_KEYS.has(avatarKey)
+      ? (avatarKey as AgentKey)
+      : null;
   const avatarSrc = useMemo(() => {
     if (src && src.trim()) return src;
-    return resolveAgentAvatar(name, hint);
-  }, [hint, name, src]);
+    return avatarKey ? avatarMap[avatarKey] ?? null : null;
+  }, [avatarKey, src]);
+
+  if (kitAgent) {
+    const form = formForState(state ? toKitState(state).state : null);
+    return (
+      <span
+        data-agent-avatar="true"
+        className={`${sizeMap[size]} inline-flex flex-shrink-0`}
+      >
+        <OxAvatar
+          className="ox-avatar-fill"
+          agent={kitAgent}
+          form={form}
+          size={sizePxMap[size]}
+        />
+      </span>
+    );
+  }
 
   const showImage = Boolean(!showUserAvatar && avatarSrc && !failedToLoad);
 

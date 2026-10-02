@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { OxFooter, OxReceiptRow } from '@useorgx/orgx-ui-kit/react';
 import { Modal } from '@/components/shared/Modal';
 import { colors } from '@/lib/tokens';
 import { formatDurationWithUrgency, formatRelativeTime } from '@/lib/time';
@@ -408,12 +409,14 @@ export function DecisionDetailModal({
     };
   }, [metadata]);
 
-  const urgencyColor = useMemo(() => {
-    const mins = decision?.waitingMinutes ?? 0;
-    if (mins >= 15) return colors.red;
-    if (mins >= 5) return colors.amber;
-    return colors.teal;
-  }, [decision?.waitingMinutes]);
+  // The kit footer's primary is in its shadow root; let the Modal's autofocus
+  // (data-modal-autofocus) land on it as it did on the old Approve button.
+  const footerRef = useCallback((el: HTMLElement | null) => {
+    if (!el) return;
+    el.setAttribute('data-modal-autofocus', 'true');
+    el.focus = (options?: FocusOptions) =>
+      el.shadowRoot?.querySelector<HTMLElement>('[part="primary"]:not([hidden])')?.focus(options);
+  }, []);
 
   const copyDetails = useCallback(async () => {
     if (!decision) return;
@@ -613,7 +616,7 @@ export function DecisionDetailModal({
   // Success / rejected overlay
   if (resolved) {
     const isApproval = phase === 'success';
-    const accent = isApproval ? colors.lime : colors.red;
+    const accent = isApproval ? colors.teal : colors.textMuted;
     return (
       <Modal open={open} onClose={onClose} maxWidth="max-w-xl" fitContent>
         <div className="flex flex-col items-center justify-center px-8 py-12">
@@ -655,12 +658,6 @@ export function DecisionDetailModal({
           borderRadius: 'inherit',
         } : undefined}
       >
-        {/* 1. Urgency accent line */}
-        <div
-          className="h-[2px] w-full flex-shrink-0"
-          style={{ background: `linear-gradient(90deg, ${urgencyColor}60, ${urgencyColor}20, transparent)` }}
-        />
-
         {/* 2. Navigation bar */}
         {onNavigate && (
           <div className="flex items-center justify-between px-6 pt-3 pb-0">
@@ -716,15 +713,7 @@ export function DecisionDetailModal({
         <div className="flex items-start justify-between gap-3 px-6 pt-4 pb-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2.5">
-              <div
-                className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg"
-                style={{
-                  backgroundColor: `${urgencyColor}14`,
-                  border: `1px solid ${urgencyColor}30`,
-                }}
-              >
-                <EntityIcon type="decision" size={14} />
-              </div>
+              <EntityIcon type="decision" size={22} className="flex-shrink-0 self-start mt-0.5" />
               <div className="min-w-0">
                 <h2 className="text-title font-medium leading-tight text-white mb-2">
                   {decision.title || 'Decision Required'}
@@ -732,7 +721,7 @@ export function DecisionDetailModal({
                 <div className="flex flex-wrap items-center gap-2 text-body text-secondary">
                   <span>{decision.agentName || 'OrgX Autopilot'}</span>
                   <span className="text-white/[0.15]">|</span>
-                  <span className={isUrgent ? 'font-semibold text-red-300' : ''}>
+                  <span className={isUrgent ? 'font-semibold text-orgx-amber' : ''}>
                     {formatDurationWithUrgency(decision.waitingMinutes).text}
                   </span>
                   {decisionType && (
@@ -818,7 +807,7 @@ export function DecisionDetailModal({
               Supporting evidence
             </p>
             {hasEvidence ? (
-              <div className="space-y-1.5">
+              <div role="list">
                 {evidenceRefs.map((ref, i) => (
                   <EvidenceCard
                     key={i}
@@ -832,11 +821,11 @@ export function DecisionDetailModal({
                 ))}
               </div>
             ) : (
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
-                <p className="text-body text-muted">
-                  No supporting evidence was emitted for this decision. Review the source run or add a note before escalating.
-                </p>
-              </div>
+              <OxReceiptRow
+                status="unverified"
+                label="No supporting evidence was emitted for this decision."
+                detail="Review the source run or add a note before escalating."
+              />
             )}
           </div>
 
@@ -854,7 +843,7 @@ export function DecisionDetailModal({
           )}
 
           {/* 7. Context — humanized when raw, verbatim when rich */}
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+          <div className="border-t border-white/[0.06] pt-4">
             <p className="mb-2 text-micro font-semibold uppercase tracking-wider text-muted">
               Decision context
             </p>
@@ -882,36 +871,39 @@ export function DecisionDetailModal({
             )}
           </div>
 
-          <div className="mt-4 rounded-xl border border-[#14B8A6]/20 bg-[#14B8A6]/[0.06] px-4 py-3">
-            <p className="text-micro font-semibold uppercase tracking-wider text-[#7ce0d3] mb-1">
+          <div className="mt-4 border-t border-white/[0.06] pt-4">
+            <p className="mb-1 text-micro font-semibold uppercase tracking-wider text-muted">
               {plannedUpdates.buffered ? 'Updates being applied' : 'Expected updates'}
             </p>
-            {(plannedUpdates.statusUpdatesApplied ?? 0) > 0 && (
-              <p className="text-caption text-primary">
-                {plannedUpdates.statusUpdatesApplied} status update{plannedUpdates.statusUpdatesApplied === 1 ? '' : 's'}
-                {plannedUpdates.buffered ? ' queued for sync' : ' planned'}.
-              </p>
-            )}
-            {(plannedUpdates.artifactCount ?? 0) > 0 && (
-              <p className="text-caption text-primary">
-                {plannedUpdates.artifactCount} artifact{plannedUpdates.artifactCount === 1 ? '' : 's'} expected from this decision path.
-              </p>
-            )}
-            {plannedUpdates.rows.length > 0 ? (
-              <ul className="mt-2 space-y-1 pl-4">
-                {plannedUpdates.rows.map((row, index) => (
-                  <li key={`${row.scope}-${row.label}-${index}`} className="text-caption text-secondary">
-                    <span className="text-primary">{row.scope}: {row.label}</span>
-                    {row.status ? ` → ${row.status}` : ''}
-                    {row.note ? ` · ${row.note}` : ''}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-caption text-secondary">
-                No downstream task or milestone updates were emitted for this decision. Approval may resume work, but the exact updates are unspecified in the current payload.
-              </p>
-            )}
+            <div role="list">
+              {(plannedUpdates.statusUpdatesApplied ?? 0) > 0 && (
+                <OxReceiptRow
+                  status={plannedUpdates.buffered ? 'pending' : 'unverified'}
+                  label={`${plannedUpdates.statusUpdatesApplied} status update${plannedUpdates.statusUpdatesApplied === 1 ? '' : 's'}${plannedUpdates.buffered ? ' queued for sync' : ' planned'}`}
+                />
+              )}
+              {(plannedUpdates.artifactCount ?? 0) > 0 && (
+                <OxReceiptRow
+                  status="unverified"
+                  label={`${plannedUpdates.artifactCount} artifact${plannedUpdates.artifactCount === 1 ? '' : 's'} expected from this decision path`}
+                />
+              )}
+              {plannedUpdates.rows.map((row, index) => (
+                <OxReceiptRow
+                  key={`${row.scope}-${row.label}-${index}`}
+                  status={plannedUpdates.buffered ? 'pending' : 'unverified'}
+                  label={`${row.scope}: ${row.label}${row.status ? ` → ${row.status}` : ''}`}
+                  detail={row.note ?? undefined}
+                />
+              ))}
+              {plannedUpdates.rows.length === 0 ? (
+                <OxReceiptRow
+                  status="unverified"
+                  label="No downstream task or milestone updates were emitted for this decision."
+                  detail="Approval may resume work, but the exact updates are unspecified in the current payload."
+                />
+              ) : null}
+            </div>
           </div>
 
           {/* 8. Options as selectable cards */}
@@ -1020,7 +1012,7 @@ export function DecisionDetailModal({
 
           {/* 10. Impact section */}
           {impact && (
-            <div className="mt-6 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+            <div className="mt-6 border-t border-white/[0.06] pt-4">
               <p className="text-micro font-semibold uppercase tracking-wider text-muted mb-2">Impact</p>
               <p className="text-body text-primary leading-relaxed">
                 {formatDecisionImpact(impact)}
@@ -1125,69 +1117,70 @@ export function DecisionDetailModal({
           </div>
         ) : null}
 
-        {/* 15. Action footer - only for pending decisions */}
+        {/* 15. Action footer - only for pending decisions. The kit's finishes-here
+            footer: the person decides here, with the same approve / reject calls. */}
         {isPending && (
-          <div className="relative mt-auto border-t border-white/[0.04] bg-black/60 px-6 py-5 backdrop-blur-xl">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                {/* Reject */}
+          <OxFooter
+            ref={footerRef}
+            className="mt-auto bg-black/60 backdrop-blur-xl"
+            variant="finishes-here"
+            state={busy ? 'sending' : phase === 'error' ? 'failed' : 'needs-you'}
+            heading={
+              busy
+                ? phase === 'approving'
+                  ? 'Approving'
+                  : 'Rejecting'
+                : phase === 'error'
+                  ? 'Not applied'
+                  : unsafeToSubmit
+                    ? 'Needs more context'
+                    : missingOption
+                      ? 'Choose an option'
+                      : missingRequiredNote
+                        ? 'Add the required note'
+                        : 'Your decision'
+            }
+            detail={
+              busy
+                ? 'syncing to OrgX'
+                : phase === 'error'
+                  ? 'nothing changed · try again'
+                  : `${isMac ? '\u2318' : 'Ctrl'}+Enter`
+            }
+            primaryLabel={
+              busy
+                ? phase === 'approving'
+                  ? 'Approving…'
+                  : 'Rejecting…'
+                : unsafeToSubmit
+                  ? 'Needs more context'
+                  : 'Approve'
+            }
+            disabled={!busy && (!onApprove || disableActions)}
+            onPrimary={() => void handleApprove()}
+            action={
+              <span className="flex items-center gap-1">
                 {onReject && (
-                  <motion.button
-                    whileTap={{ scale: 0.97 }}
+                  <button
                     type="button"
                     onClick={handleReject}
                     disabled={disableActions}
-                    className="rounded-lg px-4 py-2 text-[14px] font-medium text-secondary transition-colors hover:text-red-400 disabled:opacity-40 focus:outline-none"
+                    className="inline-flex min-h-[36px] items-center whitespace-nowrap rounded-[9px] px-2.5 text-caption font-semibold text-secondary transition-colors hover:bg-white/[0.06] hover:text-orgx-red disabled:opacity-40"
                   >
-                    {phase === 'rejecting' ? (
-                      <span className="flex items-center gap-2">
-                        <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-current border-t-transparent" />
-                        Rejecting
-                      </span>
-                    ) : (
-                      'Reject'
-                    )}
-                  </motion.button>
+                    Reject
+                  </button>
                 )}
                 <button
                   type="button"
                   onClick={copyDetails}
-                  className="rounded-lg px-2 py-2 text-[13px] text-muted transition-colors hover:text-secondary focus:outline-none"
+                  className="inline-flex min-h-[36px] items-center whitespace-nowrap rounded-[9px] px-2 text-caption text-muted transition-colors hover:text-secondary"
                   title="Copy decision as JSON"
                 >
                   {copied ? 'Copied' : 'Copy JSON'}
                 </button>
-              </div>
-              <div className="flex items-center gap-4">
-                <span className="hidden text-[13px] text-muted sm:block">
-                  {isMac ? '\u2318' : 'Ctrl'}+Enter
-                </span>
-                <motion.button
-                  whileTap={(!onApprove || disableActions) ? undefined : { scale: 0.97 }}
-                  type="button"
-                  onClick={handleApprove}
-                  disabled={!onApprove || disableActions}
-                  data-modal-autofocus="true"
-                  className="rounded-lg px-6 py-2.5 text-[14px] font-semibold transition-all focus:outline-none"
-                  style={{
-                    backgroundColor: (!onApprove || disableActions) ? 'rgba(255,255,255,0.06)' : colors.lime,
-                    color: (!onApprove || disableActions) ? 'rgba(255,255,255,0.4)' : '#000',
-                  }}
-                >
-                  {phase === 'approving' ? (
-                    <span className="flex items-center gap-2">
-                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-[1.5px] border-black/40 border-t-black" />
-                      Approving
-                    </span>
-                  ) : unsafeToSubmit ? (
-                    'Needs more context'
-                  ) : (
-                    'Approve'
-                  )}
-                </motion.button>
-              </div>
-            </div>
-          </div>
+              </span>
+            }
+          />
         )}
       </div>
     </Modal>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { StatusChip } from '@/components/shared/StatusChip';
 import { motion, AnimatePresence } from 'framer-motion';
 import type {
   Initiative,
@@ -552,14 +553,6 @@ export function InitiativeSection({
   const isExecutionActive = activeTaskCount > 0 || runtimeActiveCount > 0;
   const effectiveInitiativeStatus =
     initiative.status === 'active' && isExecutionActive ? 'in_progress' : initiative.status;
-  const initiativeStatusToneClass =
-    effectiveInitiativeStatus === 'in_progress'
-      ? initiativeStatusClass.active
-      : initiativeStatusClass[effectiveInitiativeStatus];
-  const initiativeStatusLabel =
-    effectiveInitiativeStatus === 'in_progress'
-      ? 'In Progress'
-      : formatEntityStatus(effectiveInitiativeStatus);
   const budgetSourceNodes =
     taskNodes.length > 0
       ? taskNodes
@@ -892,13 +885,7 @@ export function InitiativeSection({
               : 'w-[80px] min-w-[80px] sm:w-[90px] sm:min-w-[90px] md:w-[102px] md:min-w-[102px]'
           }`}
         >
-          <span
-            className={`w-full truncate text-center text-micro rounded-full border py-0.5 uppercase tracking-[0.08em] leading-none whitespace-nowrap ${
-              isSquished ? 'px-1.5' : 'px-2'
-            } ${initiativeStatusToneClass}`}
-          >
-            {initiativeStatusLabel}
-          </span>
+          <StatusChip className="max-w-full" status={effectiveInitiativeStatus} reserve={false} />
           {degraded.length > 0 && (
             <span
               className="ml-1 h-2 w-2 flex-shrink-0 rounded-full bg-amber-400/70 animate-pulse"

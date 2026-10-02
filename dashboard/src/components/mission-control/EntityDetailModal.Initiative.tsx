@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { StatusChip } from '@/components/shared/StatusChip';
 import { colors } from '@/lib/tokens';
 import { humanizeWarning } from '@/lib/humanize';
 import { formatRelativeTime } from '@/lib/time';
@@ -305,11 +306,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
               </h2>
             </div>
             <div className="mt-2 flex items-center gap-2">
-              <span
-                className={`rounded-full px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] ${initiativeStatusClass[currentStatus] ?? initiativeStatusClass.active}`}
-              >
-                {formatEntityStatus(currentStatus)}
-              </span>
+              <StatusChip status={currentStatus} />
               <span className="rounded-full border border-strong bg-white/[0.04] px-2 py-0.5 text-micro uppercase tracking-[0.08em] text-white/68">
                 {formatPriorityLabel(initiative.priority)}
               </span>
@@ -533,13 +530,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                               Queue
                             </button>
                           )}
-                          <span
-                            className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getWorkstreamStatusClass(
-                              ws.status
-                            )}`}
-                          >
-                            {formatEntityStatus(ws.status)}
-                          </span>
+                          <StatusChip status={ws.status} />
                         </div>
                       </div>
 
@@ -579,13 +570,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                                     {doneMilestoneTasks}/{milestoneTasks.length} tasks done
                                   </p>
                                 </div>
-                                <span
-                                  className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getMilestoneStatusClass(
-                                    milestone.status
-                                  )}`}
-                                >
-                                  {formatEntityStatus(milestone.status)}
-                                </span>
+                                <StatusChip status={milestone.status} />
                               </button>
                             );
                           })}
@@ -628,13 +613,7 @@ export function InitiativeDetail({ initiative }: InitiativeDetailProps) {
                               </span>
                             </div>
                           </div>
-                          <span
-                            className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getMilestoneStatusClass(
-                              milestone.status
-                            )}`}
-                          >
-                            {formatEntityStatus(milestone.status)}
-                          </span>
+                          <StatusChip status={milestone.status} />
                         </button>
                       ))}
                     </div>

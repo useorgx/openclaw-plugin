@@ -1,7 +1,9 @@
 import { motion } from 'framer-motion';
+import { OxStateChip, type ActionState } from '@useorgx/orgx-ui-kit/react';
 import { cn } from '@/lib/utils';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
 import { MarkdownText } from '@/components/shared/MarkdownText';
+import { colors } from '@/lib/tokens';
 
 const itemVariants = {
   initial: { opacity: 0, y: 8, scale: 0.98 },
@@ -25,11 +27,11 @@ export interface EvidenceChip {
 }
 
 const EVIDENCE_CHIP_COLORS: Record<EvidenceChip['kind'], string> = {
-  pr: '#BFFF00',     // lime
-  commit: '#BFFF00', // lime
+  pr: colors.lime,     // lime
+  commit: colors.lime, // lime
   test: '#67e8f9',   // cyan
   doc: '#0AD4C4',    // teal
-  artifact: '#F5B700', // amber
+  artifact: colors.amber, // amber
 };
 
 function resolveArtifactColor(typeBadge: string | undefined): string {
@@ -41,6 +43,9 @@ function resolveArtifactColor(typeBadge: string | undefined): string {
   return EVIDENCE_CHIP_COLORS.artifact;
 }
 
+/** Every state an activity row can show, so the chip keeps one width (no reflow). */
+const ACTIVITY_CHIP_RESERVE = 'succeeded needs_you blocked failed_step running committed';
+
 export type ActorCategory = 'user' | 'system' | 'orchestrator' | 'agent';
 
 interface ActivityTimelineItemProps {
@@ -50,9 +55,10 @@ interface ActivityTimelineItemProps {
   contextLabel: string;
   detailText: string | null;
   displayAgentName: string;
-  railColor: string;
-  statusColor?: string;
-  userStateLabel: string;
+  /** Kit action state for the row's chip (amber needs you, teal moving or done, red failed). */
+  chipState: ActionState;
+  /** Wording override where the kit has no canonical word (e.g. "Update"). */
+  chipLabel?: string;
   userStateWhy: string;
   relativeTime: string;
   timeLabel: string;
@@ -67,8 +73,8 @@ interface ActivityTimelineItemProps {
 }
 
 const QUEUE_STATE_COLORS: Record<string, string> = {
-  running: '#BFFF00',
-  blocked: '#FF6B88',
+  running: colors.lime,
+  blocked: colors.red,
   queued: 'rgba(255,255,255,0.5)',
   completed: 'rgba(191,255,0,0.5)',
   idle: 'rgba(255,255,255,0.3)',
@@ -81,9 +87,8 @@ export function ActivityTimelineItem({
   contextLabel,
   detailText,
   displayAgentName,
-  railColor,
-  statusColor,
-  userStateLabel,
+  chipState,
+  chipLabel,
   userStateWhy,
   relativeTime,
   timeLabel,
@@ -111,14 +116,7 @@ export function ActivityTimelineItem({
           size="xs"
         />
       </div>
-      <div className="relative min-w-0 flex-1 pl-3">
-        <span
-          className={cn('absolute inset-y-0 left-0 w-[2px] rounded-full', isRecent && !isSystem && 'pulse-soft')}
-          style={{
-            backgroundColor: railColor,
-            boxShadow: isSystem ? 'none' : `0 0 14px ${railColor}66`,
-          }}
-        />
+      <div className="relative min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className={cn("truncate text-caption", isSystem ? "text-muted italic" : "text-secondary")} title={contextLabel}>
@@ -200,17 +198,8 @@ export function ActivityTimelineItem({
         )}
 
         <div className="mt-2 flex flex-wrap items-center gap-1.5 text-micro">
-          <span
-            className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold tracking-[0.01em]"
-            style={{
-              borderColor: `${statusColor ?? railColor}55`,
-              backgroundColor: `${statusColor ?? railColor}1A`,
-              color: statusColor ?? railColor,
-            }}
-            title={userStateWhy}
-          >
-            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: statusColor ?? railColor }} />
-            {userStateLabel}
+          <span title={userStateWhy} className="inline-flex">
+            <OxStateChip state={chipState} label={chipLabel} reserve={ACTIVITY_CHIP_RESERVE} />
           </span>
           <span
             className="inline-flex max-w-[220px] items-center gap-1 rounded-full border border-strong bg-white/[0.03] px-2 py-0.5 text-secondary"

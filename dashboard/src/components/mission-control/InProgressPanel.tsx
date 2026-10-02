@@ -1,4 +1,5 @@
 import { memo, useMemo, useState } from 'react';
+import { StatusChip } from '@/components/shared/StatusChip';
 import { AnimatePresence, motion } from 'framer-motion';
 import { formatDistanceToNow } from 'date-fns';
 import type { Initiative, SessionTreeNode, SliceRunProjection, SliceScope } from '@/types';
@@ -626,14 +627,14 @@ export const InProgressPanel = memo(function InProgressPanel({
               <p className="text-body font-medium text-primary">Execution paused</p>
               <p className="mt-1 text-caption leading-relaxed text-secondary">
                 No active execution is moving in this scope right now.{' '}
-                <span className="tabular-nums font-semibold text-[#F5B700]/90">{needsAttentionCount}</span>{' '}
+                <span className="tabular-nums font-semibold text-orgx-amber/90">{needsAttentionCount}</span>{' '}
                 {needsAttentionCount === 1 ? 'intervention is' : 'interventions are'} preventing the next slice from starting.
               </p>
             </div>
             <button
               type="button"
               onClick={onSwitchToNeedsAttention}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[#F5B700]/25 bg-[#F5B700]/[0.08] px-4 text-caption font-semibold text-[#FFE7A8] transition-colors hover:border-[#F5B700]/40 hover:bg-[#F5B700]/[0.14]"
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-orgx-amber/25 bg-orgx-amber/[0.08] px-4 text-caption font-semibold text-[#FFE7A8] transition-colors hover:border-orgx-amber/40 hover:bg-orgx-amber/[0.14]"
             >
               <span>Review needs attention</span>
               <span className="tabular-nums opacity-80">{needsAttentionCount}</span>
@@ -717,7 +718,7 @@ export const InProgressPanel = memo(function InProgressPanel({
                                 return next;
                               })
                             }
-                            className="text-[11px] text-[#14B8A6] cursor-pointer hover:underline"
+                            className="text-[11px] text-teal cursor-pointer hover:underline"
                           >
                             {showCompleted
                               ? `Hide ${wsGroup.completedCount} completed`
@@ -932,9 +933,7 @@ function InProgressRowCard({
                 {row.scope}
               </Pill>
             )}
-            <span className={`inline-flex rounded-full border px-2 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] ${statusTone(status)}`}>
-              {statusLabel(status)}
-            </span>
+<StatusChip kind="run" status={status} />
             {/* Heartbeat timestamp */}
             {when && (
               <span className="font-mono tabular-nums text-[11px] text-white/40 ml-auto">

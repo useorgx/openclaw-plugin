@@ -1,4 +1,5 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { OxAttentionLine } from '@useorgx/orgx-ui-kit/react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery } from '@tanstack/react-query';
 import { useLiveData } from '@/hooks/useLiveData';
@@ -3525,7 +3526,7 @@ function DashboardShell({
                         className={cn(
                           'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro font-semibold transition-colors',
                           inProgressSubFilter === 'needs_attention'
-                            ? 'bg-[#F5B700]/14 text-[#FFE7A8]'
+                            ? 'bg-orgx-amber/14 text-[#FFE7A8]'
                             : 'text-secondary hover:bg-white/[0.06] hover:text-bright'
                         )}
                       >
@@ -3538,24 +3539,22 @@ function DashboardShell({
                         className={cn(
                           'inline-flex h-6 items-center gap-1 rounded-full px-2.5 text-micro font-semibold transition-colors',
                           inProgressSubFilter === 'completed'
-                            ? 'bg-[#14B8A6]/16 text-[#A9FFF3]'
+                            ? 'bg-teal/16 text-[#A9FFF3]'
                             : 'text-secondary hover:bg-white/[0.06] hover:text-bright'
                         )}
                       >
                         <span>Completed</span>
                         <span className="tabular-nums opacity-80">{completedInProgressCount}</span>
                       </button>
-                      {decisionsVisible && data.decisions.length > 0 ? (
-                        <div className="ml-auto inline-flex h-6 items-center gap-1 rounded-full border border-[#F5B700]/18 bg-[#F5B700]/10 px-2.5 text-micro font-semibold text-[#FFE7A8]">
-                          <span>Decisions</span>
-                          <span className="tabular-nums">{data.decisions.length}</span>
-                        </div>
-                      ) : null}
                     </div>
                     {decisionsVisible && data.decisions.length > 0 ? (
-                      <p className="mt-1.5 pl-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[#FFE7A8]/78">
-                        {data.decisions.length} {data.decisions.length === 1 ? 'decision needs' : 'decisions need'} your input.
-                      </p>
+                      // Say it once: one kit attention line (amber, needs you) instead of a chip plus a caption.
+                      <OxAttentionLine
+                        className="mt-1"
+                        style={{ '--ox-attention-padding': '0 4px' } as CSSProperties}
+                        tone="needs-you"
+                        count={data.decisions.length}
+                      />
                     ) : null}
                   </div>
                 ) : null}
@@ -3580,7 +3579,8 @@ function DashboardShell({
                         {decisionsVisible ? (
                           <section
                             className={cn(
-                              'flex flex-col overflow-hidden rounded-xl border border-subtle bg-white/[0.02]',
+                              // Flat section on the panel (no card inside the card): a hairline separates it.
+                              'flex flex-col overflow-hidden',
                               needsInputRows.length === 0 ? 'flex-1 min-h-[220px]' : 'min-h-[220px] max-h-[50%]'
                             )}
                           >
@@ -3630,7 +3630,7 @@ function DashboardShell({
 
                         <section
                           className={cn(
-                            'flex min-h-[180px] flex-1 flex-col overflow-hidden rounded-xl border border-subtle bg-white/[0.02]'
+                            'flex min-h-[180px] flex-1 flex-col overflow-hidden border-t border-subtle'
                           )}
                         >
                           <div className="border-b border-subtle px-3 py-2.5">

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { StatusChip } from '@/components/shared/StatusChip';
 import { colors } from '@/lib/tokens';
 import { humanizeWarning } from '@/lib/humanize';
 import type { Initiative, InitiativeMilestone } from '@/types';
@@ -132,11 +133,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
           <span className="rounded-full border border-white/[0.12] bg-white/[0.04] px-1.5 py-0.5 text-micro font-semibold uppercase tracking-[0.08em] text-white/65">
             {milestone.hierarchyLabel ?? iwmtLevelCode('milestone')}
           </span>
-          <span
-            className={`text-micro px-2.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getMilestoneStatusClass(milestone.status)}`}
-          >
-            {formatEntityStatus(milestone.status)}
-          </span>
+          <StatusChip status={milestone.status} />
         </div>
         {editMode ? (
           <div className="space-y-2 rounded-xl border border-white/[0.08] bg-white/[0.02] p-3">
@@ -254,13 +251,7 @@ export function MilestoneDetail({ milestone, initiative }: MilestoneDetailProps)
                       </p>
                     )}
                   </div>
-                  <span
-                    className={`text-micro px-1.5 py-0.5 rounded-full border uppercase tracking-[0.08em] ${getTaskStatusClass(
-                      task.status
-                    )}`}
-                  >
-                    {formatEntityStatus(task.status)}
-                  </span>
+                  <StatusChip status={task.status} />
                 </button>
               ))}
             </div>

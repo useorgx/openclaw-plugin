@@ -1,8 +1,8 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { OxAttentionLine, OxFooter, OxStateChip } from '@useorgx/orgx-ui-kit/react';
 import type { DecisionMutationState, LiveDecision } from '@/types';
 import { formatDurationWithUrgency } from '@/lib/time';
-import { colors } from '@/lib/tokens';
 import { cn } from '@/lib/utils';
 import { humanizeWarning } from '@/lib/humanize';
 import { PremiumCard } from '@/components/shared/PremiumCard';
@@ -112,17 +112,8 @@ function InitiativeGroupHeader({
       <span className="text-micro text-muted whitespace-nowrap">
         ({count} decision{count === 1 ? '' : 's'})
       </span>
-      {urgency === 'overdue' && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-red-500/[0.12] px-1.5 py-0.5 text-micro font-medium text-red-400">
-          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-red-400" />
-          overdue
-        </span>
-      )}
-      {urgency === 'urgent' && (
-        <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/[0.12] px-1.5 py-0.5 text-micro font-medium text-amber-400">
-          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-          urgent
-        </span>
+      {urgency !== 'normal' && (
+        <OxStateChip className="ml-auto flex-shrink-0" state="needs_you" detail={urgency} />
       )}
     </motion.div>
   );
@@ -402,13 +393,6 @@ export const DecisionQueue = memo(function DecisionQueue({
   const selectedRecommendedTotal = useMemo(() => {
     return selectedClusters.filter((cluster) => Boolean(cluster.representative.recommendedAction)).length;
   }, [selectedClusters]);
-  const selectedReviewLabel = useMemo(() => {
-    if (selectedClusters.length === 0) return 'No decisions selected';
-    if (selectedClusters.length === 1) {
-      return `Reviewing ${selectedClusters[0].representative.title}`;
-    }
-    return `${selectedClusters.length} decision groups selected`;
-  }, [selectedClusters]);
   const selectionChips = useMemo(() => {
     const chips: string[] = [];
     if (selectedDecisionTotal > 0) {
@@ -571,18 +555,18 @@ export const DecisionQueue = memo(function DecisionQueue({
       className={cn(
         'flex min-h-[32px] items-center gap-2 rounded-lg border px-2.5 py-1.5 text-caption transition-colors overflow-hidden',
         statusTone === 'processing'
-          ? 'border-amber-300/25 bg-amber-400/[0.08] text-amber-100'
+          ? 'border-strong bg-white/[0.03] text-secondary'
           : statusTone === 'success'
-            ? 'border-lime/30 bg-lime/10 text-lime'
+            ? 'border-teal/30 bg-teal/10 text-teal'
             : statusTone === 'warning'
-              ? 'border-red-400/25 bg-red-500/[0.08] text-red-100'
+              ? 'border-orgx-red/30 bg-orgx-red/[0.08] text-orgx-red'
               : 'border-strong bg-white/[0.02] text-secondary'
       )}
     >
       {statusTone === 'processing' ? (
         <span
           aria-hidden
-          className="h-3.5 w-3.5 rounded-full border-2 border-amber-200/45 border-t-transparent animate-spin"
+          className="h-3.5 w-3.5 rounded-full border-2 border-white/40 border-t-transparent animate-spin"
         />
       ) : statusTone === 'success' ? (
         <EntityIcon type="decision" size={12} className="opacity-90" />
@@ -611,60 +595,39 @@ export const DecisionQueue = memo(function DecisionQueue({
   const selectionTray = selectionMode && selectedCount > 0 ? (
     <div
       className={cn(
-        showHeader
-          ? 'mt-3 px-3 pb-3'
-          : 'border-t border-subtle bg-black/40 px-2 pt-2 pb-2 backdrop-blur-xl'
+        showHeader ? 'mt-3' : 'border-t border-subtle bg-black/40 backdrop-blur-xl'
       )}
     >
-      <div className="rounded-xl border border-white/[0.08] bg-black/70 px-3 py-3 backdrop-blur-xl">
-        <div className="space-y-3">
-          <div className="min-w-0 space-y-1">
-            <p className="text-caption font-semibold text-white">{selectedReviewLabel}</p>
-            <p className="text-micro leading-relaxed text-secondary">
-              Review the selected decision basket before applying a shared outcome.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            <span className="chip text-micro">
-              {selectedCount} selected card{selectedCount === 1 ? '' : 's'}
-            </span>
-            {selectionChips.map((chip) => (
-              <span key={chip} className="chip text-micro">
-                {chip}
-              </span>
-            ))}
-          </div>
-          <p className="text-micro leading-relaxed text-white/45">
-            {selectedRecommendedTotal > 0
-              ? 'Recommended paths are present in this selection. Confirm the grouped consequence before approving. '
-              : ''}
-            Bulk actions apply only to the selected decision groups in this rail.
-          </p>
-          <div className="grid grid-cols-1 gap-2">
-            {onRejectDecision ? (
-              <button
-                type="button"
-                onClick={() => void handleApplyBulkAction('reject')}
-                disabled={!selectedEnabled || hasInFlightMutations}
-                className="control-pill h-9 w-full justify-center px-3 text-caption font-semibold disabled:opacity-45"
-              >
-                Reject {selectedDecisionTotal || selectedCount} selected
-              </button>
-            ) : null}
+      <p className="px-4 pt-3 text-micro leading-relaxed text-white/45">
+        {selectedRecommendedTotal > 0
+          ? 'Recommended paths are present in this selection. Confirm the grouped consequence before approving. '
+          : ''}
+        Bulk actions apply only to the selected decision groups in this rail.
+      </p>
+      {/* Bulk approve / reject: the same calls as before, in the kit's footer row. */}
+      <OxFooter
+        flush
+        variant="finishes-here"
+        state={isApprovingAll ? 'sending' : 'needs-you'}
+        heading={`${selectedCount} selected`}
+        detail={selectionChips.join(' · ')}
+        primaryLabel={isApprovingAll ? 'Applying…' : `Approve ${selectedDecisionTotal || selectedCount}`}
+        disabled={!selectedEnabled || hasInFlightMutations}
+        onPrimary={() => void handleApplyBulkAction('approve')}
+        action={
+          onRejectDecision ? (
             <button
               type="button"
-              onClick={() => void handleApplyBulkAction('approve')}
+              onClick={() => void handleApplyBulkAction('reject')}
               disabled={!selectedEnabled || hasInFlightMutations}
-              className="control-pill h-9 w-full justify-center px-3 text-caption font-semibold disabled:opacity-45"
-              data-tone={selectedEnabled ? 'lime' : undefined}
+              aria-label={`Reject ${selectedDecisionTotal || selectedCount} selected`}
+              className="inline-flex min-h-[36px] items-center whitespace-nowrap rounded-[9px] px-2.5 text-caption font-semibold text-secondary transition-colors hover:bg-white/[0.06] hover:text-bright disabled:opacity-45"
             >
-              {isApprovingAll
-                ? 'Applying…'
-                : `Approve ${selectedDecisionTotal || selectedCount} selected`}
+              Reject {selectedDecisionTotal || selectedCount}
             </button>
-          </div>
-        </div>
-      </div>
+          ) : undefined
+        }
+      />
     </div>
   ) : null;
 
@@ -689,21 +652,18 @@ export const DecisionQueue = memo(function DecisionQueue({
       {showHeader ? (
         <div className="space-y-2.5 border-b border-subtle px-4 py-3.5">
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="inline-flex items-center gap-2 text-heading font-semibold text-white">
-                <EntityIcon type="decision" size={14} />
-                Decisions
-              </h2>
-              <p className="mt-0.5 text-caption text-secondary">
-                {pendingCount > 0
-                  ? `${pendingCount} decision${pendingCount === 1 ? '' : 's'} need${pendingCount === 1 ? 's' : ''} your input`
-                  : 'All clear — no decisions pending'}
-              </p>
-              {longestWaitMinutes > 0 ? (
-                <p className="mt-1 text-micro text-white/35">
-                  Longest waiting: {formatDurationWithUrgency(longestWaitMinutes).text}
-                </p>
-              ) : null}
+            <div className="min-w-0 flex-1">
+              <h2 className="sr-only">Decisions</h2>
+              <OxAttentionLine
+                style={{ '--ox-attention-padding': '0' } as CSSProperties}
+                tone={pendingCount > 0 ? 'needs-you' : 'calm'}
+                count={pendingCount}
+                oldest={
+                  pendingCount > 0 && longestWaitMinutes > 0
+                    ? formatDurationWithUrgency(longestWaitMinutes).text
+                    : undefined
+                }
+              />
             </div>
             {selectionControls}
           </div>
@@ -772,258 +732,137 @@ export const DecisionQueue = memo(function DecisionQueue({
           </motion.div>
         )}
 
-        {(enableMotion ? (
-          <AnimatePresence mode="popLayout">
-            {initiativeGroups.map((group) => (
-              <div key={group.initiativeId}>
-                {initiativeGroups.length > 1 ? <InitiativeGroupHeader group={group} /> : null}
-                {group.clusters.map((cluster, idx) => {
-                  const decision = cluster.representative;
-                  const isApproving = cluster.decisions.some((entry) => approving.has(entry.id));
-                  const isSelected = selected.has(cluster.key);
-                  const urgency = getGroupUrgency(decision.waitingMinutes);
-                  const transition = {
-                    duration: 0.24,
-                    ease: [0.22, 1, 0.36, 1] as const,
-                    ...(isApprovingAll ? { delay: idx * 0.04 } : {}),
-                  };
-                  const content = (
-                    <div className="flex items-start gap-2.5">
-                      {selectionMode ? (
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleSelect(cluster.key)}
-                          disabled={isApproving || hasInFlightMutations}
-                          onClick={(event) => event.stopPropagation()}
-                          className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
-                          aria-label={`Select ${decision.title}`}
-                        />
-                      ) : null}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-start gap-1.5">
-                          {urgency !== 'normal' ? (
-                            <span
-                              aria-label={urgency === 'overdue' ? 'Overdue' : 'Urgent'}
-                              className={cn(
-                                'mt-[5px] h-2 w-2 flex-shrink-0 rounded-full',
-                                urgency === 'overdue' ? 'bg-red-400' : 'bg-amber-400'
-                              )}
-                            />
-                          ) : null}
-                          <p className="flex min-w-0 items-start gap-1.5 text-body font-medium text-white" title={clusterDecisionLabel(cluster)}>
-                            <EntityIcon type="decision" size={12} className="mt-[3px] flex-shrink-0 opacity-90" />
-                            <span className="line-clamp-2">{clusterDecisionLabel(cluster)}</span>
-                          </p>
-                        </div>
-                        {decision.context ? (
-                          <p className="mt-1 line-clamp-2 text-caption text-secondary" title={decision.context}>
-                            {decision.context}
-                          </p>
-                        ) : null}
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-micro text-secondary">
-                          <span
-                            className={cn(
-                              'truncate',
-                              urgency === 'overdue'
-                                ? 'text-red-400'
-                                : urgency === 'urgent'
-                                  ? 'text-amber-400'
-                                  : 'text-muted'
-                            )}
-                            title={`${decision.agentName ?? 'OrgX Autopilot'} · ${formatDurationWithUrgency(decision.waitingMinutes).text}`}
-                          >
-                            {decision.agentName ?? 'OrgX Autopilot'} · {formatDurationWithUrgency(decision.waitingMinutes).text}
-                          </span>
-                          {cluster.duplicateCount > 1 ? (
-                            <span className="chip text-micro">
-                              {cluster.duplicateCount} similar requests
-                            </span>
-                          ) : null}
-                          {decision.recommendedAction ? (
-                            <span className="chip text-micro border-[#14B8A6]/28 bg-[#14B8A6]/10 text-[#7AEDE5]">
-                              Recommended path
-                            </span>
-                          ) : null}
-                          {decision.decisionType ? (
-                            <span className="chip text-micro">
-                              {formatDecisionType(decision.decisionType)}
-                            </span>
-                          ) : null}
-                        </div>
-                        {!selectionMode ? (
-                          <div className="mt-2 flex items-center justify-between gap-2 border-t border-white/[0.07] pt-2">
-                            <p className="text-micro text-white/40">
-                              {cluster.duplicateCount > 1
-                                ? 'Open the cluster to inspect the lead decision and related duplicates.'
-                                : 'Open the full decision context before taking action.'}
-                            </p>
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setDetailDecisionId(decision.id);
-                              }}
-                              className="control-pill h-7 px-2.5 text-micro font-semibold"
-                              aria-label={`Review ${decision.title}`}
-                            >
-                              Review
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-
-                  if (enableMotion) {
-                    return (
-                      <motion.article
-                        key={cluster.key}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => {
-                          if (selectionMode) {
-                            toggleSelect(cluster.key);
-                            return;
-                          }
-                          setDetailDecisionId(decision.id);
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key !== 'Enter' && event.key !== ' ') return;
-                          event.preventDefault();
-                          if (selectionMode) {
-                            toggleSelect(cluster.key);
-                            return;
-                          }
-                          setDetailDecisionId(decision.id);
-                        }}
-                        initial={isApprovingAll ? { opacity: 0, x: 300 } : { opacity: 0, y: 8, scale: 0.98 }}
-                        animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.96, y: -6 }}
-                        transition={transition}
-                        layout
-                        className="mt-1.5 rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
-                        style={{
-                          borderColor: isSelected ? `${colors.lime}50` : 'rgba(255, 255, 255, 0.1)',
-                          boxShadow: isSelected ? '0 0 0 1px rgba(191, 255, 0, 0.14)' : 'none',
-                        }}
-                      >
-                        {content}
-                      </motion.article>
-                    );
-                  }
-
-                  return null;
-                })}
-              </div>
-            ))}
-          </AnimatePresence>
-        ) : (
-          initiativeGroups.map((group) => (
-            <div key={group.initiativeId}>
-              {initiativeGroups.length > 1 ? <InitiativeGroupHeader group={group} /> : null}
-              {group.clusters.map((cluster) => {
+        {initiativeGroups.map((group) => (
+          <div key={group.initiativeId}>
+            {initiativeGroups.length > 1 ? <InitiativeGroupHeader group={group} /> : null}
+            <AnimatePresence mode="popLayout" initial={false}>
+              {group.clusters.map((cluster, idx) => {
                 const decision = cluster.representative;
                 const isApproving = cluster.decisions.some((entry) => approving.has(entry.id));
                 const isSelected = selected.has(cluster.key);
                 const urgency = getGroupUrgency(decision.waitingMinutes);
-                return (
-                  <article
-                    key={cluster.key}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => {
-                      if (selectionMode) {
-                        toggleSelect(cluster.key);
-                        return;
-                      }
-                      setDetailDecisionId(decision.id);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key !== 'Enter' && event.key !== ' ') return;
-                      event.preventDefault();
-                      if (selectionMode) {
-                        toggleSelect(cluster.key);
-                        return;
-                      }
-                      setDetailDecisionId(decision.id);
-                    }}
-                    className="mt-1.5 rounded-xl border bg-white/[0.03] px-3 py-2.5 transition-[border-color,box-shadow] cv-auto"
-                    style={{
-                      borderColor: isSelected ? `${colors.lime}50` : 'rgba(255, 255, 255, 0.1)',
-                      boxShadow: isSelected ? '0 0 0 1px rgba(191, 255, 0, 0.14)' : 'none',
-                    }}
-                  >
-                    <div className="flex items-start gap-2.5">
-                      {selectionMode ? (
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleSelect(cluster.key)}
-                          disabled={isApproving || hasInFlightMutations}
-                          onClick={(event) => event.stopPropagation()}
-                          className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
-                          aria-label={`Select ${decision.title}`}
-                        />
+                const waitText = formatDurationWithUrgency(decision.waitingMinutes).text;
+                const open = () => {
+                  if (selectionMode) {
+                    toggleSelect(cluster.key);
+                    return;
+                  }
+                  setDetailDecisionId(decision.id);
+                };
+                // One flat row per decision (no card inside the panel's card):
+                // a hairline between rows, the kit decision glyph, and the wait in
+                // amber once it is urgent. Selection is a quiet fill, not a colored border.
+                const rowProps = {
+                  role: 'button' as const,
+                  tabIndex: 0,
+                  onClick: open,
+                  onKeyDown: (event: React.KeyboardEvent) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    open();
+                  },
+                  'aria-pressed': selectionMode ? isSelected : undefined,
+                  className: cn(
+                    'border-t border-subtle px-2 py-3 transition-colors first:border-t-0 hover:bg-white/[0.03] cv-auto',
+                    isSelected && 'bg-white/[0.05]'
+                  ),
+                };
+                const content = (
+                  <div className="flex items-start gap-2.5">
+                    {selectionMode ? (
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelect(cluster.key)}
+                        disabled={isApproving || hasInFlightMutations}
+                        onClick={(event) => event.stopPropagation()}
+                        className="mt-0.5 h-4 w-4 rounded border-white/20 bg-black/40 text-lime focus:ring-lime/40"
+                        aria-label={`Select ${decision.title}`}
+                      />
+                    ) : null}
+                    <EntityIcon type="decision" size={16} className="mt-[2px] flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="line-clamp-2 text-body font-medium text-white" title={clusterDecisionLabel(cluster)}>
+                        {clusterDecisionLabel(cluster)}
+                      </p>
+                      {decision.context ? (
+                        <p className="mt-1 line-clamp-2 text-caption text-secondary" title={decision.context}>
+                          {decision.context}
+                        </p>
                       ) : null}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex min-w-0 items-start gap-1.5">
-                          {urgency !== 'normal' ? (
-                            <span
-                              aria-label={urgency === 'overdue' ? 'Overdue' : 'Urgent'}
-                              className={cn(
-                                'mt-[5px] h-2 w-2 flex-shrink-0 rounded-full',
-                                urgency === 'overdue' ? 'bg-red-400' : 'bg-amber-400'
-                              )}
-                            />
-                          ) : null}
-                          <p className="flex min-w-0 items-start gap-1.5 text-body font-medium text-white" title={clusterDecisionLabel(cluster)}>
-                            <EntityIcon type="decision" size={12} className="mt-[3px] flex-shrink-0 opacity-90" />
-                            <span className="line-clamp-2">{clusterDecisionLabel(cluster)}</span>
-                          </p>
-                        </div>
-                        {decision.context ? (
-                          <p className="mt-1 line-clamp-2 text-caption text-secondary" title={decision.context}>
-                            {decision.context}
-                          </p>
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-micro text-secondary">
+                        <span
+                          className={cn(
+                            'truncate',
+                            urgency === 'normal' ? 'text-muted' : 'font-semibold text-orgx-amber'
+                          )}
+                          title={`${decision.agentName ?? 'OrgX Autopilot'} · ${waitText}`}
+                        >
+                          {decision.agentName ?? 'OrgX Autopilot'} · {waitText}
+                          {urgency === 'overdue' ? ' · overdue' : ''}
+                        </span>
+                        {cluster.duplicateCount > 1 ? (
+                          <span className="chip text-micro">
+                            {cluster.duplicateCount} similar requests
+                          </span>
                         ) : null}
-                        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-micro text-secondary">
-                          <span>{decision.agentName ?? 'OrgX Autopilot'} · {formatDurationWithUrgency(decision.waitingMinutes).text}</span>
-                          {cluster.duplicateCount > 1 ? (
-                            <span className="chip text-micro">
-                              {cluster.duplicateCount} similar requests
-                            </span>
-                          ) : null}
-                          {decision.recommendedAction ? (
-                            <span className="chip text-micro border-[#14B8A6]/28 bg-[#14B8A6]/10 text-[#7AEDE5]">
-                              Recommended path
-                            </span>
-                          ) : null}
-                        </div>
-                        {!selectionMode ? (
-                          <div className="mt-2 flex items-center justify-end border-t border-white/[0.07] pt-2">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setDetailDecisionId(decision.id);
-                              }}
-                              className="control-pill h-7 px-2.5 text-micro font-semibold"
-                              aria-label={`Review ${decision.title}`}
-                            >
-                              Review
-                            </button>
-                          </div>
+                        {decision.recommendedAction ? (
+                          <span className="chip text-micro border-teal/28 bg-teal/10 text-teal">
+                            Recommended path
+                          </span>
+                        ) : null}
+                        {decision.decisionType ? (
+                          <span className="chip text-micro">
+                            {formatDecisionType(decision.decisionType)}
+                          </span>
                         ) : null}
                       </div>
                     </div>
+                    {!selectionMode ? (
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setDetailDecisionId(decision.id);
+                        }}
+                        className="control-pill h-8 flex-shrink-0 px-3 text-micro font-semibold"
+                        aria-label={`Review ${decision.title}`}
+                      >
+                        Review
+                      </button>
+                    ) : null}
+                  </div>
+                );
+
+                if (enableMotion) {
+                  return (
+                    <motion.article
+                      key={cluster.key}
+                      {...rowProps}
+                      initial={isApprovingAll ? { opacity: 0, x: 300 } : { opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0, x: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{
+                        duration: 0.22,
+                        ease: [0.22, 1, 0.36, 1],
+                        ...(isApprovingAll ? { delay: idx * 0.04 } : {}),
+                      }}
+                      layout
+                    >
+                      {content}
+                    </motion.article>
+                  );
+                }
+
+                return (
+                  <article key={cluster.key} {...rowProps}>
+                    {content}
                   </article>
                 );
               })}
-            </div>
-          ))
+            </AnimatePresence>
+          </div>
         ))}
-
         {visible.length < clusters.length && (
           <button
             onClick={() => setVisibleCount((prev) => Math.min(clusters.length, prev + PAGE_SIZE))}

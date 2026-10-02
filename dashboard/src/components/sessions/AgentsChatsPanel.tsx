@@ -21,7 +21,8 @@ import type {
 import { PremiumCard } from '@/components/shared/PremiumCard';
 import { ProviderLogo } from '@/components/shared/ProviderLogo';
 import { AgentAvatar } from '@/components/agents/AgentAvatar';
-import { AgentHealthRing } from '@/components/agents/AgentHealthRing';
+import { OxStateChip } from '@useorgx/orgx-ui-kit/react';
+import { SESSION_CHIP_RESERVE, toKitState } from '@/lib/agentIdentity';
 import { AgentLaunchModal } from './AgentLaunchModal';
 import { AgentDetailModal } from './AgentDetailModal';
 import { useAgentCatalog, type OpenClawCatalogAgent } from '@/hooks/useAgentCatalog';
@@ -381,6 +382,19 @@ function summaryForNode(node: SessionTreeNode, summaryByRunId: Map<string, strin
   return 'No summary yet. Open the session to inspect messages and outputs.';
 }
 
+/** One kit state chip per session row; reserves the width of every session state so rows never reflow. */
+function SessionStateChip({ status }: { status: string }) {
+  const kit = toKitState(status);
+  return (
+    <OxStateChip
+      className="flex-shrink-0"
+      state={kit.state}
+      label={kit.label}
+      reserve={SESSION_CHIP_RESERVE}
+    />
+  );
+}
+
 function CollapsedSessionGroup({
   status,
   nodes,
@@ -393,7 +407,6 @@ function CollapsedSessionGroup({
   selectedSessionId: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const dotColor = statusColor(status);
   const label =
     status === 'blocked' ? 'blocked' : status === 'failed' ? 'failed' : 'paused';
 
@@ -403,13 +416,10 @@ function CollapsedSessionGroup({
         onClick={() => setExpanded((p) => !p)}
         className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-white/[0.05]"
       >
-        <span
-          className="h-2 w-2 flex-shrink-0 rounded-full"
-          style={{ backgroundColor: dotColor }}
-        />
         <span className="flex-1 text-body text-secondary">
           {nodes.length} {label} sessions
         </span>
+        <SessionStateChip status={status} />
         <motion.span
           animate={{ rotate: expanded ? 90 : 0 }}
           transition={{ duration: 0.15 }}
@@ -1258,7 +1268,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
         )}
 
         {agentFilter && onAgentFilter && (
-          <div className="flex items-center justify-between rounded-lg bg-[#0AD4C4]/[0.08] px-3 py-1.5 text-caption text-[#0AD4C4]">
+          <div className="flex items-center justify-between rounded-lg bg-cyan/[0.08] px-3 py-1.5 text-caption text-cyan">
             <span>Filtered: {agentFilter}</span>
             <button
               type="button"
@@ -1343,7 +1353,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
               className={cn(
                 'overflow-hidden rounded-xl border border-subtle bg-white/[0.02] transition-all',
                 active && 'border-white/20 bg-white/[0.05]',
-                isFiltered && 'border-[#0AD4C4]/30',
+                isFiltered && 'border-cyan/30',
                 !hasSessions && !catalogIsLive && !runtimeIsLive && 'opacity-55'
               )}
             >
@@ -1372,21 +1382,17 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                         <ProviderLogo provider={headerProvider.id} size="sm" showRing={false} />
                       </span>
                     ) : (
-                      <AgentHealthRing
-                        running={group.nodes.filter((n) => { const s = effectiveSessionStatus(n); return s === 'running' || s === 'handoff' || s === 'review'; }).length}
-                        blocked={group.nodes.filter((n) => { const s = effectiveSessionStatus(n); return s === 'blocked' || s === 'failed'; }).length}
-                        paused={group.nodes.filter((n) => { const s = effectiveSessionStatus(n); return s === 'paused' || s === 'cancelled'; }).length}
-                        size={36}
-                      >
-                        <AgentAvatar
-                          name={displayName}
-                          size="sm"
-                          hint={`${group.agentId ?? ''} ${displayName}`}
-                        />
-                      </AgentHealthRing>
+                      // The kit avatar carries the agent's hue ring and its run state as a form
+                      // (working / asking / verifying); the status bar beside it keeps the counts.
+                      <AgentAvatar
+                        name={displayName}
+                        size="sm"
+                        hint={`${group.agentId ?? ''} ${displayName}`}
+                        state={lead ? leadStatus ?? effectiveSessionStatus(lead) : catalogIsLive ? 'running' : null}
+                      />
                     )}
                     {canonicalOrgx && (
-                      <span className="absolute -bottom-1 -left-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#08090D] bg-[#08090D]">
+                      <span className="absolute -bottom-1 -left-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-surface-1 bg-surface-1">
                         <img
                           src="/orgx/live/brand/orgx-logo.png"
                           alt=""
@@ -1635,7 +1641,6 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                                     >
                                       {childProvider.label}
                                     </span>
-                                    <span className="uppercase tracking-[0.08em]">{nodeStatus}</span>
                                     <span title={formatAbsoluteTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}>
                                       {formatRelativeTime(node.updatedAt ?? node.lastEventAt ?? node.startedAt ?? Date.now())}
                                     </span>
@@ -1652,12 +1657,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                                     </div>
                                   )}
                                 </div>
-                                <span
-                                  className="h-2 w-2 flex-shrink-0 rounded-full"
-                                  style={{ backgroundColor: statusColor(nodeStatus) }}
-                                  aria-label={nodeStatus}
-                                  title={nodeStatus}
-                                />
+                                <SessionStateChip status={nodeStatus} />
                               </div>
                             </motion.button>
                           );
@@ -1745,7 +1745,7 @@ export const AgentsChatsPanel = memo(function AgentsChatsPanel({
                           <div className="relative flex-shrink-0">
                             <AgentAvatar name={displayName} size="sm" hint={`${group.agentId ?? ''} ${displayName}`} />
                             {canonicalOrgx && (
-                              <span className="absolute -bottom-1 -left-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-[#08090D] bg-[#08090D]">
+                              <span className="absolute -bottom-1 -left-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-surface-1 bg-surface-1">
                                 <img
                                   src="/orgx/live/brand/orgx-logo.png"
                                   alt=""

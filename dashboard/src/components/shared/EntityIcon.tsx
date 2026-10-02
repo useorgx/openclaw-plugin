@@ -1,6 +1,6 @@
+import { OxGlyph, type GlyphKind } from '@useorgx/orgx-ui-kit/react';
 import type { MissionControlNodeType } from '@/types';
 import { colors } from '@/lib/tokens';
-import { WorkstreamGlyph } from '@/components/shared/WorkstreamGlyph';
 
 export type EntityIconType =
   | MissionControlNodeType
@@ -20,7 +20,35 @@ interface EntityIconProps {
   accent?: string;
 }
 
+/**
+ * Kinds of work the OrgX kit has a glyph for (G1 set). These render through
+ * <ox-glyph> so the dashboard, the MCP widgets and the app draw the same shape.
+ * Muted by default; amber when it needs you (decisions); an explicit accent
+ * colors the glyph instead.
+ */
+const KIT_GLYPHS: Partial<Record<EntityIconType, { kind: GlyphKind; tone: 'muted' | 'amber' | 'teal' }>> = {
+  initiative: { kind: 'initiative', tone: 'muted' },
+  workstream: { kind: 'workstream', tone: 'muted' },
+  milestone: { kind: 'milestone', tone: 'muted' },
+  task: { kind: 'task', tone: 'muted' },
+  decision: { kind: 'decision', tone: 'amber' },
+  session: { kind: 'run', tone: 'teal' },
+};
+
 export function EntityIcon({ type, className = '', size = 14, accent }: EntityIconProps) {
+  const glyph = KIT_GLYPHS[type];
+  if (glyph) {
+    return (
+      <OxGlyph
+        kind={glyph.kind}
+        tone={accent ? 'current' : glyph.tone}
+        size={size}
+        className={className}
+        style={accent ? { color: accent } : undefined}
+      />
+    );
+  }
+
   const commonProps = {
     className,
     width: size,
@@ -31,72 +59,6 @@ export function EntityIcon({ type, className = '', size = 14, accent }: EntityIc
     strokeLinejoin: 'round' as const,
     strokeWidth: 1.8,
   };
-
-  if (type === 'initiative') {
-    const tone = accent ?? colors.iris;
-    return (
-      <svg {...commonProps} stroke={tone}>
-        <circle cx="12" cy="12" r="9" fill={`${tone}1A`} />
-        <circle cx="12" cy="12" r="5" />
-        <circle cx="12" cy="12" r="1.5" fill={tone} stroke="none" />
-      </svg>
-    );
-  }
-
-  if (type === 'workstream') {
-    const tone = accent ?? colors.lime;
-    return (
-      <WorkstreamGlyph
-        size={size}
-        className={className}
-        stroke={tone}
-        strokeWidth={commonProps.strokeWidth}
-        withBackground
-        backgroundColor={`${tone}1A`}
-      />
-    );
-  }
-
-  if (type === 'milestone') {
-    const tone = accent ?? colors.teal;
-    return (
-      <svg {...commonProps} stroke={tone}>
-        <path d="M5 3v18" />
-        <path d="m5 4 12 1-2 4 2 4-12-1z" fill={`${tone}1A`} />
-      </svg>
-    );
-  }
-
-  if (type === 'task') {
-    return (
-      <svg {...commonProps} stroke="rgba(255,255,255,0.76)">
-        <rect x="4" y="4" width="16" height="16" rx="4" fill="rgba(255,255,255,0.12)" />
-        <path d="M9 12.2 11 14.2 15.2 10" />
-      </svg>
-    );
-  }
-
-  if (type === 'decision') {
-    const tone = accent ?? colors.amber;
-    return (
-      <svg {...commonProps} stroke={tone}>
-        <path d="M12 3 5.2 6.1v5.7c0 4.8 3.2 7.5 6.8 9 3.6-1.5 6.8-4.2 6.8-9V6.1z" fill={`${tone}1A`} />
-        <path d="m9.3 12.1 1.8 1.9 3.6-3.6" />
-      </svg>
-    );
-  }
-
-  if (type === 'session') {
-    const tone = accent ?? colors.teal;
-    return (
-      <svg {...commonProps} stroke={tone}>
-        <rect x="4" y="5" width="16" height="14" rx="4" fill={`${tone}14`} />
-        <path d="M8 9h8" />
-        <path d="M8 13h5" />
-        <path d="M8 17h3" />
-      </svg>
-    );
-  }
 
   if (type === 'active') {
     const tone = accent ?? colors.lime;
