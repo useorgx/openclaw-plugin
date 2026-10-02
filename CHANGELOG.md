@@ -2,6 +2,11 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.42 - 2026-10-02
+
+### Dashboard
+- Fixed the decision modal getting stuck in a busy state when approving or rejecting. The re-entrancy guard read a flag set inside a `setPhase` updater, which React 18 can defer, so the handler returned early and never called `onApprove`/`onReject`. The guard is now a ref.
+
 ## 0.7.41 - 2026-09-24
 
 ### Release pipeline

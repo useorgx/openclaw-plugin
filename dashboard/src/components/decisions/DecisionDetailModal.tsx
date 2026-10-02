@@ -235,6 +235,9 @@ export function DecisionDetailModal({
   const [showTechnical, setShowTechnical] = useState(false);
   const noteRef = useRef<HTMLTextAreaElement>(null);
   const autoCloseTimer = useRef<ReturnType<typeof setTimeout>>();
+  // Re-entrancy guard for approve/reject. A ref (not a setState updater) so the
+  // check is synchronous: React may defer updaters to render time.
+  const inFlightRef = useRef(false);
   // Stable ref to onClose so the auto-close timer always calls the latest version
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -452,14 +455,9 @@ export function DecisionDetailModal({
       requestAnimationFrame(() => noteRef.current?.focus());
       return;
     }
-    // Use functional setState to read latest phase without stale closure
-    let shouldProceed = false;
-    setPhase((prev) => {
-      if (prev === 'approving' || prev === 'rejecting') return prev;
-      shouldProceed = true;
-      return 'approving';
-    });
-    if (!shouldProceed) return;
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setPhase('approving');
 
     setErrorMessage(null);
     try {
@@ -477,6 +475,8 @@ export function DecisionDetailModal({
       setPhase('error');
       const raw = err instanceof Error ? err.message : '';
       setErrorMessage(formatDecisionActionError(raw, 'Approval failed.'));
+    } finally {
+      inFlightRef.current = false;
     }
   }, [buildActionInput, decision, note, onApprove, options.length, selectedOptionRecord]);
 
@@ -491,13 +491,9 @@ export function DecisionDetailModal({
       requestAnimationFrame(() => noteRef.current?.focus());
       return;
     }
-    let shouldProceed = false;
-    setPhase((prev) => {
-      if (prev === 'approving' || prev === 'rejecting') return prev;
-      shouldProceed = true;
-      return 'rejecting';
-    });
-    if (!shouldProceed) return;
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    setPhase('rejecting');
 
     setErrorMessage(null);
     try {
@@ -515,6 +511,8 @@ export function DecisionDetailModal({
       setPhase('error');
       const raw = err instanceof Error ? err.message : '';
       setErrorMessage(formatDecisionActionError(raw, 'Rejection failed.'));
+    } finally {
+      inFlightRef.current = false;
     }
   }, [buildActionInput, decision, note, onReject, options.length, selectedOptionRecord]);
 
