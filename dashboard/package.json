@@ -49,10 +49,10 @@
     "nanoid@>=3 <4": "3.3.18",
     "picomatch@>=2 <3": "2.3.2",
     "picomatch@>=4 <5": "4.0.4",
-    "postcss-selector-parser@>=6 <7": "7.1.6",
     "protobufjs@>=7 <8": "7.6.5",
     "rollup@>=4 <5": "4.59.0",
     "source-map-js@>=1 <2": "1.2.2",
-    "braces": "$braces"
+    "braces": "$braces",
+    "postcss-selector-parser": "7.1.6"
   }
 }

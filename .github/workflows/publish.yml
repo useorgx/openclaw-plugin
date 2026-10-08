@@ -1,8 +1,14 @@
 name: Publish to NPM
 
 on:
+  push:
+    tags: ["v*"]
   release:
     types: [published]
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:

@@ -1,0 +1,26 @@
+name: Source release
+
+on:
+  push:
+    tags: ["v*", "security-*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: source-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Create source release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          generate_release_notes: true
+          prerelease: ${{ startsWith(github.ref_name, 'v') && contains(github.ref_name, '-') }}
