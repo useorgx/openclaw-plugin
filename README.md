@@ -45,7 +45,11 @@ openclaw plugins install clawhub:@useorgx/openclaw-plugin
 openclaw plugins install @useorgx/openclaw-plugin
 ```
 
-Then open the OrgX dashboard in your OpenClaw gateway, click **Connect OrgX**, and approve the browser pairing flow. First sync runs automatically after connect.
+Then open the OrgX dashboard on your local OpenClaw gateway and sign in with your OpenClaw gateway token. Click **Connect OrgX** and approve the browser pairing flow. First sync runs automatically after connect.
+
+The local API and MCP bridge require gateway authentication. Configure `gateway.auth.token` in OpenClaw or set `OPENCLAW_GATEWAY_TOKEN`; an unconfigured token disables these HTTP endpoints. Open the dashboard using `localhost`, `127.0.0.1`, or `[::1]` (use an SSH tunnel for a remote gateway). Dashboard sign-in creates an eight-hour, HttpOnly session; restarting the plugin or rotating the gateway token invalidates it.
+
+Local MCP clients must send `Authorization: Bearer <gateway-token>`. Reconnect OrgX to refresh automatically managed client configurations, or add that header to existing client entries. Managed configurations containing the token are saved with owner-only permissions. The hosted OrgX MCP entry continues to use its own OAuth credentials.
 
 Agent-suite provisioning is **opt-in**. MCP client config edits are also **opt-in**. You can review and apply the managed suite later from **Settings -> Agent Suite** in the dashboard, and you can explicitly enable MCP client auto-configuration in plugin config if you want that behavior.
 

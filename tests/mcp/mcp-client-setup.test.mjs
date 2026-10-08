@@ -1,6 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+test("local client configuration includes gateway authentication without changing hosted credentials", async () => {
+  const mod = await importFreshModule();
+  const input = { current: { mcpServers: { orgx: { url: 'https://mcp.useorgx.com/mcp' } } }, localMcpUrl: 'http://127.0.0.1:18789/orgx/mcp', gatewayToken: 'SYNTHETIC_GATEWAY_CONFIG' };
+  for (const patch of [mod.patchClaudeMcpConfig, mod.patchCursorMcpConfig]) {
+    const result = patch(input);
+    assert.equal(result.next.mcpServers['orgx-openclaw'].headers.Authorization, 'Bearer SYNTHETIC_GATEWAY_CONFIG');
+    assert.equal(result.next.mcpServers.orgx.headers, undefined);
+  }
+  const codex = mod.patchCodexConfigToml({ current: '', localMcpUrl: input.localMcpUrl, gatewayToken: input.gatewayToken });
+  assert.match(codex.next, /http_headers = \{ Authorization = "Bearer SYNTHETIC_GATEWAY_CONFIG" \}/);
+  assert.equal(mod.patchCodexConfigToml({ current: codex.next, localMcpUrl: input.localMcpUrl, gatewayToken: input.gatewayToken }).updated, false);
+});
+
 async function importFreshModule() {
   const url = new URL("../../dist/mcp-client-setup.js", import.meta.url);
   url.searchParams.set("t", `${Date.now()}-${Math.random()}`);

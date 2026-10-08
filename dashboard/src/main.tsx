@@ -2,6 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App';
+import { GatewaySignIn } from './components/GatewaySignIn';
 import { initTelemetry } from './lib/telemetry';
 import { initDashboardSentry, Sentry } from './lib/sentry';
 import '@useorgx/orgx-ui-kit/tokens.css';
@@ -47,7 +48,7 @@ createRoot(document.getElementById('root')!).render(
       }
     >
       <QueryClientProvider client={queryClient}>
-        <App />
+        <GatewaySignIn><App /></GatewaySignIn>
       </QueryClientProvider>
     </Sentry.ErrorBoundary>
   </StrictMode>,
