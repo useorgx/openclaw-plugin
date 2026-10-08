@@ -147,3 +147,10 @@ export function readOpenClawGatewayPort(raw: Record<string, unknown> | null): nu
   }
   return 18789;
 }
+
+export function readOpenClawGatewayToken(raw: Record<string, unknown> | null): string | undefined {
+  const auth = readObject(readObject(raw?.gateway).auth);
+  const token = process.env.OPENCLAW_GATEWAY_TOKEN ?? auth.token;
+  return typeof token === "string" && token.trim() && !token.startsWith("${")
+    ? token.trim() : undefined;
+}

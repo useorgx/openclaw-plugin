@@ -30,9 +30,29 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.49",
+    "postcss": "8.5.23",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
-    "vite": "^6.0.5"
+    "vite": "6.4.3",
+    "braces": "file:vendor/security-braces"
+  },
+  "overrides": {
+    "@ai-sdk/provider-utils@>=4 <5": "4.0.33",
+    "@babel/core@>=7 <8": "7.29.6",
+    "@opentelemetry/core@>=2 <3": "2.8.0",
+    "@protobufjs/utf8@>=1 <2": "1.1.1",
+    "baseline-browser-mapping@>=2 <3": "2.11.0",
+    "brace-expansion@>=5 <6": "5.0.12",
+    "browserslist@>=4 <5": "4.28.7",
+    "dompurify@>=3 <4": "3.4.16",
+    "fflate@>=0 <1": "0.4.9",
+    "nanoid@>=3 <4": "3.3.18",
+    "picomatch@>=2 <3": "2.3.2",
+    "picomatch@>=4 <5": "4.0.4",
+    "postcss-selector-parser@>=6 <7": "7.1.6",
+    "protobufjs@>=7 <8": "7.6.5",
+    "rollup@>=4 <5": "4.59.0",
+    "source-map-js@>=1 <2": "1.2.2",
+    "braces": "$braces"
   }
 }

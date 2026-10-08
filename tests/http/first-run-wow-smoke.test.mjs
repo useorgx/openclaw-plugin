@@ -29,6 +29,7 @@ function createStubResponse() {
 function createApiStub(configOverrides = {}) {
   const stub = {
     config: {
+      gateway: { auth: { token: "SYNTHETIC_GATEWAY_TEST" } },
       plugins: {
         entries: {
           orgx: {
@@ -62,7 +63,7 @@ async function readOnboardingStatus(handler) {
     {
       method: "GET",
       url: "/orgx/api/onboarding/status",
-      headers: {},
+      headers: { host: "127.0.0.1:18789", authorization: "Bearer SYNTHETIC_GATEWAY_TEST" },
     },
     res
   );
@@ -92,7 +93,7 @@ test("first-run smoke: disconnect path returns connect onboarding state and live
       {
         method: "POST",
         url: "/orgx/api/onboarding/disconnect",
-        headers: {},
+        headers: { host: "127.0.0.1:18789", authorization: "Bearer SYNTHETIC_GATEWAY_TEST" },
       },
       disconnectRes
     );
@@ -110,7 +111,7 @@ test("first-run smoke: disconnect path returns connect onboarding state and live
       {
         method: "GET",
         url: "/orgx",
-        headers: {},
+        headers: { host: "127.0.0.1:18789", authorization: "Bearer SYNTHETIC_GATEWAY_TEST" },
       },
       rootRes
     );
@@ -122,7 +123,7 @@ test("first-run smoke: disconnect path returns connect onboarding state and live
       {
         method: "GET",
         url: "/orgx/live",
-        headers: {},
+        headers: { host: "127.0.0.1:18789", authorization: "Bearer SYNTHETIC_GATEWAY_TEST" },
       },
       liveRes
     );
