@@ -134,7 +134,7 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@sentry/node": "10.65.0",
+    "@sentry/node": "11.4.0",
     "better-sqlite3": "^11.10.0"
   }
 }
