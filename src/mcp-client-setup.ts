@@ -9,6 +9,7 @@ import type { Logger } from "./mcp-http-handler.js";
 
 const ORGX_LOCAL_MCP_KEY = "orgx-openclaw";
 const ORGX_HOSTED_MCP_URL = "https://mcp.useorgx.com/mcp";
+const ORGX_OPERATION_MCP_URL = `${ORGX_HOSTED_MCP_URL}?profile=v2`;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -89,7 +90,7 @@ export function patchClaudeMcpConfig(input: {
   const nextOrgxEntry: Record<string, unknown> = {
     ...existingOrgx,
     type: "http",
-    url: ORGX_HOSTED_MCP_URL,
+    url: ORGX_OPERATION_MCP_URL,
     description:
       typeof existingOrgx.description === "string" && existingOrgx.description.trim().length > 0
         ? existingOrgx.description
@@ -121,7 +122,7 @@ export function patchClaudeMcpConfig(input: {
   const updatedLocal = priorUrl !== input.localMcpUrl || priorType !== "http";
   const updatedHosted =
     shouldSetHostedOrgx &&
-    (existingOrgxUrl !== ORGX_HOSTED_MCP_URL || existingOrgxType !== "http");
+    (existingOrgxUrl !== ORGX_OPERATION_MCP_URL || existingOrgxType !== "http");
   const updated = updatedLocal || updatedHosted || scopedCleanup.updated;
   return { updated, next };
 }
@@ -158,6 +159,7 @@ function upsertCodexMcpServerSection(input: {
   current: string;
   key: string;
   url: string;
+  preserveHostedUrl?: boolean;
 }): { updated: boolean; next: string } {
   const currentText = input.current;
   const lines = currentText.split(/\r?\n/);
@@ -199,7 +201,16 @@ function upsertCodexMcpServerSection(input: {
   }
 
   if (urlIndex >= 0) {
-    if (lines[urlIndex].trim() !== urlLine) {
+    const priorUrl = lines[urlIndex].match(/^\s*url\s*=\s*["']([^"']+)["']/)?.[1];
+    let keepHostedUrl = false;
+    if (input.preserveHostedUrl && priorUrl) {
+      try {
+        const url = new URL(priorUrl);
+        keepHostedUrl = url.origin === new URL(ORGX_HOSTED_MCP_URL).origin &&
+          (url.pathname === "/mcp" || url.pathname === "/sse");
+      } catch { /* An invalid URL follows the ordinary repair path. */ }
+    }
+    if (!keepHostedUrl && lines[urlIndex].trim() !== urlLine) {
       lines[urlIndex] = urlLine;
       updated = true;
     }
@@ -284,7 +295,8 @@ export function patchCodexConfigToml(input: {
   const hosted = upsertCodexMcpServerSection({
     current,
     key: "orgx",
-    url: ORGX_HOSTED_MCP_URL,
+    url: ORGX_OPERATION_MCP_URL,
+    preserveHostedUrl: true,
   });
   updated = updated || hosted.updated;
   current = hosted.next;
