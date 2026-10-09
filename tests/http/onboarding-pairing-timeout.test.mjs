@@ -30,6 +30,7 @@ function createStubResponse() {
 function createApiStub(configOverrides = {}) {
   const stub = {
     config: {
+      gateway: { auth: { token: "SYNTHETIC_GATEWAY_TEST" } },
       plugins: {
         entries: {
           orgx: {
@@ -149,7 +150,7 @@ test("Onboarding pairing start uses an extended timeout for /api/plugin/openclaw
       {
         method: "POST",
         url: "/orgx/api/onboarding/start",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", host: "127.0.0.1:18789", authorization: "Bearer SYNTHETIC_GATEWAY_TEST" },
         body: JSON.stringify({ platform: "darwin", openclawVersion: "0.0-test" }),
       },
       res
@@ -226,7 +227,7 @@ test("Onboarding pairing start surfaces request tracing on failure", async () =>
       {
         method: "POST",
         url: "/orgx/api/onboarding/start",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", host: "127.0.0.1:18789", authorization: "Bearer SYNTHETIC_GATEWAY_TEST" },
         body: JSON.stringify({ platform: "darwin", openclawVersion: "0.0-test" }),
       },
       res
@@ -293,7 +294,7 @@ test("Onboarding pairing start retries against canonical OrgX URL when configure
       {
         method: "POST",
         url: "/orgx/api/onboarding/start",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", host: "127.0.0.1:18789", authorization: "Bearer SYNTHETIC_GATEWAY_TEST" },
         body: JSON.stringify({ platform: "darwin", openclawVersion: "0.0-test" }),
       },
       res

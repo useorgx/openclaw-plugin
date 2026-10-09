@@ -6,6 +6,7 @@ import {
 import { autoConfigureDetectedMcpClients } from "../mcp-client-setup.js";
 import {
   readOpenClawGatewayPort,
+  readOpenClawGatewayToken,
   readOpenClawSettingsSnapshot,
 } from "../openclaw-settings.js";
 import type { OnboardingState } from "../types.js";
@@ -81,6 +82,7 @@ export function applyRuntimeApiKey(input: {
       const localMcpUrl = `http://127.0.0.1:${port}/orgx/mcp`;
       void autoConfigureDetectedMcpClients({
         localMcpUrl,
+        gatewayToken: readOpenClawGatewayToken(snapshot.raw),
         logger: input.logger ?? {},
       }).catch(() => {
         // best effort

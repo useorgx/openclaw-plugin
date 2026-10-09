@@ -21,6 +21,7 @@ import type {
   ReportingPhase,
 } from "./types.js";
 import { createHttpHandler } from "./http-handler.js";
+import { createLocalHttpAuth } from "./local-http-auth.js";
 import { applyOrgxAgentSuitePlan, computeOrgxAgentSuitePlan } from "./agent-suite.js";
 import {
   autoAssignEntityForCreate as autoAssignEntityForCreateWithClient,
@@ -114,6 +115,7 @@ const ORGX_CANONICAL_BASE_URL = "https://www.useorgx.com";
 
 export interface PluginAPI {
   config?: {
+    gateway?: { auth?: { token?: string } };
     plugins?: {
       entries?: {
         orgx?: {
@@ -2048,11 +2050,15 @@ export default function register(api: PluginAPI): void {
     serverVersion: config.pluginVersion,
   });
 
+  const authorizeLocalHttp = createLocalHttpAuth(() =>
+    process.env.OPENCLAW_GATEWAY_TOKEN ?? api.config?.gateway?.auth?.token
+  );
   const compositeHttpHandler = async (
     req: Parameters<typeof httpHandler>[0],
     res: Parameters<typeof httpHandler>[1]
   ) => {
     try {
+      if (!authorizeLocalHttp(req, res)) return true;
       if (await mcpHttpHandler(req, res)) return true;
       return await httpHandler(req, res);
     } catch (error) {

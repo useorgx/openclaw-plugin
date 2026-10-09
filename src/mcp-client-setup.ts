@@ -71,6 +71,7 @@ function removeLegacyScopedMcpServers(servers: Record<string, unknown>): {
 export function patchClaudeMcpConfig(input: {
   current: Record<string, unknown>;
   localMcpUrl: string;
+  gatewayToken?: string;
 }): { updated: boolean; next: Record<string, unknown> } {
   const currentServers = isRecord(input.current.mcpServers) ? input.current.mcpServers : {};
   const existingOrgx = isRecord(currentServers.orgx) ? currentServers.orgx : {};
@@ -101,6 +102,7 @@ export function patchClaudeMcpConfig(input: {
     ...existing,
     type: "http",
     url: input.localMcpUrl,
+    ...(input.gatewayToken ? { headers: { Authorization: `Bearer ${input.gatewayToken}` } } : {}),
     description:
       typeof existing.description === "string" && existing.description.trim().length > 0
         ? existing.description
@@ -119,7 +121,7 @@ export function patchClaudeMcpConfig(input: {
     mcpServers: scopedCleanup.next,
   };
 
-  const updatedLocal = priorUrl !== input.localMcpUrl || priorType !== "http";
+  const updatedLocal = priorUrl !== input.localMcpUrl || priorType !== "http" || Boolean(input.gatewayToken && JSON.stringify(existing.headers) !== JSON.stringify(nextEntry.headers));
   const updatedHosted =
     shouldSetHostedOrgx &&
     (existingOrgxUrl !== ORGX_OPERATION_MCP_URL || existingOrgxType !== "http");
@@ -130,6 +132,7 @@ export function patchClaudeMcpConfig(input: {
 export function patchCursorMcpConfig(input: {
   current: Record<string, unknown>;
   localMcpUrl: string;
+  gatewayToken?: string;
 }): { updated: boolean; next: Record<string, unknown> } {
   const currentServers = isRecord(input.current.mcpServers) ? input.current.mcpServers : {};
   const existing = isRecord(currentServers[ORGX_LOCAL_MCP_KEY]) ? currentServers[ORGX_LOCAL_MCP_KEY] : {};
@@ -138,6 +141,7 @@ export function patchCursorMcpConfig(input: {
   const nextEntry: Record<string, unknown> = {
     ...existing,
     url: input.localMcpUrl,
+    ...(input.gatewayToken ? { headers: { Authorization: `Bearer ${input.gatewayToken}` } } : {}),
   };
 
   const mergedServers: Record<string, unknown> = {
@@ -151,7 +155,7 @@ export function patchCursorMcpConfig(input: {
     mcpServers: scopedCleanup.next,
   };
 
-  const updated = priorUrl !== input.localMcpUrl || scopedCleanup.updated;
+  const updated = priorUrl !== input.localMcpUrl || scopedCleanup.updated || Boolean(input.gatewayToken && JSON.stringify(existing.headers) !== JSON.stringify(nextEntry.headers));
   return { updated, next };
 }
 
@@ -160,6 +164,7 @@ function upsertCodexMcpServerSection(input: {
   key: string;
   url: string;
   preserveHostedUrl?: boolean;
+  gatewayToken?: string;
 }): { updated: boolean; next: string } {
   const currentText = input.current;
   const lines = currentText.split(/\r?\n/);
@@ -174,11 +179,12 @@ function upsertCodexMcpServerSection(input: {
   }
 
   const urlLine = `url = "${input.url}"`;
+  const authLine = input.gatewayToken ? `http_headers = { Authorization = ${JSON.stringify(`Bearer ${input.gatewayToken}`)} }` : undefined;
 
   if (headerIndex === -1) {
     const needsQuote = /[^A-Za-z0-9_]/.test(input.key);
     const keyLiteral = needsQuote ? `"${input.key}"` : input.key;
-    const suffix = ["", `[mcp_servers.${keyLiteral}]`, urlLine, ""].join("\n");
+    const suffix = ["", `[mcp_servers.${keyLiteral}]`, urlLine, ...(authLine ? [authLine] : []), ""].join("\n");
     const normalized = currentText.endsWith("\n") ? currentText : `${currentText}\n`;
     return { updated: true, next: `${normalized}${suffix}` };
   }
@@ -225,6 +231,13 @@ function upsertCodexMcpServerSection(input: {
         break;
       }
     }
+  }
+
+  if (authLine) {
+    const authIndex = lines.findIndex((line, index) => index > headerIndex && index < sectionEnd && /^\s*http_headers\s*=/.test(line));
+    if (authIndex >= 0) {
+      if (lines[authIndex] !== authLine) { lines[authIndex] = authLine; updated = true; }
+    } else { lines.splice(headerIndex + 1, 0, authLine); sectionEnd++; updated = true; }
   }
 
   // Strip stale stdio-transport fields that conflict with url-only entries.
@@ -285,6 +298,7 @@ function removeCodexLegacyScopedMcpSections(input: {
 export function patchCodexConfigToml(input: {
   current: string;
   localMcpUrl: string;
+  gatewayToken?: string;
 }): { updated: boolean; next: string } {
   let current = input.current;
   let updated = false;
@@ -305,6 +319,7 @@ export function patchCodexConfigToml(input: {
     current,
     key: ORGX_LOCAL_MCP_KEY,
     url: input.localMcpUrl,
+    gatewayToken: input.gatewayToken,
   });
   updated = updated || base.updated;
   current = base.next;
@@ -321,6 +336,7 @@ export function patchCodexConfigToml(input: {
 
 export async function autoConfigureDetectedMcpClients(input: {
   localMcpUrl: string;
+  gatewayToken?: string;
   logger?: Logger;
   homeDir?: string;
 }): Promise<{ updatedPaths: string[]; skippedPaths: string[] }> {
@@ -344,12 +360,12 @@ export async function autoConfigureDetectedMcpClients(input: {
       continue;
     }
 
-    const mode = fileModeOrDefault(target.path, 0o600);
+    const mode = input.gatewayToken ? 0o600 : fileModeOrDefault(target.path, 0o600);
 
     try {
       if (target.kind === "codex") {
         const current = readFileSync(target.path, "utf8");
-        const patched = patchCodexConfigToml({ current, localMcpUrl: input.localMcpUrl });
+        const patched = patchCodexConfigToml({ current, localMcpUrl: input.localMcpUrl, gatewayToken: input.gatewayToken });
         if (!patched.updated) {
           skippedPaths.push(target.path);
           continue;
@@ -381,8 +397,8 @@ export async function autoConfigureDetectedMcpClients(input: {
 
       const patched =
         target.kind === "claude"
-          ? patchClaudeMcpConfig({ current, localMcpUrl: input.localMcpUrl })
-          : patchCursorMcpConfig({ current, localMcpUrl: input.localMcpUrl });
+          ? patchClaudeMcpConfig({ current, localMcpUrl: input.localMcpUrl, gatewayToken: input.gatewayToken })
+          : patchCursorMcpConfig({ current, localMcpUrl: input.localMcpUrl, gatewayToken: input.gatewayToken });
 
       if (!patched.updated) {
         skippedPaths.push(target.path);

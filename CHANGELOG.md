@@ -2,6 +2,13 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.43 - 2026-10-08
+
+### Security
+- Require the local gateway token for OrgX API and MCP access, with browser origin checks and an HttpOnly dashboard session.
+- Authenticate generated MCP client configurations and restrict their file permissions.
+- Patch dashboard parser nesting and vulnerable resolved dependencies, and pin CI actions.
+
 ## 0.7.42 - 2026-10-02
 
 ### Dashboard
