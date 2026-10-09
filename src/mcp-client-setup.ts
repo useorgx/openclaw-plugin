@@ -19,6 +19,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+function isLocalProxyUrl(value: string, localMcpUrl: string): boolean {
+  if (value === localMcpUrl) return true;
+  try {
+    const prior = new URL(value);
+    const local = new URL(localMcpUrl);
+    const loopback = new Set(["localhost", "127.0.0.1", "[::1]"]);
+    return (prior.protocol === "http:" || prior.protocol === "https:") &&
+      loopback.has(prior.hostname) && loopback.has(local.hostname) &&
+      prior.pathname === local.pathname;
+  } catch { return false; }
+}
+
 function parseJsonObjectSafe(raw: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(raw);
@@ -77,7 +89,9 @@ export function patchClaudeMcpConfig(input: {
   const existingOrgx = isRecord(currentServers.orgx) ? currentServers.orgx : {};
   const existingOrgxUrl = typeof existingOrgx.url === "string" ? existingOrgx.url : "";
   const existingOrgxType = typeof existingOrgx.type === "string" ? existingOrgx.type : "";
-  const existing = isRecord(currentServers[ORGX_LOCAL_MCP_KEY]) ? currentServers[ORGX_LOCAL_MCP_KEY] : {};
+  const existingLocal = isRecord(currentServers[ORGX_LOCAL_MCP_KEY]) ? currentServers[ORGX_LOCAL_MCP_KEY] : {};
+  const migratingLocalOrgx = isLocalProxyUrl(existingOrgxUrl, input.localMcpUrl) && existingOrgxType === "http";
+  const existing = { ...(migratingLocalOrgx ? existingOrgx : {}), ...existingLocal };
   const priorUrl = typeof existing.url === "string" ? existing.url : "";
   const priorType = typeof existing.type === "string" ? existing.type : "";
 
@@ -86,14 +100,16 @@ export function patchClaudeMcpConfig(input: {
   // local proxy URL we install under `orgx-openclaw`).
   const shouldSetHostedOrgx =
     !isRecord(currentServers.orgx) ||
-    (existingOrgxUrl === input.localMcpUrl && existingOrgxType === "http");
+    migratingLocalOrgx;
 
   const nextOrgxEntry: Record<string, unknown> = {
-    ...existingOrgx,
+    // Credentials attached to the old local proxy belong only to its local
+    // replacement. Hosted OAuth starts with a clean entry when migrating it.
+    ...(migratingLocalOrgx ? {} : existingOrgx),
     type: "http",
     url: ORGX_OPERATION_MCP_URL,
     description:
-      typeof existingOrgx.description === "string" && existingOrgx.description.trim().length > 0
+      !migratingLocalOrgx && typeof existingOrgx.description === "string" && existingOrgx.description.trim().length > 0
         ? existingOrgx.description
         : "OrgX cloud MCP (OAuth)",
   };
@@ -163,13 +179,15 @@ function upsertCodexMcpServerSection(input: {
   current: string;
   key: string;
   url: string;
-  preserveHostedUrl?: boolean;
+  preserveExistingUrl?: boolean;
   gatewayToken?: string;
 }): { updated: boolean; next: string } {
   const currentText = input.current;
   const lines = currentText.split(/\r?\n/);
   const escapedKey = escapeRegExp(input.key);
-  const headerRegex = new RegExp(`^\\[mcp_servers\\.(?:"${escapedKey}"|'${escapedKey}'|${escapedKey})\\]\\s*$`);
+  const headerRegex = new RegExp(`^\\[mcp_servers\\.(?:"${escapedKey}"|'${escapedKey}'|${escapedKey})\\]\\s*(?:#.*)?$`);
+  const nestedCredentialRegex = new RegExp(`^\\[mcp_servers\\.(?:"${escapedKey}"|'${escapedKey}'|${escapedKey})\\.(?:http_headers|"http_headers"|'http_headers'|env_http_headers|"env_http_headers"|'env_http_headers')\\]`);
+  const rootCredentialRegex = /^\s*(?:http_headers|"http_headers"|'http_headers'|env_http_headers|"env_http_headers"|'env_http_headers'|bearer_token_env_var|"bearer_token_env_var"|'bearer_token_env_var')\s*(?:=|\.)/;
   let headerIndex = -1;
   for (let i = 0; i < lines.length; i += 1) {
     if (headerRegex.test(lines[i].trim())) {
@@ -182,6 +200,9 @@ function upsertCodexMcpServerSection(input: {
   const authLine = input.gatewayToken ? `http_headers = { Authorization = ${JSON.stringify(`Bearer ${input.gatewayToken}`)} }` : undefined;
 
   if (headerIndex === -1) {
+    if (input.preserveExistingUrl && lines.some((line) => nestedCredentialRegex.test(line.trim()))) {
+      return { updated: false, next: currentText };
+    }
     const needsQuote = /[^A-Za-z0-9_]/.test(input.key);
     const keyLiteral = needsQuote ? `"${input.key}"` : input.key;
     const suffix = ["", `[mcp_servers.${keyLiteral}]`, urlLine, ...(authLine ? [authLine] : []), ""].join("\n");
@@ -200,23 +221,25 @@ function upsertCodexMcpServerSection(input: {
   let updated = false;
   let urlIndex = -1;
   for (let i = headerIndex + 1; i < sectionEnd; i += 1) {
-    if (/^\s*url\s*=/.test(lines[i])) {
+    if (/^\s*(?:url|"url"|'url')\s*=/.test(lines[i])) {
       urlIndex = i;
       break;
     }
   }
 
+  if (input.preserveExistingUrl && urlIndex < 0 && (
+    lines.slice(headerIndex + 1, sectionEnd).some((line) => rootCredentialRegex.test(line)) ||
+    lines.some((line) => nestedCredentialRegex.test(line.trim()))
+  )) {
+    // A credential-bearing stdio entry has no verified remote URL to migrate.
+    // Keep it intact instead of forwarding its authority to a new origin.
+    return { updated: false, next: currentText };
+  }
+
   if (urlIndex >= 0) {
-    const priorUrl = lines[urlIndex].match(/^\s*url\s*=\s*["']([^"']+)["']/)?.[1];
-    let keepHostedUrl = false;
-    if (input.preserveHostedUrl && priorUrl) {
-      try {
-        const url = new URL(priorUrl);
-        keepHostedUrl = url.origin === new URL(ORGX_HOSTED_MCP_URL).origin &&
-          (url.pathname === "/mcp" || url.pathname === "/sse");
-      } catch { /* An invalid URL follows the ordinary repair path. */ }
-    }
-    if (!keepHostedUrl && lines[urlIndex].trim() !== urlLine) {
+    // Known local OrgX connections were split before this upsert. Any other
+    // configured endpoint belongs to the user, including its credentials.
+    if (!input.preserveExistingUrl && lines[urlIndex].trim() !== urlLine) {
       lines[urlIndex] = urlLine;
       updated = true;
     }
@@ -233,13 +256,6 @@ function upsertCodexMcpServerSection(input: {
     }
   }
 
-  if (authLine) {
-    const authIndex = lines.findIndex((line, index) => index > headerIndex && index < sectionEnd && /^\s*http_headers\s*=/.test(line));
-    if (authIndex >= 0) {
-      if (lines[authIndex] !== authLine) { lines[authIndex] = authLine; updated = true; }
-    } else { lines.splice(headerIndex + 1, 0, authLine); sectionEnd++; updated = true; }
-  }
-
   // Strip stale stdio-transport fields that conflict with url-only entries.
   // Codex rejects `url` when `command`/`args` are present (stdio transport).
   const staleFieldRegex = /^\s*(command|args|startup_timeout_sec)\s*=/;
@@ -250,7 +266,69 @@ function upsertCodexMcpServerSection(input: {
     }
   }
 
+  if (authLine) {
+    const nestedHeaderRegex = new RegExp(`^\\[mcp_servers\\.(?:"${escapedKey}"|'${escapedKey}'|${escapedKey})\\.(?:http_headers|"http_headers"|'http_headers')\\]\\s*(?:#.*)?$`);
+    const nestedHeaderIndex = lines.findIndex((line) => nestedHeaderRegex.test(line.trim()));
+    if (nestedHeaderIndex >= 0) {
+      let nestedEnd = lines.length;
+      for (let i = nestedHeaderIndex + 1; i < lines.length; i += 1) {
+        if (lines[i].trim().startsWith("[")) { nestedEnd = i; break; }
+      }
+      const authorizationLine = `Authorization = ${JSON.stringify(`Bearer ${input.gatewayToken}`)}`;
+      const authIndexes = [];
+      for (let i = nestedHeaderIndex + 1; i < nestedEnd; i += 1) {
+        if (/^\s*(?:"authorization"|'authorization'|authorization)\s*=/i.test(lines[i])) authIndexes.push(i);
+      }
+      if (authIndexes.length !== 1 || lines[authIndexes[0]].trim() !== authorizationLine) {
+        for (const i of authIndexes.reverse()) lines.splice(i, 1);
+        lines.splice(nestedHeaderIndex + 1, 0, authorizationLine);
+        updated = true;
+      }
+    } else {
+      // Re-find the root section after stale fields were removed.
+      sectionEnd = lines.findIndex((line, index) => index > headerIndex && line.trim().startsWith("["));
+      if (sectionEnd < 0) sectionEnd = lines.length;
+      const authIndex = lines.findIndex((line, index) => index > headerIndex && index < sectionEnd && /^\s*(?:http_headers|"http_headers"|'http_headers')\s*=/.test(line));
+      if (authIndex >= 0) {
+        if (lines[authIndex] !== authLine) { lines[authIndex] = authLine; updated = true; }
+      } else { lines.splice(headerIndex + 1, 0, authLine); updated = true; }
+    }
+  }
+
   return { updated, next: `${lines.join("\n")}\n` };
+}
+
+function splitCodexLocalOrgxConnection(current: string, localMcpUrl: string): string {
+  const lines = current.split(/\r?\n/);
+  const sourceHeader = /^\[mcp_servers\.(?:"orgx"|'orgx'|orgx)\]\s*(?:#.*)?$/;
+  const sourcePrefix = /^\s*\[mcp_servers\.(?:"orgx"|'orgx'|orgx)(?=\.|\])/;
+  const localHeader = /^\[mcp_servers\.(?:"orgx-openclaw"|'orgx-openclaw'|orgx-openclaw)\]\s*(?:#.*)?$/;
+  const sourceIndex = lines.findIndex((line) => sourceHeader.test(line.trim()));
+  if (sourceIndex < 0) return current;
+  let sourceEnd = lines.findIndex((line, index) => index > sourceIndex && line.trim().startsWith("["));
+  if (sourceEnd < 0) sourceEnd = lines.length;
+  const priorUrl = lines.slice(sourceIndex + 1, sourceEnd)
+    .map((line) => line.match(/^\s*(?:url|"url"|'url')\s*=\s*["']([^"']+)["']/)?.[1])
+    .find((url) => url !== undefined);
+  if (!priorUrl || !isLocalProxyUrl(priorUrl, localMcpUrl)) return current;
+
+  const hasLocalEntry = lines.some((line) => localHeader.test(line.trim()));
+  const next: string[] = [];
+  let removeSourceSection = false;
+  for (const line of lines) {
+    if (line.trim().startsWith("[")) {
+      const sourceSection = sourcePrefix.test(line.trim());
+      removeSourceSection = sourceSection && hasLocalEntry;
+      if (sourceSection && !hasLocalEntry) {
+        next.push(line.replace(sourcePrefix, '[mcp_servers."orgx-openclaw"'));
+        continue;
+      }
+    }
+    if (!removeSourceSection) next.push(line);
+  }
+  // A migrated local section keeps its own headers and settings. The hosted
+  // entry will be created separately, without any of that local authority.
+  return next.join("\n");
 }
 
 function removeCodexLegacyScopedMcpSections(input: {
@@ -300,8 +378,8 @@ export function patchCodexConfigToml(input: {
   localMcpUrl: string;
   gatewayToken?: string;
 }): { updated: boolean; next: string } {
-  let current = input.current;
-  let updated = false;
+  let current = splitCodexLocalOrgxConnection(input.current, input.localMcpUrl);
+  let updated = current !== input.current;
 
   // Ensure the hosted OrgX entry uses a direct `url` (streamable HTTP) so that
   // `codex mcp login orgx` can perform OAuth.  Route through upsertCodexMcpServerSection
@@ -310,7 +388,7 @@ export function patchCodexConfigToml(input: {
     current,
     key: "orgx",
     url: ORGX_OPERATION_MCP_URL,
-    preserveHostedUrl: true,
+    preserveExistingUrl: true,
   });
   updated = updated || hosted.updated;
   current = hosted.next;
