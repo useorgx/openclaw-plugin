@@ -821,3 +821,10 @@ The npm package must have trusted publishing configured for this repository and 
 ## License
 
 MIT
+
+## Hosted MCP operation migration
+
+The local `orgx-openclaw` MCP catalog and REST-backed operations remain
+independent of the hosted MCP catalog. Fresh secondary hosted connections use
+`profile=v2`; configuration repairs preserve custom hosted URLs and headers.
+The local catalog and Gateway run receipts use their own contracts.
