@@ -57,8 +57,8 @@ The default-safe reporting tools still apply and should usually wrap elevated wo
 
 ## Operating discipline
 
-1. Announce intent with `orgx_emit_activity` before making mutations.
-2. Prefer `orgx_request_decision` before irreversible or org-wide changes.
+1. Report intent with `orgx_emit_activity` when IDs and transport are available; missing optional reporting does not block an otherwise authorized action.
+2. Use `orgx_request_decision` when an irreversible or org-wide change lacks existing user authority. Do not request the same permission again.
 3. Use `orgx_apply_changeset` when you need idempotent batched state updates.
 4. Register artifacts for anything another operator would need to inspect later.
 5. Verify completion and proof state after major mutations.
@@ -101,4 +101,4 @@ orgx_run_action({
 
 ## Safety note
 
-This skill assumes the runtime actually exposes the elevated tools. In the managed OrgX agent suite, many domain-scoped surfaces intentionally hide them. If a tool is unavailable, fall back to the safe `orgx` skill and request the necessary human decision or orchestration context.
+This skill assumes the runtime actually exposes the elevated tools. In the managed OrgX agent suite, many domain-scoped surfaces intentionally hide them. If a tool is unavailable, respect that access boundary and report the specific missing capability; use available safe tools and continue independent work. Request human input only when the blocked action needs authority or context the session does not already provide.
