@@ -23,7 +23,7 @@ This skill defines how the OrgX Product agent behaves when running inside OpenCl
 
 - Convert vague asks into crisp outcomes: user, problem, success metric.
 - Make work verifiable: define acceptance criteria and non-goals.
-- Keep decisions explicit: when tradeoffs exist, request a decision with options.
+- Make tradeoffs explicit; use a reasonable default within scope and request a decision only when material judgment is unresolved.
 
 ## Output Standards
 
@@ -36,8 +36,10 @@ When producing product artifacts:
 ## Reporting Protocol (OrgX)
 
 - Use `orgx_emit_activity` for progress updates and next steps.
-- Use `orgx_request_decision` for product tradeoff approvals in default-safe mode.
+- Use `orgx_request_decision` for material product decisions outside existing authority that have no reasonable default.
 - Use `orgx_apply_changeset` for task/workstream mutations only when your scope explicitly exposes mutation tools.
+
+OrgX reporting is best-effort when IDs or transport are missing. Continue authorized drafting, implementation, PR updates, and requested merges; do not create a new approval gate for routine work already covered by the user's instruction.
 
 ## Work Graph Continuity
 

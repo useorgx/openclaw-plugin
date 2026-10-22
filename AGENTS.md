@@ -45,9 +45,9 @@ docs/                   # ADRs, ops guides, launch checklists
 ## Commands
 
 ```bash
-npm run typecheck       # TypeScript strict check (must pass before commit)
-npm run test:hooks      # Unit + integration tests (must pass before commit)
-npm run build           # Build core + dashboard (must succeed before commit)
+npm run typecheck       # TypeScript strict check for code changes
+npm run test:hooks      # Unit + integration lifecycle suite
+npm run build           # Build core + dashboard
 npm run build:core      # TypeScript -> dist/, copy manifest
 npm run build:dashboard # Vite build for React SPA
 npm run qa:capture      # Playwright QA evidence screenshots
@@ -109,20 +109,19 @@ Every rule below exists because it was violated in a prior session.
 - Read source files before editing. Read docs/specs before implementing integrations.
 - Read `dashboard/src/lib/tokens.ts` before any UI change.
 - The palette comes from the OrgX design kit (`--ox-*` variables in `dashboard/vendor/orgx-ui-kit/tokens.css`). Use the kit elements (`OxStateChip`, `OxAttentionLine`, `OxReceiptRow`, `OxFooter`, `OxGlyph`, `OxAvatar` from `@useorgx/orgx-ui-kit/react`) before hand-rolling a pill, header, proof row or action footer. Never edit the vendored files; update the kit and run `npm run ui-kit:sync` (also copies the avatar renders into `dashboard/public/avatars`).
-- If a docs URL is given, fetch and read it end-to-end before writing code.
+- Read the relevant sections of supplied docs before implementing the affected integration; if the source is unavailable, use authoritative local docs/types and state any remaining uncertainty.
 
-### 2) Use exactly what was specified
+### 2) Use the requested tools when available
 
-- If the user names a specific tool (Nano Banana Pro, Playwright MCP, firecrawl), use that exact tool. Do not substitute.
-- If an MCP tool exists for the task, use it — do not reimplement with scripts.
-- If Playwright MCP is suggested or needed, route the task through `agent-browser` (and only fall back if `agent-browser` is unavailable).
+- Honor an explicit tool requirement. Otherwise prefer supported MCP tools and use a reliable CLI or local fallback when the tool lacks the needed capability or is unavailable.
+- Use the available browser tooling that can verify the affected flow. A preferred tool being unavailable does not block unrelated implementation or checks.
 
 ### 3) Don't confuse technologies
 
 - **MCP Apps** != Supabase Apps. Completely unrelated.
 - **OpenClaw** = agent framework (gateway). **OrgX** = orchestration platform. **Plugin** = bridge.
 - **MCP** = Model Context Protocol. Tools = structured data. Apps = interactive HTML (`text/html;profile=mcp-app`).
-- If a term is ambiguous, ask — do not guess.
+- Resolve routine ambiguity from the repo and session context; ask only when the answer materially changes scope and has no reasonable default.
 
 ### 4) Repo + scope hygiene (avoid wrong-repo fixes)
 
@@ -160,14 +159,14 @@ Match the design system from mcp.useorgx.com. Design tokens:
 - Framer Motion with restrained timing (200-300ms ease-out)
 - Whitespace as a design element
 
-### 6) Verify before claiming done
+### 6) Verify the affected behavior
 
 - Dashboard changes: confirm page loads and components render (not blank).
 - New tools: confirm they appear in client tool list and return expected output.
-- TypeScript: `npm run typecheck` must pass.
-- Tests: `npm run test:hooks` must pass.
-- Build: `npm run build` must succeed.
-- Test the full user flow, not just that it compiles.
+- Code changes: run typecheck and relevant tests; build when packaging, build output, or CI behavior is affected.
+- Docs and skill-only changes: check the changed instructions and relevant manifests; do not require the full application lifecycle suite.
+- Run `npm run test:hooks` for affected lifecycle behavior and release signoff. Preserve required CI checks before merge; do not rerun unchanged checks solely to make another checkpoint commit.
+- Verify the affected user flow when behavior changes, beyond compilation alone.
 - Never claim "verified" without running a command. If unverified, say so.
 
 ### 7) Initiative/blocker verification discipline
@@ -175,10 +174,10 @@ Match the design system from mcp.useorgx.com. Design tokens:
 When the user asks to “verify blockers/initiatives”, “find one and verify”, or “continue where not verified”:
 
 - Treat OrgX/MCP initiative state as the source of truth for what is “done”.
-- Pick exactly one unverified item.
+- Select concrete unverified items within the requested scope; independent items may run in parallel.
 - Write the verification steps (repro + expected behavior).
 - Run the verification (tests, Playwright, or a concrete user flow), capture evidence, then mark verified or fix and re-verify.
-- Do not batch 10 changes without re-checking; iterate one item at a time.
+- Use verification checkpoints for related changes rather than requiring a separate stop after every item.
 
 ### 8) Mobile is not optional
 
@@ -242,11 +241,13 @@ When the user asks to “verify blockers/initiatives”, “find one and verify�
 
 ## Commit / PR Protocol
 
-1. Run full pipeline before committing: `npm run typecheck && npm run test:hooks && npm run build`
+1. Run checks appropriate to the change as described above. Checkpoint commits do not require a repeated full pipeline; required CI remains authoritative before merge.
 2. Commit in logical chunks. Conventional prefixes encouraged: `feat:`, `fix:`, `chore:`
 3. Default to feature branches for non-trivial changes. Do not commit directly to `main` unless told to.
 4. PRs: clear title (<70 chars), `## Summary` + `## Test plan` sections.
 5. Never commit secrets (`.env`, API keys, tokens). Mask tokens as `oxk_...abcd`.
+
+Continue implementation, PR updates, and explicitly requested merges within the user's existing authorization. Do not request the same approval again or require OrgX task IDs, reports, quality scores, or a separate release ceremony for routine repo work. Honor actual branch protection and required checks; surface a real missing permission, unsafe irreversible action, or unresolved decision without blocking independent work.
 
 ## Publishing
 
@@ -277,12 +278,12 @@ When running as a Codex agent via `scripts/run-codex-dispatch-job.mjs`:
 
 When using Playwright MCP for QA or screenshots:
 
-- Use `agent-browser` by default whenever Playwright MCP is suggested or needed.
-- Always navigate explicitly with `browser_navigate` before interacting.
-- One action per turn — the accessibility tree changes between actions.
+- Prefer `agent-browser` when available; use the available browser tool or local Playwright when needed for verification.
+- Navigate explicitly with the selected browser tool before interacting.
+- Refresh the snapshot after mutations before relying on element references; independent reads may be batched.
 - Check for success — verify expected content before proceeding.
 - Close tabs when done to prevent memory accumulation.
-- Use `--isolated` flag to prevent persistent state pollution.
+- Use isolated sessions or profiles to prevent persistent state pollution.
 
 ## Related Repositories
 
