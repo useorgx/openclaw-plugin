@@ -45,6 +45,12 @@ import type {
   ModelTier,
 } from "./types.js";
 import type { CapacityRuntimeRecommendation } from "../runtime-capacity-routing.js";
+import type { ContractProfileIdentity } from "./generated/contractProfiles.js";
+
+interface ProfiledRequestOptions {
+  idempotencyKey: string;
+  contractProfile: ContractProfileIdentity;
+}
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 25_000;
 const DEFAULT_LIVE_TIMEOUT_MS = 30_000;
@@ -313,15 +319,17 @@ export class OrgXClient {
   async rawRequest<T>(
     method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
     path: string,
-    body?: unknown
+    body?: unknown,
+    options?: ProfiledRequestOptions
   ): Promise<T> {
-    return this.request<T>(method, path, body);
+    return this.request<T>(method, path, body, options);
   }
 
   private async request<T>(
     method: string,
     path: string,
-    body?: unknown
+    body?: unknown,
+    options?: ProfiledRequestOptions
   ): Promise<T> {
     const timeoutMs = resolveRequestTimeoutMs(path);
     const baseUrls = [this.baseUrl, this.fallbackBaseUrl].filter(
@@ -343,6 +351,10 @@ export class OrgXClient {
         "User-Agent": USER_AGENT,
         Authorization: `Bearer ${this.apiKey}`,
       };
+      if (options) {
+        headers["Idempotency-Key"] = options.idempotencyKey;
+        headers["x-orgx-contract-profile"] = JSON.stringify(options.contractProfile);
+      }
       if (this.userId && !isUserScopedApiKey(this.apiKey)) {
         headers["X-Orgx-User-Id"] = this.userId;
       }
