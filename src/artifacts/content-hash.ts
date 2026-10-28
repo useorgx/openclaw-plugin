@@ -15,7 +15,7 @@ export async function hashLocalArtifactContent(filePath: string): Promise<string
     const buffer = Buffer.alloc(64 * 1024);
     let total = 0;
     while (true) {
-      const { bytesRead } = await file.read(buffer);
+      const { bytesRead } = await file.read(buffer, 0, buffer.length, null);
       if (!bytesRead) break;
       total += bytesRead;
       if (total > MAX_CONTENT_BYTES) return null;
