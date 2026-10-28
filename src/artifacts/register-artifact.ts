@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { OrgXClient } from "../contracts/client.js";
 import { stableHash } from "../hash-utils.js";
+import { hashLocalArtifactContent } from "./content-hash.js";
 import {
   validateArtifactMetadata,
   normalizeArtifactType,
@@ -131,7 +132,6 @@ function isSelfReferentialOrgXUrl(value: string, baseUrl?: string): boolean {
 type DurableArtifactSource = {
   canonicalUrl: string;
   metadataPatch: Record<string, unknown>;
-  hashSource: string;
 };
 
 function resolveDurableArtifactSource(
@@ -154,7 +154,6 @@ function resolveDurableArtifactSource(
         local_source_path: filePath,
         file_path: filePath,
       },
-      hashSource: trimmed,
     };
   }
 
@@ -168,7 +167,6 @@ function resolveDurableArtifactSource(
         local_source_path: trimmed,
         file_path: trimmed,
       },
-      hashSource: trimmed,
     };
   }
 
@@ -179,7 +177,6 @@ function resolveDurableArtifactSource(
       metadataPatch: {
         external_url: trimmed,
       },
-      hashSource: trimmed,
     };
   }
 
@@ -430,10 +427,16 @@ export async function registerArtifact(
     }
   }
 
-  // --- Proof Ladder: artifact content hash ---
-  const hashSource = resolvedSource.hashSource || input.preview_markdown || input.name;
-  if (hashSource && !metadata.artifact_hash) {
-    metadata.artifact_hash = stableHash(String(hashSource));
+  // Keep locator identity separate from the content snapshot it may resolve to.
+  metadata.source_locator_hash = `sha256:${stableHash(String(input.external_url ?? "").trim())}`;
+  const localPath = resolvedSource.metadataPatch.file_path;
+  const contentHash = typeof localPath === "string"
+    ? await hashLocalArtifactContent(localPath) : null;
+  if (contentHash) {
+    metadata.artifact_hash = contentHash;
+    metadata.artifact_hash_basis = "content";
+  } else if (!metadata.artifact_hash) {
+    metadata.artifact_hash_basis = "unavailable";
   }
 
   // --- Proof Ladder: queue_ref from environment / caller ---

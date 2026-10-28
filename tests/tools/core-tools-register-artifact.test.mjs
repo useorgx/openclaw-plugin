@@ -153,7 +153,9 @@ test("orgx_register_artifact forwards caller proof metadata to durable artifacts
   assert.deepEqual(createRequest.body.metadata.run_ref, {
     correlation_id: "audit-public-live-data-exposure-a329648b",
   });
-  assert.ok(createRequest.body.metadata.artifact_hash, "expected artifact hash to be generated");
+  assert.equal(createRequest.body.metadata.artifact_hash, undefined);
+  assert.equal(createRequest.body.metadata.artifact_hash_basis, "unavailable");
+  assert.ok(createRequest.body.metadata.source_locator_hash);
 });
 
 test("orgx_create_entity routes artifact payloads to durable artifact registration", async () => {

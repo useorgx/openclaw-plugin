@@ -1,4 +1,5 @@
 import test from "node:test";
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
@@ -277,6 +278,8 @@ test("registerArtifact canonicalizes absolute file paths to filesystem-open URLs
   assert.equal(createCall.body.metadata.external_url, proofPath);
   assert.equal(createCall.body.metadata.local_source_path, proofPath);
   assert.equal(createCall.body.metadata.file_path, proofPath);
+  assert.equal(createCall.body.metadata.artifact_hash, `sha256:${createHash("sha256").update("# Proof\n").digest("hex")}`);
+  assert.equal(createCall.body.metadata.artifact_hash_basis, "content");
   assert.equal(
     result.artifact_url,
     `${baseUrl}/orgx/api/live/filesystem/open?path=${encodeURIComponent(proofPath)}`
@@ -472,8 +475,9 @@ test("registerArtifact injects atomic_unit_type from artifact_type normalization
   assert.ok(createCall);
   assert.equal(createCall.body.metadata.atomic_unit_type, "engineering.commit");
   assert.equal(createCall.body.metadata.schema_validated, true);
-  assert.ok(typeof createCall.body.metadata.artifact_hash === "string");
-  assert.ok(createCall.body.metadata.artifact_hash.length > 0);
+  assert.equal(createCall.body.metadata.artifact_hash, undefined);
+  assert.equal(createCall.body.metadata.artifact_hash_basis, "unavailable");
+  assert.match(createCall.body.metadata.source_locator_hash, /^sha256:[a-f0-9]{64}$/);
 });
 
 test("registerArtifact sets schema_validated false when required fields are missing", async () => {
