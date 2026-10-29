@@ -162,7 +162,7 @@ Browser pairing and manual API-key setup both store credentials locally on your 
 The plugin talks to OrgX services for pairing, sync, MCP, and dashboard-backed workflows:
 
 - `https://www.useorgx.com`
-- `https://mcp.useorgx.com/mcp`
+- `https://mcp.useorgx.com/mcp?profile=commander`
 
 ### Telemetry
 
@@ -206,7 +206,7 @@ Agent turns, terminal opens, and other `openclaw` CLI child-process actions are 
 ## Links
 
 - [OrgX Platform](https://useorgx.com)
-- [OrgX MCP Server](https://mcp.useorgx.com/mcp)
+- [OrgX MCP Server](https://mcp.useorgx.com/mcp?profile=commander)
 - [Documentation](https://docs.useorgx.com)
 - [Discord](https://discord.gg/orgx)
 - [GitHub](https://github.com/useorgx)

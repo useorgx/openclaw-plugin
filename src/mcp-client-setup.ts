@@ -8,7 +8,26 @@ import { writeFileAtomicSync, writeJsonFileAtomicSync } from "./fs-utils.js";
 import type { Logger } from "./mcp-http-handler.js";
 
 const ORGX_LOCAL_MCP_KEY = "orgx-openclaw";
-const ORGX_HOSTED_MCP_URL = "https://mcp.useorgx.com/mcp";
+const ORGX_HOSTED_MCP_URL = "https://mcp.useorgx.com/mcp?profile=commander";
+
+export function isMigratableHostedOrgxUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    const normalizedPath = url.pathname.replace(/\/+$/, "") || "/";
+    if (url.origin !== "https://mcp.useorgx.com" || normalizedPath !== "/mcp") {
+      return false;
+    }
+    if ([...url.searchParams.keys()].some((key) => key !== "profile")) {
+      return false;
+    }
+    const profiles = url.searchParams.getAll("profile");
+    if (profiles.length > 1) return false;
+    const profile = profiles[0]?.trim().toLowerCase();
+    return !profile || profile === "full" || profile === "v2";
+  } catch {
+    return false;
+  }
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -84,7 +103,8 @@ export function patchClaudeMcpConfig(input: {
   // local proxy URL we install under `orgx-openclaw`).
   const shouldSetHostedOrgx =
     !isRecord(currentServers.orgx) ||
-    (existingOrgxUrl === input.localMcpUrl && existingOrgxType === "http");
+    (existingOrgxUrl === input.localMcpUrl && existingOrgxType === "http") ||
+    (existingOrgxType === "http" && isMigratableHostedOrgxUrl(existingOrgxUrl));
 
   const nextOrgxEntry: Record<string, unknown> = {
     ...existingOrgx,
@@ -229,6 +249,53 @@ function upsertCodexMcpServerSection(input: {
   return { updated, next: `${lines.join("\n")}\n` };
 }
 
+function inspectCodexMcpServerSection(input: {
+  current: string;
+  key: string;
+}): {
+  exists: boolean;
+  url: string | null;
+  remoteUrl: string | null;
+  hasStdioFields: boolean;
+} {
+  const lines = input.current.split(/\r?\n/);
+  const escapedKey = escapeRegExp(input.key);
+  const headerRegex = new RegExp(
+    `^\\[mcp_servers\\.(?:"${escapedKey}"|'${escapedKey}'|${escapedKey})\\]\\s*$`
+  );
+  const headerIndex = lines.findIndex((line) => headerRegex.test(line.trim()));
+  if (headerIndex < 0) {
+    return { exists: false, url: null, remoteUrl: null, hasStdioFields: false };
+  }
+
+  let sectionEnd = lines.length;
+  for (let index = headerIndex + 1; index < lines.length; index += 1) {
+    if (lines[index].trim().startsWith("[")) {
+      sectionEnd = index;
+      break;
+    }
+  }
+  const section = lines.slice(headerIndex + 1, sectionEnd);
+  let url: string | null = null;
+  for (const line of section) {
+    const match = line.match(/^\s*url\s*=\s*(["'])(.*?)\1\s*$/);
+    if (match) {
+      url = match[2];
+      break;
+    }
+  }
+  const remoteUrl =
+    section
+      .join("\n")
+      .match(/https:\/\/mcp\.useorgx\.com\/mcp(?:\?[^\s"'\]]*)?/)?.[0] ?? null;
+  return {
+    exists: true,
+    url,
+    remoteUrl,
+    hasStdioFields: section.some((line) => /^\s*(command|args)\s*=/.test(line)),
+  };
+}
+
 function removeCodexLegacyScopedMcpSections(input: {
   current: string;
   baseKey: string;
@@ -281,13 +348,36 @@ export function patchCodexConfigToml(input: {
   // Ensure the hosted OrgX entry uses a direct `url` (streamable HTTP) so that
   // `codex mcp login orgx` can perform OAuth.  Route through upsertCodexMcpServerSection
   // so stale stdio-transport fields (command/args) are stripped automatically.
-  const hosted = upsertCodexMcpServerSection({
-    current,
-    key: "orgx",
-    url: ORGX_HOSTED_MCP_URL,
-  });
-  updated = updated || hosted.updated;
-  current = hosted.next;
+  const existingHosted = inspectCodexMcpServerSection({ current, key: "orgx" });
+  let hostedTarget: string | null = null;
+  if (!existingHosted.exists) {
+    hostedTarget = ORGX_HOSTED_MCP_URL;
+  } else if (existingHosted.url) {
+    hostedTarget =
+      existingHosted.url === input.localMcpUrl ||
+      isMigratableHostedOrgxUrl(existingHosted.url)
+        ? ORGX_HOSTED_MCP_URL
+        : existingHosted.url;
+  } else if (existingHosted.remoteUrl) {
+    if (
+      existingHosted.remoteUrl === input.localMcpUrl ||
+      isMigratableHostedOrgxUrl(existingHosted.remoteUrl)
+    ) {
+      hostedTarget = ORGX_HOSTED_MCP_URL;
+    }
+  } else if (!existingHosted.hasStdioFields) {
+    hostedTarget = ORGX_HOSTED_MCP_URL;
+  }
+
+  if (hostedTarget) {
+    const hosted = upsertCodexMcpServerSection({
+      current,
+      key: "orgx",
+      url: hostedTarget,
+    });
+    updated = updated || hosted.updated;
+    current = hosted.next;
+  }
 
   const base = upsertCodexMcpServerSection({
     current,
