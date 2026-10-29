@@ -70,6 +70,7 @@ export function initializeOpenClawSentry(version: string): boolean {
     tracesSampleRate: sampleRate(process.env.ORGX_SENTRY_TRACES_SAMPLE_RATE),
     enableLogs: true,
     sendDefaultPii: false,
+    includeServerName: false,
     dataCollection: {
       userInfo: false,
       cookies: false,

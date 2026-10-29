@@ -2,6 +2,17 @@
 
 All notable changes to `@useorgx/openclaw-plugin` are documented in this file.
 
+## 0.7.36 - 2026-07-15
+
+### Production Observability
+- Added privacy-safe Sentry error, trace, and structured-log instrumentation across the OpenClaw runtime and dashboard.
+- Disabled prompt, model input/output, credential, request, hostname, and default PII capture while retaining release and surface attribution.
+- Added masked dashboard session replay with explicit sampling and telemetry opt-out controls.
+
+### Closed-loop Reliability
+- Hardened heartbeat discovery, canonical recommendations, proof-gated outcomes, and incomplete finalization recovery.
+- Preserved required discovery next steps through autonomous run continuation.
+
 ## 0.7.35 - 2026-05-18
 
 ### OpenClaw 2026.5 Compatibility
