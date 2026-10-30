@@ -165,8 +165,8 @@ orgx_sync({
 
 ### Quality and proof
 
-- `orgx_spawn_check` before handing work to another model or agent.
-- `orgx_quality_score` after completing a meaningful unit of work.
+- `orgx_spawn_check` for managed OrgX launches governed by the runtime's spawn policy; ordinary local delegation does not require an OrgX call.
+- `orgx_quality_score` when useful for assessing a meaningful unit of work; it is not a blanket prerequisite to repo work or merges.
 - `orgx_proof_status`, `orgx_verify_completion`, and `orgx_get_outcome_attribution` for proof ladder checks.
 
 ```js
@@ -183,6 +183,8 @@ Use these when you need to inspect the managed OrgX agent behavior policy:
 Only orchestration and operations flows should assume `update_agent_config` is available.
 
 ## Reporting Protocol
+
+Use these calls when the task has OrgX context and the authenticated tools are available. If IDs or transport are missing, continue authorized local work and report pending writeback separately. Do not require OrgX reporting, quality scores, a new decision, or hierarchy creation before editing, updating a PR, or performing an already authorized merge. Preserve actual managed-runtime policies, required CI, branch protection, and access/data protections.
 
 ### On task start
 

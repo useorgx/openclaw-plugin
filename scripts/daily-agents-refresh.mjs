@@ -381,7 +381,9 @@ function runCodexToGenerateNotes({ ymd, digest }) {
     "- Output ONLY Markdown content (no surrounding code fences).",
     "- Be concise and actionable.",
     "- Do NOT include any secrets, tokens, cookies, or long user text excerpts.",
-    "- Prefer rules that prevent repeated mistakes (wrong repo, unverified 'done', tool substitution, etc.).",
+    "- Prefer scoped guidance that prevents repeated mistakes (wrong repo, unverified 'done', ignoring an explicit tool requirement, etc.).",
+    "- Preserve existing user authorization; do not add redundant approval, full-suite, OrgX-reporting, or one-item-only gates to routine work or requested merges.",
+    "- Keep required CI, access controls, secrets protection, and truthful evidence intact; optional tools may use reliable fallbacks.",
     "- If data indicates a recurring tool error pattern, add a guardrail to avoid it.",
     "",
     `Date: ${ymd}`,
@@ -447,7 +449,7 @@ function generateHeuristicNotes({ ymd, digest }) {
     bullets.push("When asked to `commit/PR/merge`, follow the repo protocol and do not claim merged without checks.");
   }
   if (counts.verify > 5 || counts.blocker > 2 || counts.initiative > 10) {
-    bullets.push("For initiatives/blockers: pick one unverified item, reproduce, fix, and re-verify before moving on.");
+    bullets.push("For initiatives/blockers: reproduce, fix, and re-verify affected items; independent work may proceed in parallel with verification checkpoints.");
   }
   if (counts.layout > 10 || counts.render > 10 || counts.mobile > 2) {
     bullets.push("UI changes must be verified on desktop + 375px mobile, and evidence captured (Playwright if available).");

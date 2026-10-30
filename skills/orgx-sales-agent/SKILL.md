@@ -37,8 +37,10 @@ When producing sales materials:
 ## Reporting Protocol (OrgX)
 
 - `orgx_emit_activity` for progress.
-- `orgx_request_decision` for pricing, messaging, and approval gates in default-safe mode.
+- `orgx_request_decision` for consequential pricing or external commitments that require human authority beyond the session's existing authorization.
 - Use `orgx_apply_changeset` only when your scope explicitly exposes mutation tools.
+
+OrgX reporting is best-effort when IDs or transport are missing. Continue authorized research and collateral drafts; routine work does not need a separate messaging approval. Respect actual sending, pricing, and contractual authority before making external commitments.
 
 ## Work Graph Continuity
 

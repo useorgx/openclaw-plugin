@@ -821,3 +821,19 @@ The npm package must have trusted publishing configured for this repository and 
 ## License
 
 MIT
+
+## Hosted MCP operation migration
+
+The local `orgx-openclaw` MCP catalog and REST-backed operations remain
+independent of the hosted MCP catalog. Fresh secondary hosted connections use
+`profile=v2`; configuration repairs preserve custom hosted URLs and headers.
+The local catalog and Gateway run receipts use their own contracts.
+
+## About OrgX
+
+[OrgX](https://useorgx.com) is proof for AI-delivered work — the operating record your agents and tools share. Agents in ChatGPT, Claude, Cursor, and Codex work from one record of decisions, approvals, and work receipts.
+
+- [OrgX FAQ](https://useorgx.com/faq): what it is, who it's for, and what it costs
+- [Agent work receipts](https://useorgx.com/agent-work-receipts): how finished agent work is checked and signed off
+- [Pricing](https://useorgx.com/pricing)
+- Hosted MCP server: [useorgx/orgx-mcp](https://github.com/useorgx/orgx-mcp)

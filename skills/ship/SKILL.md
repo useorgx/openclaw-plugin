@@ -21,7 +21,8 @@ Use this skill when you want Codex to take a dirty working tree and turn it into
 ## Workflow
 
 1. Identify the repo(s) to ship.
-   - If multiple git repos are present in the workspace, ask which ones to ship (or ship all, one at a time).
+   - Use the user's named repos and session context; when they request all repos, process the relevant changed repos. Ask only if the intended scope cannot be reasonably resolved.
+   - The ship/merge request supplies authority for these steps. Do not ask again solely because a local skill calls merging consequential; actual access rules and required approvals still apply.
 
 2. Sanity checks (per repo).
    - `git status --porcelain=v1`
@@ -46,9 +47,10 @@ Use this skill when you want Codex to take a dirty working tree and turn it into
    - If the repo uses a different default branch, detect and use it.
 
 7. Merge.
-   - Prefer squash merge:
+   - Satisfy required CI and branch protection, using the repo's merge helper when one exists. Otherwise prefer squash merge:
      - `gh pr merge --squash --delete-branch`
    - If branch protection blocks merge, report why and leave the PR open.
+   - OrgX reports, receipts, and optional quality scores are not additional merge gates. State any missing optional evidence without claiming it exists.
 
 8. Post-merge cleanup.
    - `git switch main`

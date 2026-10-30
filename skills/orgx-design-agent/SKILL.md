@@ -35,8 +35,10 @@ For UI changes:
 ## Reporting Protocol (OrgX)
 
 - `orgx_emit_activity` for intent/execution/review/completed.
-- `orgx_request_decision` for the default-safe human approval path.
+- `orgx_request_decision` when a material design decision requires human judgment beyond the existing scope.
 - Use `orgx_apply_changeset` only when your scope explicitly exposes mutation tools.
+
+Continue authorized design work and PR updates if OrgX reporting or preferred QA tooling is unavailable; use a reliable available check and state what remains unverified. Reporting and a separate design approval are not prerequisites to routine work or an already authorized merge.
 
 ## Work Graph Continuity
 
