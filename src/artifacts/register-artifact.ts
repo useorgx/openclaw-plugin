@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import type { OrgXClient } from "../contracts/client.js";
 import { stableHash } from "../hash-utils.js";
+import { readLocalArtifactContent } from "./content-hash.js";
+import { createCapturedArtifact, type ContentCapture } from "./content-capture.js";
 import {
   validateArtifactMetadata,
   normalizeArtifactType,
@@ -61,6 +63,7 @@ export interface RegisterArtifactResult {
   artifact_id: string | null;
   artifact_url: string | null;
   created: boolean;
+  content_capture?: ContentCapture;
   persistence: {
     checked: boolean;
     artifact_detail_ok: boolean;
@@ -131,7 +134,6 @@ function isSelfReferentialOrgXUrl(value: string, baseUrl?: string): boolean {
 type DurableArtifactSource = {
   canonicalUrl: string;
   metadataPatch: Record<string, unknown>;
-  hashSource: string;
 };
 
 function resolveDurableArtifactSource(
@@ -154,7 +156,6 @@ function resolveDurableArtifactSource(
         local_source_path: filePath,
         file_path: filePath,
       },
-      hashSource: trimmed,
     };
   }
 
@@ -168,7 +169,6 @@ function resolveDurableArtifactSource(
         local_source_path: trimmed,
         file_path: trimmed,
       },
-      hashSource: trimmed,
     };
   }
 
@@ -179,7 +179,6 @@ function resolveDurableArtifactSource(
       metadataPatch: {
         external_url: trimmed,
       },
-      hashSource: trimmed,
     };
   }
 
@@ -430,10 +429,16 @@ export async function registerArtifact(
     }
   }
 
-  // --- Proof Ladder: artifact content hash ---
-  const hashSource = resolvedSource.hashSource || input.preview_markdown || input.name;
-  if (hashSource && !metadata.artifact_hash) {
-    metadata.artifact_hash = stableHash(String(hashSource));
+  // Keep locator identity separate from the content snapshot it may resolve to.
+  metadata.source_locator_hash = `sha256:${stableHash(String(input.external_url ?? "").trim())}`;
+  const localPath = resolvedSource.metadataPatch.file_path;
+  const localContent = typeof localPath === "string"
+    ? await readLocalArtifactContent(localPath) : null;
+  if (localContent) {
+    metadata.artifact_hash = localContent.digest;
+    metadata.artifact_hash_basis = "content";
+  } else if (!metadata.artifact_hash) {
+    metadata.artifact_hash_basis = "unavailable";
   }
 
   // --- Proof Ladder: queue_ref from environment / caller ---
@@ -467,23 +472,33 @@ export async function registerArtifact(
   let entity: any = null;
   let created = false;
   let usedLegacyCreate = false;
+  let contentCapture: ContentCapture = { state: "unavailable", reason: localContent
+    ? (localContent.contentBase64 === undefined ? "inline_content_limit" : "server_profile_unavailable")
+    : "local_bytes_unavailable" };
+  const createBody = {
+    artifact_id: desiredId,
+    entity_type: input.entity_type, entity_id: input.entity_id,
+    name: input.name, artifact_type: input.artifact_type,
+    description: input.description ?? undefined,
+    artifact_url: artifactUrl, external_url: String(input.external_url ?? ""),
+    preview_markdown: input.preview_markdown ?? undefined,
+    status, metadata, ...createdBy,
+  };
+  // This call sits outside the legacy fallback catch: a failed strict command
+  // may already have committed and must be retried with its original key.
+  if (localContent) {
+    const captured = await createCapturedArtifact(client, createBody, localContent);
+    if (captured) {
+      entity = extractArtifactFromCreateResponse(captured.response);
+      contentCapture = captured.capture;
+      created = true;
+    }
+  }
+  if (contentCapture.state === "unavailable") warnings.push(`Core content capture unavailable: ${contentCapture.reason}`);
 
   // Primary path: canonical client artifact contract.
-  try {
-    const response = await client.rawRequest<any>("POST", "/api/client/artifacts", {
-      artifact_id: desiredId,
-      entity_type: input.entity_type,
-      entity_id: input.entity_id,
-      name: input.name,
-      artifact_type: input.artifact_type,
-      description: input.description ?? undefined,
-      artifact_url: artifactUrl,
-      external_url: String(input.external_url ?? ""),
-      preview_markdown: input.preview_markdown ?? undefined,
-      status,
-      metadata,
-      ...createdBy,
-    });
+  if (!entity) try {
+    const response = await client.rawRequest<unknown>("POST", "/api/client/artifacts", createBody);
 
     entity = extractArtifactFromCreateResponse(response);
     if (!entity) {
@@ -608,6 +623,7 @@ export async function registerArtifact(
     artifact_id: artifactId,
     artifact_url: finalArtifactUrl,
     created,
+    content_capture: contentCapture,
     persistence,
     warnings,
   };

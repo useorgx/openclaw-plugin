@@ -1,0 +1,950 @@
+[
+  {
+    "kind": "proof_packet",
+    "value": {
+      "schemaVersion": "1.0.0",
+      "producer": {
+        "actor": {
+          "type": "service",
+          "id": "orgx-proof-control-plane"
+        },
+        "service": "orgx-proof-builder",
+        "serviceVersion": "1.0.0"
+      },
+      "id": "abababab-abab-4bab-8bab-abababababab",
+      "missionId": "22222222-2222-4222-8222-222222222222",
+      "contractDigest": "sha256:f45d86d303e15e582f96bbdd9ddd6c6ba225a7cbc5967c1ac59a8d64dee77595",
+      "contextManifestDigests": [
+        "sha256:f66d94b0e7ccfee47ced872cb60959c8129cdeddb342af389611167c337aa855"
+      ],
+      "capabilityLeaseDigests": [
+        "sha256:94a85c1699acc9fe28ae3639db3c9d2aebdb1e3800b55e82fbf81e1c7f746917"
+      ],
+      "actionReceiptDigests": [
+        "sha256:c6dd7426e14fcf308261e80e496a76398d7724f5aade5936852fae9ac783d173"
+      ],
+      "subjectArtifacts": [
+        {
+          "id": "44444444-4444-4444-8444-444444444444",
+          "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+          "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "mediaType": "application/json"
+        }
+      ],
+      "resolvedDependencies": [],
+      "materialDecisions": [],
+      "qualityBarVersionId": "55555555-5555-4555-8555-555555555555",
+      "qualityBarDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "measuredVerdicts": [
+        {
+          "id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          "lens": "measured",
+          "criterionId": "schema-valid",
+          "criterionVersion": 1,
+          "qualityBarVersionId": "55555555-5555-4555-8555-555555555555",
+          "qualityBarDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "evaluatorVersion": "verification-worker@1.0.0",
+          "deterministicCheckerVersion": "schema-checker@1.0.0",
+          "evaluationMode": "standard",
+          "passed": true,
+          "score": 1,
+          "confidence": 0.99,
+          "verifierIndependence": "separate_authority",
+          "producer": {
+            "type": "agent",
+            "id": "delivery-agent"
+          },
+          "producerRunId": "99999999-9999-4999-8999-999999999999",
+          "evaluator": {
+            "type": "service",
+            "id": "verification-worker"
+          },
+          "evaluatorRunId": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+          "subjectDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "evidenceRefs": [
+            {
+              "id": "44444444-4444-4444-8444-444444444444",
+              "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+              "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+              "mediaType": "application/json"
+            }
+          ],
+          "evidenceSpans": [
+            {
+              "source": {
+                "id": "44444444-4444-4444-8444-444444444444",
+                "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+                "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "mediaType": "application/json"
+              },
+              "locator": "artifact://root",
+              "excerpt": "The artifact contains the evidence evaluated by this check."
+            }
+          ],
+          "observedAt": "2026-07-13T12:20:00.000Z"
+        }
+      ],
+      "judgedVerdicts": [
+        {
+          "id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+          "lens": "judged",
+          "criterionId": "customer-relevance",
+          "criterionVersion": 1,
+          "qualityBarVersionId": "55555555-5555-4555-8555-555555555555",
+          "qualityBarDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "evaluatorVersion": "verification-worker@1.0.0",
+          "referenceSetVersion": "closeout-references@1",
+          "evaluatorPromptVersion": "closeout-judge@1.0.0",
+          "evaluationMode": "standard",
+          "passed": true,
+          "score": 1,
+          "confidence": 0.99,
+          "verifierIndependence": "separate_authority",
+          "producer": {
+            "type": "agent",
+            "id": "delivery-agent"
+          },
+          "producerRunId": "99999999-9999-4999-8999-999999999999",
+          "evaluator": {
+            "type": "service",
+            "id": "verification-worker"
+          },
+          "evaluatorRunId": "12345678-1234-4234-8234-123456789abc",
+          "evaluatorModel": {
+            "provider": "openai",
+            "id": "gpt-5"
+          },
+          "subjectDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "evidenceRefs": [
+            {
+              "id": "44444444-4444-4444-8444-444444444444",
+              "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+              "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+              "mediaType": "application/json"
+            }
+          ],
+          "evidenceSpans": [
+            {
+              "source": {
+                "id": "44444444-4444-4444-8444-444444444444",
+                "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+                "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "mediaType": "application/json"
+              },
+              "locator": "artifact://root",
+              "excerpt": "The artifact contains the evidence evaluated by this check."
+            }
+          ],
+          "observedAt": "2026-07-13T12:20:00.000Z"
+        }
+      ],
+      "observations": [],
+      "outcomeEvents": [
+        {
+          "schemaVersion": "1.0.0",
+          "producer": {
+            "actor": {
+              "type": "service",
+              "id": "mission-runtime"
+            },
+            "service": "mission-runtime",
+            "serviceVersion": "1.0.0"
+          },
+          "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "workspaceId": "11111111-1111-4111-8111-111111111111",
+          "missionId": "22222222-2222-4222-8222-222222222222",
+          "outcomeType": "customer.accepted_closeout",
+          "value": {
+            "accepted": true
+          },
+          "source": {
+            "system": "customer-portal",
+            "observedBy": "outcome-reconciler"
+          },
+          "observedAt": "2026-07-13T13:00:00.000Z",
+          "effectiveAt": "2026-07-13T13:00:00.000Z",
+          "confidence": 0.99,
+          "causalLinks": [
+            {
+              "sourceType": "mission",
+              "sourceId": "22222222-2222-4222-8222-222222222222",
+              "relation": "produced",
+              "confidence": 0.99,
+              "evidenceRefs": [
+                {
+                  "id": "44444444-4444-4444-8444-444444444444",
+                  "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+                  "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "mediaType": "application/json"
+                }
+              ]
+            }
+          ],
+          "evidenceRefs": [
+            {
+              "id": "44444444-4444-4444-8444-444444444444",
+              "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+              "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+              "mediaType": "application/json"
+            }
+          ],
+          "digest": "sha256:dec867ae046b42c71bee409336d68ed18543854bc2f14e53737fed7eabb07cc6"
+        }
+      ],
+      "humanInterventions": [],
+      "costs": {
+        "modelMicros": "100",
+        "toolMicros": "5",
+        "infrastructureMicros": "1",
+        "humanLaborMicros": "0",
+        "totalMicros": "106"
+      },
+      "disposition": "accepted",
+      "merkleRoot": "sha256:1556f5e82a73b2b0dc145f630c55b4acefd2fe0b7fe2d93c1364afb7912757c1",
+      "signer": {
+        "type": "service",
+        "id": "orgx-proof-control-plane"
+      },
+      "signature": "ed25519:d769d37258b660c3b94119714f10170563cf6221359b4481a5462a2f7b2bdd0f:MCowBQYDK2VwAyEAOme2T9miE1tJHPnANbzETJFDNiWiiHx598vgrrMdveM:pnJjBDBQKJjM2KXGRbHcl8dwvXl0-SsR1OasMbbLzVWxJ5n_NwRLLLL1dW5RxKjUacnyQdnB3tb1aRx_KZBRCw"
+    }
+  },
+  {
+    "kind": "proof_packet_record",
+    "value": {
+      "schemaVersion": "1.0.0",
+      "workspaceId": "11111111-1111-4111-8111-111111111111",
+      "packet": {
+        "schemaVersion": "1.0.0",
+        "producer": {
+          "actor": {
+            "type": "service",
+            "id": "orgx-proof-control-plane"
+          },
+          "service": "orgx-proof-builder",
+          "serviceVersion": "1.0.0"
+        },
+        "id": "abababab-abab-4bab-8bab-abababababab",
+        "missionId": "22222222-2222-4222-8222-222222222222",
+        "contractDigest": "sha256:f45d86d303e15e582f96bbdd9ddd6c6ba225a7cbc5967c1ac59a8d64dee77595",
+        "contextManifestDigests": [
+          "sha256:f66d94b0e7ccfee47ced872cb60959c8129cdeddb342af389611167c337aa855"
+        ],
+        "capabilityLeaseDigests": [
+          "sha256:94a85c1699acc9fe28ae3639db3c9d2aebdb1e3800b55e82fbf81e1c7f746917"
+        ],
+        "actionReceiptDigests": [
+          "sha256:c6dd7426e14fcf308261e80e496a76398d7724f5aade5936852fae9ac783d173"
+        ],
+        "subjectArtifacts": [
+          {
+            "id": "44444444-4444-4444-8444-444444444444",
+            "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+            "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "mediaType": "application/json"
+          }
+        ],
+        "resolvedDependencies": [],
+        "materialDecisions": [],
+        "qualityBarVersionId": "55555555-5555-4555-8555-555555555555",
+        "qualityBarDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+        "measuredVerdicts": [
+          {
+            "id": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+            "lens": "measured",
+            "criterionId": "schema-valid",
+            "criterionVersion": 1,
+            "qualityBarVersionId": "55555555-5555-4555-8555-555555555555",
+            "qualityBarDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "evaluatorVersion": "verification-worker@1.0.0",
+            "deterministicCheckerVersion": "schema-checker@1.0.0",
+            "evaluationMode": "standard",
+            "passed": true,
+            "score": 1,
+            "confidence": 0.99,
+            "verifierIndependence": "separate_authority",
+            "producer": {
+              "type": "agent",
+              "id": "delivery-agent"
+            },
+            "producerRunId": "99999999-9999-4999-8999-999999999999",
+            "evaluator": {
+              "type": "service",
+              "id": "verification-worker"
+            },
+            "evaluatorRunId": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+            "subjectDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "evidenceRefs": [
+              {
+                "id": "44444444-4444-4444-8444-444444444444",
+                "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+                "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "mediaType": "application/json"
+              }
+            ],
+            "evidenceSpans": [
+              {
+                "source": {
+                  "id": "44444444-4444-4444-8444-444444444444",
+                  "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+                  "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "mediaType": "application/json"
+                },
+                "locator": "artifact://root",
+                "excerpt": "The artifact contains the evidence evaluated by this check."
+              }
+            ],
+            "observedAt": "2026-07-13T12:20:00.000Z"
+          }
+        ],
+        "judgedVerdicts": [
+          {
+            "id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            "lens": "judged",
+            "criterionId": "customer-relevance",
+            "criterionVersion": 1,
+            "qualityBarVersionId": "55555555-5555-4555-8555-555555555555",
+            "qualityBarDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "evaluatorVersion": "verification-worker@1.0.0",
+            "referenceSetVersion": "closeout-references@1",
+            "evaluatorPromptVersion": "closeout-judge@1.0.0",
+            "evaluationMode": "standard",
+            "passed": true,
+            "score": 1,
+            "confidence": 0.99,
+            "verifierIndependence": "separate_authority",
+            "producer": {
+              "type": "agent",
+              "id": "delivery-agent"
+            },
+            "producerRunId": "99999999-9999-4999-8999-999999999999",
+            "evaluator": {
+              "type": "service",
+              "id": "verification-worker"
+            },
+            "evaluatorRunId": "12345678-1234-4234-8234-123456789abc",
+            "evaluatorModel": {
+              "provider": "openai",
+              "id": "gpt-5"
+            },
+            "subjectDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "evidenceRefs": [
+              {
+                "id": "44444444-4444-4444-8444-444444444444",
+                "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+                "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "mediaType": "application/json"
+              }
+            ],
+            "evidenceSpans": [
+              {
+                "source": {
+                  "id": "44444444-4444-4444-8444-444444444444",
+                  "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+                  "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                  "mediaType": "application/json"
+                },
+                "locator": "artifact://root",
+                "excerpt": "The artifact contains the evidence evaluated by this check."
+              }
+            ],
+            "observedAt": "2026-07-13T12:20:00.000Z"
+          }
+        ],
+        "observations": [],
+        "outcomeEvents": [
+          {
+            "schemaVersion": "1.0.0",
+            "producer": {
+              "actor": {
+                "type": "service",
+                "id": "mission-runtime"
+              },
+              "service": "mission-runtime",
+              "serviceVersion": "1.0.0"
+            },
+            "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "workspaceId": "11111111-1111-4111-8111-111111111111",
+            "missionId": "22222222-2222-4222-8222-222222222222",
+            "outcomeType": "customer.accepted_closeout",
+            "value": {
+              "accepted": true
+            },
+            "source": {
+              "system": "customer-portal",
+              "observedBy": "outcome-reconciler"
+            },
+            "observedAt": "2026-07-13T13:00:00.000Z",
+            "effectiveAt": "2026-07-13T13:00:00.000Z",
+            "confidence": 0.99,
+            "causalLinks": [
+              {
+                "sourceType": "mission",
+                "sourceId": "22222222-2222-4222-8222-222222222222",
+                "relation": "produced",
+                "confidence": 0.99,
+                "evidenceRefs": [
+                  {
+                    "id": "44444444-4444-4444-8444-444444444444",
+                    "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+                    "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                    "mediaType": "application/json"
+                  }
+                ]
+              }
+            ],
+            "evidenceRefs": [
+              {
+                "id": "44444444-4444-4444-8444-444444444444",
+                "uri": "orgx://artifact/44444444-4444-4444-8444-444444444444",
+                "digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+                "mediaType": "application/json"
+              }
+            ],
+            "digest": "sha256:dec867ae046b42c71bee409336d68ed18543854bc2f14e53737fed7eabb07cc6"
+          }
+        ],
+        "humanInterventions": [],
+        "costs": {
+          "modelMicros": "100",
+          "toolMicros": "5",
+          "infrastructureMicros": "1",
+          "humanLaborMicros": "0",
+          "totalMicros": "106"
+        },
+        "disposition": "accepted",
+        "merkleRoot": "sha256:1556f5e82a73b2b0dc145f630c55b4acefd2fe0b7fe2d93c1364afb7912757c1",
+        "signer": {
+          "type": "service",
+          "id": "orgx-proof-control-plane"
+        },
+        "signature": "ed25519:d769d37258b660c3b94119714f10170563cf6221359b4481a5462a2f7b2bdd0f:MCowBQYDK2VwAyEAOme2T9miE1tJHPnANbzETJFDNiWiiHx598vgrrMdveM:pnJjBDBQKJjM2KXGRbHcl8dwvXl0-SsR1OasMbbLzVWxJ5n_NwRLLLL1dW5RxKjUacnyQdnB3tb1aRx_KZBRCw"
+      },
+      "packetDigest": "sha256:7aa55b7147ce1018f8fdbe27baccdcd76585e42f306d5354f993ac7d65e30cf9",
+      "sourceBindings": [
+        {
+          "aggregateType": "mission",
+          "aggregateId": "22222222-2222-4222-8222-222222222222",
+          "aggregateVersion": 1,
+          "eventHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "aggregateType": "context_manifest",
+          "aggregateId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          "aggregateVersion": 1,
+          "eventHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "aggregateType": "capability_lease",
+          "aggregateId": "77777777-7777-4777-8777-777777777777",
+          "aggregateVersion": 1,
+          "eventHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "aggregateType": "action",
+          "aggregateId": "88888888-8888-4888-8888-888888888888",
+          "aggregateVersion": 1,
+          "eventHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "aggregateType": "verification",
+          "aggregateId": "bcbcbcbc-bcbc-4cbc-8cbc-bcbcbcbcbcbc",
+          "aggregateVersion": 1,
+          "eventHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        {
+          "aggregateType": "quality_bar",
+          "aggregateId": "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd",
+          "aggregateVersion": 1,
+          "eventHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        }
+      ],
+      "acceptance": {
+        "accepted": true,
+        "disposition": "accepted",
+        "checks": [
+          {
+            "key": "evaluation_time",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Acceptance evaluation has a valid observation time."
+          },
+          {
+            "key": "mission_digest",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Mission content matches its declared digest."
+          },
+          {
+            "key": "proof_digest",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Proof packet components match its domain-separated Merkle root."
+          },
+          {
+            "key": "proof_identity",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Proof packet is bound to the mission and immutable quality bar."
+          },
+          {
+            "key": "context_identity",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Every context manifest belongs to the mission workspace."
+          },
+          {
+            "key": "context_digests",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Every context manifest matches its declared digest."
+          },
+          {
+            "key": "context_proof_binding",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Proof packet references exactly the evaluated context manifests."
+          },
+          {
+            "key": "context_conflicts_resolved",
+            "passed": true,
+            "critical": false,
+            "outcomeOnly": false,
+            "detail": "No context conflict remains unresolved."
+          },
+          {
+            "key": "blocking_context_gaps",
+            "passed": true,
+            "critical": false,
+            "outcomeOnly": false,
+            "detail": "No blocking context requirement is unresolved."
+          },
+          {
+            "key": "lease_digests",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Every capability lease matches its declared digest."
+          },
+          {
+            "key": "lease_proof_binding",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Proof packet references exactly the evaluated capability leases."
+          },
+          {
+            "key": "action_digests",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Every action intent and receipt matches its declared digest."
+          },
+          {
+            "key": "idempotency_keys",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Action intent idempotency keys are unique."
+          },
+          {
+            "key": "authorized_action_chains",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Every side effect is authorized, reconciled, evidenced, and receipt-bound."
+          },
+          {
+            "key": "receipt_proof_binding",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Proof packet references exactly the evaluated action receipts."
+          },
+          {
+            "key": "verdict_lenses",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Measured and judged verdicts are stored under their declared lens."
+          },
+          {
+            "key": "verdict_acceptance",
+            "passed": true,
+            "critical": false,
+            "outcomeOnly": false,
+            "detail": "Every verifier passed with the required independence."
+          },
+          {
+            "key": "verdict_subject_binding",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Every verdict evaluates a subject artifact in the proof packet."
+          },
+          {
+            "key": "verdict_evidence_grounding",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Every verdict includes an evidence span bound to a declared evidence artifact."
+          },
+          {
+            "key": "verdict_quality_bar_binding",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Every verdict is bound to the packet quality-bar version and digest."
+          },
+          {
+            "key": "grade_shopping_prevention",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "The packet contains one verdict per immutable evaluation tuple."
+          },
+          {
+            "key": "required_evidence",
+            "passed": true,
+            "critical": false,
+            "outcomeOnly": false,
+            "detail": "Every required technical evidence lens is present."
+          },
+          {
+            "key": "required_outcome_evidence",
+            "passed": true,
+            "critical": false,
+            "outcomeOnly": true,
+            "detail": "The contractually required outcome evidence is present."
+          },
+          {
+            "key": "outcome_digests",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Every outcome event matches its declared digest."
+          },
+          {
+            "key": "outcome_proof_binding",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Proof packet embeds exactly the evaluated outcomes."
+          },
+          {
+            "key": "outcome_acceptance",
+            "passed": true,
+            "critical": false,
+            "outcomeOnly": true,
+            "detail": "Every outcome is mission-bound and meets the confidence floor."
+          },
+          {
+            "key": "cost_reconciliation",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Proof packet cost components reconcile to total cost."
+          },
+          {
+            "key": "mission_budget",
+            "passed": true,
+            "critical": false,
+            "outcomeOnly": false,
+            "detail": "Model, tool, and human costs remain within the mission budget."
+          },
+          {
+            "key": "attempt_budget",
+            "passed": true,
+            "critical": false,
+            "outcomeOnly": false,
+            "detail": "Every node remains within its attempt budget."
+          },
+          {
+            "key": "wall_clock_deadline",
+            "passed": true,
+            "critical": false,
+            "outcomeOnly": false,
+            "detail": "The mission has no wall-clock deadline."
+          },
+          {
+            "key": "tool_cost_reconciliation",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Action receipt cost does not exceed the proof packet tool-cost total."
+          },
+          {
+            "key": "lease_spend_ceilings",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "Receipt costs remain within each capability lease spend ceiling."
+          },
+          {
+            "key": "lease_signatures",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "All capability lease signatures are valid."
+          },
+          {
+            "key": "proof_signature",
+            "passed": true,
+            "critical": true,
+            "outcomeOnly": false,
+            "detail": "The proof packet signature is valid."
+          },
+          {
+            "key": "packet_disposition",
+            "passed": true,
+            "critical": false,
+            "outcomeOnly": false,
+            "detail": "Proof packet disposition is accepted."
+          }
+        ],
+        "blockers": []
+      },
+      "signedAt": "2026-07-13T13:00:01.000Z",
+      "signingKeyFingerprint": "sha256:d769d37258b660c3b94119714f10170563cf6221359b4481a5462a2f7b2bdd0f"
+    }
+  },
+  {
+    "kind": "quality_bar_version",
+    "value": {
+      "schemaVersion": "1.0.0",
+      "producer": {
+        "actor": {
+          "type": "service",
+          "id": "orgx-quality-registry"
+        },
+        "service": "orgx-quality-registry",
+        "serviceVersion": "1.0.0"
+      },
+      "id": "66666666-6666-4666-8666-666666666666",
+      "qualityBarId": "55555555-5555-4555-8555-555555555555",
+      "version": 1,
+      "workspaceId": "11111111-1111-4111-8111-111111111111",
+      "name": "Weekly closeout",
+      "domain": "agency_client_closeout",
+      "measuredCriteria": [
+        {
+          "id": "links-resolve",
+          "version": 1,
+          "lens": "measured",
+          "label": "Links resolve",
+          "description": "Every customer-safe artifact link resolves.",
+          "blocking": true,
+          "checkerId": "artifact-links",
+          "checkerVersion": "artifact-links@1.0.0"
+        }
+      ],
+      "judgedCriteria": [
+        {
+          "id": "customer-relevance",
+          "version": 1,
+          "lens": "judged",
+          "label": "Customer relevance",
+          "description": "The closeout addresses this customer.",
+          "blocking": true,
+          "question": "Is the closeout specific and decision-useful?",
+          "weight": 1
+        }
+      ],
+      "referenceSet": {
+        "version": "closeout-references@1",
+        "positive": [
+          {
+            "id": "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            "uri": "orgx://work-artifacts/eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+            "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          }
+        ],
+        "negative": [],
+        "digest": "sha256:b436c32c3d19a80b50b1b46462ffdf57eabebda881c66ed0ff899f7701c5245f"
+      },
+      "shipThreshold": {
+        "minimumJudgedScore": 0.9,
+        "minimumVerdictConfidence": 0.9,
+        "criticalObservationsAllowed": 0
+      },
+      "createdBy": {
+        "type": "human",
+        "id": "22222222-2222-4222-8222-222222222222"
+      },
+      "createdAt": "2026-07-13T15:00:00.000Z",
+      "digest": "sha256:5d7cf713d035ae4696b1dee2fcc08252807c2eea3d1833e50fefa779197ba4bb"
+    }
+  },
+  {
+    "kind": "four_lens_verification",
+    "value": {
+      "schemaVersion": "1.0.0",
+      "producer": {
+        "actor": {
+          "type": "service",
+          "id": "verification-worker"
+        },
+        "service": "orgx-verification-runtime",
+        "serviceVersion": "1.0.0"
+      },
+      "id": "77777777-7777-4777-8777-777777777777",
+      "workspaceId": "11111111-1111-4111-8111-111111111111",
+      "missionId": "33333333-3333-4333-8333-333333333333",
+      "nodeId": "44444444-4444-4444-8444-444444444444",
+      "contextManifestDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "subjectArtifact": {
+        "id": "88888888-8888-4888-8888-888888888888",
+        "uri": "orgx://work-artifacts/88888888-8888-4888-8888-888888888888",
+        "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "mediaType": "application/json"
+      },
+      "qualityBarVersionId": "66666666-6666-4666-8666-666666666666",
+      "qualityBarDigest": "sha256:5d7cf713d035ae4696b1dee2fcc08252807c2eea3d1833e50fefa779197ba4bb",
+      "evaluatorVersion": "verifier-mesh@1.0.0",
+      "referenceSetVersion": "closeout-references@1",
+      "evaluationMode": "standard",
+      "verificationKeyDigest": "sha256:110642c6df5413a1ebee07da5c1e157da62e5d71f0788fa743f705c8cc19f187",
+      "measuredVerdicts": [
+        {
+          "id": "99999999-9999-4999-8999-999999999999",
+          "lens": "measured",
+          "criterionId": "links-resolve",
+          "criterionVersion": 1,
+          "qualityBarVersionId": "66666666-6666-4666-8666-666666666666",
+          "qualityBarDigest": "sha256:5d7cf713d035ae4696b1dee2fcc08252807c2eea3d1833e50fefa779197ba4bb",
+          "evaluatorVersion": "verifier-mesh@1.0.0",
+          "deterministicCheckerVersion": "artifact-links@1.0.0",
+          "evaluationMode": "standard",
+          "passed": true,
+          "score": 1,
+          "confidence": 0.99,
+          "verifierIndependence": "separate_authority",
+          "producer": {
+            "type": "agent",
+            "id": "delivery-agent"
+          },
+          "producerRunId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          "evaluator": {
+            "type": "service",
+            "id": "verification-worker"
+          },
+          "evaluatorRunId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          "subjectDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "evidenceRefs": [
+            {
+              "id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+              "uri": "orgx://work-artifacts/ffffffff-ffff-4fff-8fff-ffffffffffff",
+              "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          ],
+          "evidenceSpans": [
+            {
+              "source": {
+                "id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+                "uri": "orgx://work-artifacts/ffffffff-ffff-4fff-8fff-ffffffffffff",
+                "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+              },
+              "locator": "jsonpath:$.deliverables[0]",
+              "excerpt": "The linked customer deliverable resolves and matches scope."
+            }
+          ],
+          "observedAt": "2026-07-13T15:05:00.000Z"
+        }
+      ],
+      "judgedVerdicts": [
+        {
+          "id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          "lens": "judged",
+          "criterionId": "customer-relevance",
+          "criterionVersion": 1,
+          "qualityBarVersionId": "66666666-6666-4666-8666-666666666666",
+          "qualityBarDigest": "sha256:5d7cf713d035ae4696b1dee2fcc08252807c2eea3d1833e50fefa779197ba4bb",
+          "evaluatorVersion": "verifier-mesh@1.0.0",
+          "referenceSetVersion": "closeout-references@1",
+          "evaluatorPromptVersion": "closeout-judge@1.0.0",
+          "evaluationMode": "standard",
+          "passed": true,
+          "score": 0.99,
+          "confidence": 0.99,
+          "verifierIndependence": "separate_authority",
+          "producer": {
+            "type": "agent",
+            "id": "delivery-agent"
+          },
+          "producerRunId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+          "evaluator": {
+            "type": "service",
+            "id": "verification-worker"
+          },
+          "evaluatorRunId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+          "evaluatorModel": {
+            "provider": "openai",
+            "id": "gpt-5"
+          },
+          "subjectDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+          "evidenceRefs": [
+            {
+              "id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+              "uri": "orgx://work-artifacts/ffffffff-ffff-4fff-8fff-ffffffffffff",
+              "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+            }
+          ],
+          "evidenceSpans": [
+            {
+              "source": {
+                "id": "ffffffff-ffff-4fff-8fff-ffffffffffff",
+                "uri": "orgx://work-artifacts/ffffffff-ffff-4fff-8fff-ffffffffffff",
+                "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+              },
+              "locator": "jsonpath:$.deliverables[0]",
+              "excerpt": "The linked customer deliverable resolves and matches scope."
+            }
+          ],
+          "observedAt": "2026-07-13T15:05:00.000Z"
+        }
+      ],
+      "observations": [],
+      "outcomeEvents": [],
+      "decision": {
+        "reasons": [
+          "all_quality_gates_passed"
+        ],
+        "judgedLowerBound": 0.9801,
+        "criticalObservationCount": 0
+      },
+      "disposition": "technically_complete",
+      "evaluatedAt": "2026-07-13T15:05:00.000Z",
+      "digest": "sha256:43f875bfd01bf00987c816a65d439ab58e2c044b91a157a27d742ab53e55f447"
+    }
+  },
+  {
+    "kind": "artifact_revision_witness",
+    "value": {
+      "schemaVersion": "1.0.0",
+      "semanticProfile": "orgx.artifact-bytes.sha256.v1",
+      "artifactId": "16161616-1616-4616-8616-161616161616",
+      "workspaceId": "11111111-1111-4111-8111-111111111111",
+      "ownerId": "22222222-2222-4222-8222-222222222222",
+      "revision": 1,
+      "revisionUri": "orgx://artifact-revisions/16161616-1616-4616-8616-161616161616/1",
+      "content": {
+        "algorithm": "sha256",
+        "digest": "sha256:2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        "byteLength": 5,
+        "mediaType": "text/plain"
+      },
+      "capture": {
+        "state": "captured",
+        "method": "orgx.inline-bytes.v1",
+        "capturedAt": "2026-10-28T18:00:00.000Z",
+        "sourceLocator": "https://example.com/hello.txt"
+      }
+    }
+  }
+]

@@ -29,13 +29,13 @@ This skill defines how the OrgX Orchestrator agent behaves when running inside O
 
 When creating work:
 - Prefer one initiative with multiple workstreams.
-- Each workstream must have milestones with clear exit criteria.
+- Use milestones with clear exit criteria when they help track a multi-step workstream; do not require hierarchy creation for a routine repo task.
 - Tasks should be verifiable and scoped; avoid “misc” tasks.
 - Reference the canonical technical plan document when one exists.
 
 ## Execution Standard
 
-- Pick one unverified item at a time.
+- Prioritize concrete unverified items; independent work may proceed in parallel.
 - Reproduce, fix, re-verify.
 - Avoid batching many changes without verification checkpoints.
 
@@ -43,7 +43,9 @@ When creating work:
 
 - Use `orgx_emit_activity` frequently (append-only).
 - Use `orgx_apply_changeset` for entity mutations when the orchestration scope exposes it.
-- Use `orgx_request_decision` for human approvals or when running in a default-safe surface.
+- Use `orgx_request_decision` when a consequential action lacks authority or a material decision has no reasonable default.
+
+OrgX reporting and planning hierarchy are best-effort when IDs or transport are missing. Continue local implementation, verification, PR updates, and requested merges under existing user authority; keep actual runtime policy, branch protection, and required CI intact.
 
 ## Work Graph Continuity
 

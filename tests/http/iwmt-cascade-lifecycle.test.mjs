@@ -1,11 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createHttpHandler } from "../../dist/http-handler.js";
+const fixtureRoot = mkdtempSync(join(tmpdir(), "orgx-iwmt-cascade-"));
+const previousConfigDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = join(fixtureRoot, "plugin-config");
+
+const { createHttpHandler } = await import("../../dist/http-handler.js");
+const { closeStateDb } = await import("../../dist/stores/sqlite-state.js");
+
+test.after(() => {
+  closeStateDb();
+  if (previousConfigDir === undefined) delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  else process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = previousConfigDir;
+  rmSync(fixtureRoot, { recursive: true, force: true });
+});
 
 // ---------------------------------------------------------------------------
 // Shared helpers (duplicated inline per project convention)
@@ -365,18 +377,21 @@ async function runAutoContinue({
   tickDelay = 80,
   sleepBeforeTick = 100,
 }) {
-  const dir = mkdtempSync(join(tmpdir(), "orgx-iwmt-cascade-"));
+  const dir = mkdtempSync(join(fixtureRoot, "run-"));
+  const runEnv = {
+    ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
+    OPENCLAW_HOME: join(dir, "openclaw"),
+    ORGX_OUTBOX_DIR: join(dir, "outbox"),
+    ORGX_AUTOPILOT_WORKER_KIND: "mock",
+    ORGX_AUTOPILOT_MOCK_SCENARIO: scenario,
+    ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
+    ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "500",
+    ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "200",
+    ORGX_SPAWN_GUARD_BYPASS: "1",
+    ...extraEnv,
+  };
   return await withEnv(
-    {
-      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: dir,
-      ORGX_AUTOPILOT_WORKER_KIND: "mock",
-      ORGX_AUTOPILOT_MOCK_SCENARIO: scenario,
-      ORGX_AUTOPILOT_MOCK_SLEEP_MS: "1",
-      ORGX_AUTOPILOT_SLICE_TIMEOUT_MS: "500",
-      ORGX_AUTOPILOT_SLICE_LOG_STALL_MS: "200",
-      ORGX_SPAWN_GUARD_BYPASS: "1",
-      ...extraEnv,
-    },
+    runEnv,
     async () => {
       const config = baseConfig();
       const { client, calls, state } = createIwmtClientHarness();
@@ -428,7 +443,12 @@ async function runAutoContinue({
         await sleep(tickDelay);
       }
 
-      return { handler, calls, state, lastStatus };
+      return {
+        handler: (req, res) => withEnv(runEnv, () => handler(req, res)),
+        calls,
+        state,
+        lastStatus,
+      };
     }
   );
 }

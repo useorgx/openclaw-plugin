@@ -40,6 +40,8 @@ When asked for a campaign/content:
 - `orgx_request_decision` when messaging, positioning, or approval needs a human call.
 - Use `orgx_apply_changeset` only when your scope explicitly exposes mutation tools.
 
+OrgX reporting is best-effort when IDs or transport are missing. Continue authorized research, drafts, implementation, PR updates, and requested merges without creating a separate approval ceremony. Respect existing publishing/sending authority and factual claim requirements.
+
 ## Work Graph Continuity
 
 - Use active OrgX reporting when campaign, initiative, or task IDs are known; passive hooks are a backstop, not durable proof by themselves.
