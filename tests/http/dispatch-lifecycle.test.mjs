@@ -1,11 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createDispatchLifecycle } from "../../dist/http/helpers/dispatch-lifecycle.js";
-import { readOutbox } from "../../dist/outbox.js";
+const fixtureRoot = mkdtempSync(join(tmpdir(), "orgx-dispatch-lifecycle-"));
+const previousConfigDir = process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = join(fixtureRoot, "plugin-config");
+
+const { createDispatchLifecycle } = await import("../../dist/http/helpers/dispatch-lifecycle.js");
+const { readOutbox } = await import("../../dist/outbox.js");
+const { closeStateDb } = await import("../../dist/stores/sqlite-state.js");
+
+test.after(() => {
+  closeStateDb();
+  if (previousConfigDir === undefined) delete process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR;
+  else process.env.ORGX_OPENCLAW_PLUGIN_CONFIG_DIR = previousConfigDir;
+  rmSync(fixtureRoot, { recursive: true, force: true });
+});
 
 function withEnv(patch, fn) {
   const prev = {};
@@ -67,7 +79,7 @@ test("requestDecisionSafe returns true when decision applies directly", async ()
 });
 
 test("requestDecisionSafe returns true when API fails but outbox buffering succeeds", async () => {
-  const openclawHome = mkdtempSync(join(tmpdir(), "orgx-openclaw-home-"));
+  const openclawHome = mkdtempSync(join(fixtureRoot, "openclaw-home-"));
   const lifecycle = createLifecycle({
     applyChangeset: async () => {
       throw new Error("simulated api outage");
@@ -78,7 +90,7 @@ test("requestDecisionSafe returns true when API fails but outbox buffering succe
     {
       OPENCLAW_HOME: openclawHome,
       ORGX_OUTBOX_DIR: null,
-      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: null,
+      ORGX_OPENCLAW_PLUGIN_CONFIG_DIR: join(openclawHome, "plugin-config"),
     },
     async () => {
       const result = await lifecycle.requestDecisionSafe({
@@ -129,7 +141,7 @@ test("emitActivitySafe injects canonical run metadata for downstream linkage", a
 });
 
 test("requestDecisionSafe returns false when API and outbox buffering both fail", async () => {
-  const root = mkdtempSync(join(tmpdir(), "orgx-openclaw-outbox-fail-"));
+  const root = mkdtempSync(join(fixtureRoot, "outbox-fail-"));
   const fakeHomeFile = join(root, "openclaw-home-file");
   writeFileSync(fakeHomeFile, "not a directory\n", "utf8");
 
