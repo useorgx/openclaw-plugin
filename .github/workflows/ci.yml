@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.ORGX_CI_RUNNER || 'ubuntu-latest' }}
 
     strategy:
       matrix:
